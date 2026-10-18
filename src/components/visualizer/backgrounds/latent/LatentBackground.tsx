@@ -149,6 +149,8 @@ const LatentBackground: React.FC<LatentBackgroundProps> = ({
     // How far the loop below has eased between paused (0) and playing (1). Outside the loop's effect,
     // so a re-run of it (a setting changed mid-ease) goes on from there.
     const playingRef = useRef(paused ? 0 : 1);
+    // 暂停时循环会自己停下；恢复播放时用它把下一帧重新踢起来。
+    const loopKickRef = useRef<(() => void) | null>(null);
     const [coverColors, setCoverColors] = useState<string[]>([]);
     const tuning = tuningOverride ?? DEFAULT_LATENT_BACKGROUND_TUNING;
     const showDithering = tuning.displayMode !== 'mesh';
@@ -330,11 +332,32 @@ const LatentBackground: React.FC<LatentBackgroundProps> = ({
                 writeLayerStyle(meshLayerRef.current, 'filter', `saturate(${1.04 + smoothedMid * 0.34}) brightness(${0.94 + smoothedPower * 0.16})`);
                 writeLayerStyle(meshLayerRef.current, 'transform', `scale(${1.025 + smoothedPower * 0.018})`);
             }
+            // 暂停且缓动已停稳后不再往下跑：把这一帧的后续帧撤掉，省掉每帧的 JS 归一化与样式写入。
+            // 恢复播放由下方的 paused effect 重新踢起来。
+            const settled = pausedRef.current && playingRef.current < 0.01
+                && smoothedPower < 0.001 && smoothedBass < 0.001 && smoothedMid < 0.001 && smoothedBeatSpeed < 0.001;
+            if (settled) {
+                cancelAnimationFrame(animationFrame);
+                animationFrame = 0;
+            }
         };
 
+        loopKickRef.current = () => {
+            if (animationFrame) return;
+            lastFrameAt = null;
+            animationFrame = requestAnimationFrame(updateAudioResponse);
+        };
         animationFrame = requestAnimationFrame(updateAudioResponse);
-        return () => cancelAnimationFrame(animationFrame);
+        return () => {
+            loopKickRef.current = null;
+            cancelAnimationFrame(animationFrame);
+        };
     }, [audioBands, audioPower, showMesh, staticMode, tuning]);
+
+    // 暂停时上面这个循环会自行停下；恢复播放要把下一帧重新踢起来（它不会自己醒来）。
+    useEffect(() => {
+        if (!paused) loopKickRef.current?.();
+    }, [paused]);
 
     // The shaders' `speed` prop is only where they start, and 0 where static: the frame loop sets the
     // speed from there and eases a pause in. A prop that followed `paused` would set it at once.
