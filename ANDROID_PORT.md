@@ -190,3 +190,14 @@ Android 改动贴到新结构上。
 
 构建：`npm run build:capacitor` → `npx cap sync android` → `android/gradlew.bat assembleDebug`。
 版本号从 `0.7.21-android.197`（versionCode 235）起。
+
+### 重移植完成状态（0.7.21-android.197）
+
+- 编译：`npx tsc --noEmit` 0 错误
+- 测试：全量 871 个测试文件 / 9882 个用例通过（3 个跳过：Windows 符号链接一条、上游原本跳过两条）
+- 构建：`npm run build:capacitor` → `npx cap sync android` → `gradlew assembleDebug` 全通过
+- 已恢复的功能：原生桥（QQ/网易云/酷狗/波点直连）、QQ 网页扫码优先登录 + 资料缓存、酷狗写入判定
+  与取消收藏重试/替代源、网易云 like 防假成功、播放诊断报告（含 online mutation / playback trace）、
+  原生音频流代理、物理返回键、Android 设置四件套、本地音乐（MediaStore 扫描/导入 + 原生回环播放）、
+  渲染优化（安卓关 MSAA、暂停切 demand、30FPS 档、Latent 暂停停帧）
+- 真机待验证项：QQ 扫码登录、红心/收藏写入、VIP 歌曲播放、本地音乐扫描与播放、诊断报告复制
