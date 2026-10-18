@@ -1,4 +1,5 @@
 import type { SongResult, UnifiedSong } from '../../types';
+import { proxyNativeRemoteAudioUrl } from '../nativeRemoteAudio';
 import { noteOnlinePlaybackError, noteOnlinePlaybackOutcome } from '../../utils/onlinePlaybackDiagnostics';
 import type {
     AudioQualityPreference,
@@ -848,7 +849,12 @@ export const omni = {
             });
         }
         // Extension layers (Folium omni hooks) may swap the URL; the ReplayGain above stays the provider's.
-        const resolved = await applyOmniAudioHook(song, source);
+        const hooked = await applyOmniAudioHook(song, source);
+        // Android：把 CDN 音频地址挂到本地流服务上（带 ACAO:* 与 Range），绕开 WebView 的 CORS。
+        // 桌面浏览器没有 Capacitor 插件，函数原样返回，不改行为。
+        const resolved = hooked?.url
+            ? { ...hooked, url: await proxyNativeRemoteAudioUrl(hooked.url) }
+            : hooked;
         noteOnlinePlaybackOutcome({
             stage: 'resolve',
             outcome: resolved?.url ? 'ok' : 'no-source',

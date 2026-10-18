@@ -174,6 +174,7 @@ import { useFoliumHostActions } from './mods/runtime/hostActions';
 import { FoliumStageLayerSlot } from './mods/folium/registries/stageLayers';
 import { errorFields } from './utils/errorText';
 import { runsOnWindows } from './utils/platform';
+import { useNativeBackButton } from './hooks/useNativeBackButton';
 
 const LOCAL_MUSIC_UPDATED_EVENT = 'folia-local-music-updated';
 const DEV_DEBUG_SHORTCUT_LABEL = 'Alt+Shift+D';
@@ -1570,6 +1571,8 @@ export default function App() {
     const isNowPlayingControlDisabled = isNowPlayingStageActive;
 
     useElectronWindowChrome();
+    // Android：物理返回键 / 返回手势交给页面层级处理（桌面端是空操作）。
+    useNativeBackButton();
     const {
         isPlayerView,
         shouldPauseVisualizerBackground,

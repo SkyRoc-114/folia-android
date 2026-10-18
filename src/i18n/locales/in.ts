@@ -2953,7 +2953,19 @@ export default {
     "lyricFilterRegex": "Filter Lirik",
     "lyricFilterRegexDesc": "Aturan filter per baris, dan penanganan kredit di awal lirik.",
     "visualizerMode": "Mode",
-    "noDescription": "Tidak ada deskripsi tersedia"
+    "noDescription": "Tidak ada deskripsi tersedia",
+      "adaptiveDisplay": "Resolusi layar adaptif",
+      "adaptiveDisplayDesc": "Saat aktif, bilah sistem disembunyikan dan antarmuka memenuhi seluruh layar; saat nonaktif, tata letak bawaan sistem dipertahankan. Jika perangkat memaksa rasio tetap, matikan mode kompatibilitas aplikasi di pengaturan sistem.",
+      "immersiveMode": "Mode imersif penuh",
+      "immersiveModeDesc": "Hanya berlaku di tampilan pemutar: bilah kontrol, kartu lagu berikutnya, tombol palette perintah, dan tombol gerigi/panel kanan disembunyikan otomatis agar panggung lebih bersih. Layar jelajah playlist dan lagu tidak terpengaruh. Saat dimatikan, tombol palette perintah tampil kembali; jika Sembunyikan otomatis sudah aktif, tombol tetap tersembunyi otomatis.",
+      "orientationFit": "Kompatibilitas potret / lanskap",
+      "orientationFitDesc": "Nonaktif mengunci kompatibilitas potret; aktif beralih ke dan mengunci kompatibilitas lanskap. Hanya berlaku saat Tata letak ponsel aktif.",
+      "orientationLandscape": "Saat ini: lanskap",
+      "orientationPortrait": "Saat ini: potret",
+      "keepScreenOn": "Layar tetap menyala",
+      "keepScreenOnDesc": "Saat aktif layar tidak otomatis mati, jadi lirik tetap terlihat saat menyalin atau meletakkan ponsel; matikan untuk kembali ke pengaturan mati otomatis sistem.",
+      "phoneFit": "Tata letak ponsel",
+      "phoneFitDesc": "Memaksa tata letak ponsel yang ringkas agar tab, pengaturan, dan efek audio tetap muat di layar ponsel lanskap atau beresolusi tinggi. Nonaktif secara bawaan dan tidak mengubah tata letak desktop upstream.",
   },
   "releaseNotes": {
     "v0_7_0": {

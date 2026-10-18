@@ -2,6 +2,12 @@ import React from 'react';
 import { RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
+import { useThemeSettingsStore } from '../../../../stores/useThemeSettingsStore';
+import AdaptiveLayoutSetting from '../AdaptiveLayoutSetting';
+import AndroidImmersiveSetting from '../AndroidImmersiveSetting';
+import AndroidKeepScreenOnSetting from '../AndroidKeepScreenOnSetting';
+import AndroidPhoneFitSetting from '../AndroidPhoneFitSetting';
+import { settingsCardClassFor } from '../settingsCardClasses';
 import type { AppLanguagePreference } from '../../../../i18n/config';
 import { useAudioSettingsStore } from '../../../../stores/useAudioSettingsStore';
 import { usePlayerChromeSettingsStore } from '../../../../stores/usePlayerChromeSettingsStore';
@@ -41,6 +47,9 @@ const GeneralPage: React.FC = () => {
     const { openPlayerOnLaunch, onToggleOpenPlayerOnLaunch } = viewProps.desktop.preferences;
     const update = viewProps.desktop.model;
     const { electronSettings, updateStatus } = update;
+    // Android 移植：这几个设置只有原生壳里有效，桌面上组件自己返回 null。
+    const isDaylight = useThemeSettingsStore(state => state.isDaylight);
+    const settingsCardClass = settingsCardClassFor(isDaylight);
     const languagePreference = useSettingsModalStore(state => state.appLanguagePreference);
     const setLanguagePreference = useSettingsModalStore(state => state.handleSetAppLanguagePreference);
     const autoPlay = useAudioSettingsStore(state => state.autoPlayOnLaunch);
@@ -94,6 +103,30 @@ const GeneralPage: React.FC = () => {
                 </Row>
             </Group>
 
+            {/* Android 移植：手机布局 / 全沉浸 / 屏幕常亮 / 自适应分辨率。桌面上这些组件返回 null。 */}
+            <AdaptiveLayoutSetting
+                isDaylight={isDaylight}
+                settingsCardClass={settingsCardClass}
+                theme={null}
+            />
+
+            <AndroidImmersiveSetting
+                isDaylight={isDaylight}
+                settingsCardClass={settingsCardClass}
+                theme={null}
+            />
+
+            <AndroidKeepScreenOnSetting
+                isDaylight={isDaylight}
+                settingsCardClass={settingsCardClass}
+                theme={null}
+            />
+
+            <AndroidPhoneFitSetting
+                isDaylight={isDaylight}
+                settingsCardClass={settingsCardClass}
+                theme={null}
+            />
             {isElectron && (
                 <Group
                     def={UPDATE}
