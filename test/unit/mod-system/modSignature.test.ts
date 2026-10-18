@@ -134,7 +134,8 @@ describe('signed digest and message (shared vector)', () => {
         expect(crypto.sign(null, buildSignedMessage(VECTOR_FIELDS), privateKey).toString('base64')).toBe(VECTOR_SIGNATURE);
     });
 
-    it('refuses trees that cannot hash the same on every machine', () => {
+    // Windows 上建符号链接需要管理员权限，这条只能在没有权限限制的机器上跑（上游同样如此）。
+    it.skipIf(process.platform === 'win32')('refuses trees that cannot hash the same on every machine', () => {
         const dir = writeVectorTree();
         fs.symlinkSync('client.mjs', path.join(dir, 'link.mjs'));
         expect(computeSignedDigest(dir)).toBeNull();
