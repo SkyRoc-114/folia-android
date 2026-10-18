@@ -98,11 +98,16 @@ export const normalizeQqSong = (raw: unknown): UnifiedSong => {
         : undefined;
     const providerData = record(sourceRef?.providerData);
     const album = record(item.album);
+    // 桥的部分路径（收藏列表补全）把 lbum 直接给成字符串，这种形态也要读。
+    const albumText = typeof item.album === 'string' ? text(item.album) : '';
     const file = record(item.file);
 
     // songmid is the stable playback identity; the numeric song id is only a lyric/detail request parameter.
     const songMid = text(pick(item, 'qqMid', 'mid', 'songmid') ?? sourceRef?.mediaId ?? pick(providerData, 'songMid'));
-    const rawSongId = pick(item, 'songid', 'songId') ?? pick(providerData, 'songId') ?? item.id;
+    // 桥的 mapQQTrack 把数字 id 放在 qqId 里、id 放的是 mid，所以必须读 qqId —— 少了它，
+    // 凡是从桥来的 QQ 歌曲都拿不到数字 id：「收藏」会在发请求前就抛「没有数字 song id」，
+    // 歌词/详情补查也永远补不出来。
+    const rawSongId = pick(item, 'songid', 'songId', 'qqId') ?? pick(providerData, 'songId') ?? item.id;
     const numericSongId = Number(rawSongId);
     const songId: MediaId = Number.isFinite(numericSongId) && numericSongId > 0 ? numericSongId : songMid;
     // `/getAlbumInfo` 的曲目条目没有嵌套的 album 节点，albummid 平铺在顶层，所以两处都要看。
@@ -130,7 +135,9 @@ export const normalizeQqSong = (raw: unknown): UnifiedSong => {
             // albummid 优先于数字 albumid：后者只在上游一个 mid 都不给时留作显示用的键，
             // 而那种条目不会带 catalogRef，导航层也就不会把它当成可查询的专辑 id。
             id: (albumMid || pick(album, 'id', 'albumid') || '') as MediaId,
-            name: text(pick(album, 'name', 'title', 'albumname')),
+            name: text(pick(album, 'name', 'title', 'albumname'))
+                || albumText
+                || text(pick(item, 'albumName', 'albumname')),
             ...(coverUrl ? { coverUrl } : {}),
             ...(albumRef ? { catalogRef: albumRef } : {}),
         },

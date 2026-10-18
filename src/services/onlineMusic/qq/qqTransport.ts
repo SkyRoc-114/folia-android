@@ -1,6 +1,10 @@
 import { OnlineProviderError } from '../../../types/onlineMusic';
 import { readProviderSessionValue, removeProviderSessionValue, writeProviderSessionValue } from '../providerStorage';
 import { withLoginRequestLimit } from '../login/loginRequestLimit';
+import {
+    isFoliaExtensionBridgeConfigured,
+    requestFoliaExtension,
+} from '../../foliaExtensionBridge';
 import { withOnlineRequestLimit } from '../failure/onlineRequestLimit';
 
 // src/services/onlineMusic/qq/qqTransport.ts
@@ -189,7 +193,8 @@ const tokenFromCookieString = (cookie: string): string => {
 // `Access-Control-Allow-Origin: *`，按规范不允许搭配 credentials。
 const isSameOriginBase = (base: string): boolean => base.startsWith('/');
 
-export const hasQqSession = (): boolean => Boolean(getWebSessionCookie());
+export const hasQqExtensionSession = (): boolean => isFoliaExtensionBridgeConfigured(getWebApiBase());
+export const hasQqSession = (): boolean => hasQqExtensionSession() || Boolean(getWebSessionCookie());
 
 export const clearQqSession = (): void => removeProviderSessionValue('qq', 'cookie');
 
@@ -291,6 +296,7 @@ const persistConfirmedSession = (operation: QqOperation, body: any): void => {
 export const getQqRemoteApiBase = (): string | null => (getElectronQqPortReader() ? null : getWebApiBase() || null);
 
 export const getQqTransportAvailability = () => {
+    if (hasQqExtensionSession()) return { configured: true } as const;
     if (getElectronQqPortReader()) return { configured: true } as const;
     return getWebApiBase()
         ? { configured: true } as const
@@ -356,6 +362,34 @@ export const requestQq = async <T = unknown>(
     const base = await resolveApiBase();
 
     const endpoint = endpointFor(operation, params);
+    if (isFoliaExtensionBridgeConfigured(base)) {
+        try {
+            // 写入路由（POST_OPERATIONS）必须把正文一起交给内置桥：桥按 input.body 并进 params，
+            // 只发 GET + 空正文会让写入类操作在桥里被判成 bad input，界面只看到「操作失败」。
+            const body = await requestFoliaExtension<any>({
+                provider: 'qq',
+                operation,
+                method: isPost ? 'POST' : 'GET',
+                path: endpoint.path,
+                params: endpoint.query,
+                ...(payload !== undefined ? { body: payload } : {}),
+            });
+            if (body?.__foliaBridgeError) {
+                if (body.__foliaBridgeError === 'AUTH_REQUIRED') {
+                    throw new OnlineProviderError('auth-required', body.message || 'QQMusicApi login required', 'qq', body);
+                }
+                if (body.__foliaBridgeError === 'UNSUPPORTED') {
+                    throw new OnlineProviderError('unsupported', body.message || `QQMusicApi has no ${operation} route`, 'qq', body);
+                }
+                throw new OnlineProviderError('network', body.message || body.__foliaBridgeError, 'qq', body);
+            }
+            persistConfirmedSession(operation, body);
+            return body as T;
+        } catch (error) {
+            if (error instanceof OnlineProviderError) throw error;
+            throw new OnlineProviderError('network', error instanceof Error ? error.message : String(error), 'qq', error);
+        }
+    }
     const query = new URLSearchParams();
     Object.entries(endpoint.query).forEach(([key, value]) => {
         if (value !== undefined) query.set(key, String(value));

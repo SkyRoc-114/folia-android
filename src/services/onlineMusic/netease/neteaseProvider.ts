@@ -28,6 +28,7 @@ import { neteaseLocalService, watchNeteaseLocalService } from './neteaseLocalSer
 import { createNeteaseExplore } from './neteaseExplore';
 import { canRunLoginSelfCheck, runLoginSelfCheck } from '../loginSelfCheck';
 import { diagnosticLine, formatDiagnosticClock } from '../login/loginDiagnosticReport';
+import { notePlaybackStreamInfo } from '../../../utils/mediaDiagnostics';
 
 // src/services/onlineMusic/netease/neteaseProvider.ts
 
@@ -37,6 +38,24 @@ export const toNeteaseId = (id: MediaId): number => {
     return numericId;
 };
 
+/** 诊断只回报主机名：播放地址带着签名与 token，整条写进报告没必要。 */
+const mediaHostOf = (url: string): string => {
+    try {
+        return new URL(url).host || 'unknown';
+    } catch {
+        return 'unparseable';
+    }
+};
+
+/** 文件后缀（mp3 / flac / m4a）用来判断解码负担。 */
+const mediaSuffixOf = (url: string): string => {
+    try {
+        const match = new URL(url).pathname.match(/\.([a-z0-9]{2,5})$/i);
+        return match ? match[1].toLowerCase() : 'unknown';
+    } catch {
+        return 'unknown';
+    }
+};
 const mapQuality = (quality: AudioQualityPreference): string => {
     if (quality === 'standard') return 'standard';
     if (quality === 'high') return 'exhigh';
@@ -336,8 +355,22 @@ export const neteaseProvider: OnlineMusicProvider = {
             // module/song_url_v1.js 带 unblock=true 时写字符串 'null'。
             const preview = typeof raw?.freeTrialInfo === 'object' && raw.freeTrialInfo !== null;
             const trackGain = toFiniteNumber(raw?.gain);
+            const url = String(rawUrl).replace(/^http:/, 'https:');
+            // 用户反馈「歌卡」时，先看拿到的到底是什么流：码率、格式、是不是试听片段。
+            // 只记元数据与主机名，签名路径与 token 不进报告。
+            notePlaybackStreamInfo({
+                provider: 'netease',
+                requestedLevel: mapQuality(quality),
+                resolvedLevel: String(raw?.level ?? 'unknown'),
+                // 网易云的 br 是比特每秒（320000 = 320kbps），报告里统一按 kbps 记。
+                bitrateKbps: Number(raw?.br) ? Number(raw.br) / 1000 : null,
+                format: String(raw?.type ?? mediaSuffixOf(url)),
+                host: mediaHostOf(url),
+                sizeMb: Number(raw?.size) ? Number(raw.size) / 1048576 : null,
+                trial: preview,
+            });
             return {
-                url: String(rawUrl).replace(/^http:/, 'https:'),
+                url,
                 fetchedAt: Date.now(),
                 quality,
                 ...(preview ? { preview } : {}),
@@ -645,7 +678,17 @@ export const neteaseProvider: OnlineMusicProvider = {
     explore: createNeteaseExplore({ song: normalizeNeteaseSong, collection: normalizeCollection }),
     mutations: {
         async likeSong(song, liked) {
-            await neteaseApi.likeSong(toNeteaseId(typeof song === 'object' ? song.id : song), liked);
+            const response = await neteaseApi.likeSong(toNeteaseId(typeof song === 'object' ? song.id : song), liked);
+            // 桥在「写完复查发现没生效」时会回 { error: 'LIKE_NOT_APPLIED: …' }。不抛出去的话
+            // omni 会把它当成功、翻转本地缓存 —— 那正是「提示收藏成功、收藏里却没有」的来源。
+            if (response && typeof response === 'object' && (response as { error?: unknown }).error) {
+                throw new OnlineProviderError(
+                    'unavailable',
+                    `NetEase like did not take effect: ${String((response as { error?: unknown }).error)}`,
+                    'netease',
+                    response,
+                );
+            }
         },
         async updatePlaylistTracks(operation, playlist, tracks) {
             const playlistId = typeof playlist === 'object' ? playlist.id : playlist;
