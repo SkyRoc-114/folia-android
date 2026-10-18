@@ -32,3 +32,16 @@ export const isSecondaryModifierPressed = (event: KeyboardEvent): boolean => (
 
 /** Label for the primary modifier, for shortcut hints shown in the UI. */
 export const PRIMARY_MODIFIER_LABEL = isMacPlatform ? 'Cmd' : 'Ctrl';
+
+/**
+ * 是否跑在 Folia 安卓原生壳（Capacitor WebView）里，而不是桌面浏览器 / Electron。
+ * 用来挑手机友好的渲染默认值（关 MSAA、限制帧率 / DPR）。做成能力探测而不是构建标记，
+ * 同一份 bundle 在桌面浏览器里照常运行。
+ */
+export const isAndroidNativeRuntime = (): boolean => (
+    typeof window !== 'undefined'
+    && (window as unknown as { Capacitor?: { getPlatform?: () => string } })?.Capacitor?.getPlatform?.() === 'android'
+);
+
+/** 模块加载时求值一次：渲染器每帧读它，避免反复探测。 */
+export const IS_ANDROID_WEBVIEW = isAndroidNativeRuntime();

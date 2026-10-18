@@ -126,7 +126,7 @@ export type ThemeMode = 'default' | 'ai' | 'custom';
 
 export type BuiltinVisualizerMode = 'classic' | 'cadenza' | 'partita' | 'fume' | 'monet';
 export type VisualizerMode = BuiltinVisualizerMode | (string & {});
-export type VisualizerFrameRate = 'off' | 120 | 90 | 60;
+export type VisualizerFrameRate = 'off' | 30 | 120 | 90 | 60;
 
 export type HomeViewTab = 'playlist' | 'local' | 'albums' | 'navidrome' | 'radio' | 'explore';
 
@@ -1297,6 +1297,7 @@ export interface LocalSong {
   fileName: string;
   filePath: string; // File path for reference
   /** Android 移植：MediaStore / 导入文件的系统媒体 ID，播放时用它向本地音频服务要流；不持久化 URL。 */
+  nativeAudioUrl?: string; // Android MediaStore-backed stream URL
   nativeAudioRef?: string;
   fileHandle?: FileSystemFileHandle; // For re-accessing the file (not persisted, stored in memory)
   duration: number; // milliseconds
