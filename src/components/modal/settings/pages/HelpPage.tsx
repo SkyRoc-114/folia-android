@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronRight, CircleHelp, ExternalLink, Lightbulb, MessageCircle, Sparkles, Users, type LucideIcon } from 'lucide-react';
+import { ChevronRight, CircleHelp, ExternalLink, FileText, Lightbulb, MessageCircle, Sparkles, Users, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { openPonderNavigation } from '../../../../services/ponder/pagePonderTarget';
 import { BUILD_KIND_TAGS, getBuildKind } from '../../../../utils/buildProvenance';
@@ -11,6 +11,8 @@ import { Button, CopyButton, CopyValue, Group, Keys, Row, type SettingsGroupDef 
 import { openOutsideLink } from '../../../../utils/system/outsideLink';
 import { FoundUpdateRow } from './FoundUpdateRow';
 import { iconLabel } from './iconLabel';
+import { buildDiagnosticReport } from '../../../../utils/buildDiagnosticReport';
+import { copyText } from '../../../../utils/system/clipboard';
 
 // src/components/modal/settings/pages/HelpPage.tsx
 // The 帮助 page, reached from the foot of the side list: two entry cards (the release notes, the
@@ -98,6 +100,17 @@ type HelpPageProps = {
 
 const HelpPage: React.FC<HelpPageProps> = ({ onOpenReleaseNotes, onOpenAiHelp, onProjectLabelClick }) => {
     const { t } = useTranslation();
+    // 诊断反馈：把 buildDiagnosticReport 的报告整段复制，用户贴进反馈即可。
+    const [diagnosticsCopied, setDiagnosticsCopied] = React.useState<'idle' | 'copied' | 'failed'>('idle');
+    const copyDiagnostics = async () => {
+        try {
+            await copyText(await buildDiagnosticReport());
+            setDiagnosticsCopied('copied');
+        } catch {
+            setDiagnosticsCopied('failed');
+        }
+        window.setTimeout(() => setDiagnosticsCopied('idle'), 2400);
+    };
 
     return (
         <>

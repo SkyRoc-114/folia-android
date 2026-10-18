@@ -1,4 +1,5 @@
 import type { SongResult, UnifiedSong } from '../../types';
+import { noteOnlinePlaybackError, noteOnlinePlaybackOutcome } from '../../utils/onlinePlaybackDiagnostics';
 import type {
     AudioQualityPreference,
     LoginStep,
@@ -812,13 +813,19 @@ export const omni = {
         const provider = providerForSong(song);
         const level = audioQualityFor(provider.id, quality);
         let source: OmniAudioSource | null;
+        // Android 诊断：取流三档结果都留痕，报告能分辨「没给地址」与「provider 抛错」。
+        const resolveStartedAt = Date.now();
         try {
             source = await runRequest(provider, 'audio', async () => await (provider.playback?.getAudioSource(song, level) ?? null));
         } catch (error) {
             // The provider gave no address. An extension may still give one, as it may where the provider answers null;
             // without one the very error goes on, for the caller to sort (failure/onlineFailureCase.ts).
             const fromHook = await applyOmniAudioHook(song, null);
-            if (fromHook?.url) return fromHook;
+            if (fromHook?.url) {
+                noteOnlinePlaybackOutcome({ stage: 'resolve', outcome: 'ok', providerId: provider.id, quality: level, kind: 'hook-rescued', elapsedMs: Date.now() - resolveStartedAt });
+                return fromHook;
+            }
+            noteOnlinePlaybackError({ stage: 'resolve', providerId: provider.id, quality: level, elapsedMs: Date.now() - resolveStartedAt, error });
             throw error;
         }
         // Written here rather than at either caller because this is the only moment a provider ever
@@ -841,7 +848,17 @@ export const omni = {
             });
         }
         // Extension layers (Folium omni hooks) may swap the URL; the ReplayGain above stays the provider's.
-        return applyOmniAudioHook(song, source);
+        const resolved = await applyOmniAudioHook(song, source);
+        noteOnlinePlaybackOutcome({
+            stage: 'resolve',
+            outcome: resolved?.url ? 'ok' : 'no-source',
+            providerId: provider.id,
+            quality: level,
+            kind: resolved?.url ? '' : 'empty-url',
+            detail: resolved?.url ? '' : 'provider returned no playable url',
+            elapsedMs: Date.now() - resolveStartedAt,
+        });
+        return resolved;
     },
 
     // The level a URL handed out by `getAudioSource` was asked for at. Undefined for any other URL

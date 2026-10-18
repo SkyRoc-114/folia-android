@@ -1,4 +1,5 @@
 import { OnlineProviderError } from '../../../types/onlineMusic';
+import { noteOnlinePlaybackOutcome } from '../../../utils/onlinePlaybackDiagnostics';
 import type { OnlineFailureCaseId, OnlineFailureDetail, OnlineFailureOperation, OnlineProviderId, ProviderErrorCode } from '../../../types/onlineMusic';
 import { codeText } from '../../../utils/errorText';
 import { OnlineRequestTimeout } from './onlineRequestLimit';
@@ -163,6 +164,16 @@ export const mediaFailureOf = (media: { code?: number; message?: string } | null
  * （会话日志记下它的调用栈）；屏幕上从不显示它。
  */
 export const logOnlineFailure = (shown: OnlineFailure, thrown?: unknown): void => {
+    // Android 诊断：把同一次失败也记进「online playback trace」，用户反馈时报告里能看到。
+    noteOnlinePlaybackOutcome({
+        stage: shown.operation === 'media' ? 'media' : 'resolve',
+        outcome: 'error',
+        providerId: shown.providerId ?? 'unknown',
+        quality: '-',
+        kind: shown.operation === 'media' ? 'media-failure' : String(shown.case),
+        code: shown.facts && shown.facts.errorCode ? String(shown.facts.errorCode) : '',
+        detail: 'case=' + String(shown.case) + (shown.facts && shown.facts.timedOut ? ' timeout' : ''),
+    });
     console.warn(`[OnlineFailure] ${shown.operation} ${shown.providerId ?? '-'} ${shown.case}`, {
         operation: shown.operation,
         provider: shown.providerId,
