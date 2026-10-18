@@ -1296,6 +1296,8 @@ export interface LocalSong {
   id: string; // UUID for local file
   fileName: string;
   filePath: string; // File path for reference
+  /** Android 移植：MediaStore / 导入文件的系统媒体 ID，播放时用它向本地音频服务要流；不持久化 URL。 */
+  nativeAudioRef?: string;
   fileHandle?: FileSystemFileHandle; // For re-accessing the file (not persisted, stored in memory)
   duration: number; // milliseconds
   fileSize: number; // bytes
