@@ -159,3 +159,34 @@ Releases 里塞桌面版夜间包，所以优先删掉。
   `src/nativeBridge/api/qq-native-login.js` / `qq-mqtt.js` 保持本仓实现，不要被上游覆盖。
 - 原因：网页凭证带 `p_skey`/`skey` 等授权 cookie，VIP 播放权挂在上面（`.194` 实测：换回网页
   扫码后部分 VIP 歌恢复 `purl=true`）；APP 扫码凭证只够写红心，不能覆盖 VIP 播放。
+
+## 0.7.21 重移植（A 方案）
+
+上游 v0.7.21 把 `src/services/onlineMusic/` 拆成按平台子目录（`bodian/ kugou/ netease/ qq/`）、
+播放层拆到 `components/app/playback/{bridges,start}/`，直接 merge 0.7.20 旧树会产生数百个类型错误。
+因此改为**以 v0.7.21 为底重建移植**：分支 `android-0.7.21` 从 `upstream/main` 起步，逐组把本仓的
+Android 改动贴到新结构上。
+
+已完成（按顺序）：
+
+1. 基建：`npm install` 同步依赖；从 main 搬入「我们新增、上游没有」的 594 个文件
+   （`src/nativeBridge/**`、`android/**`、Capacitor 配置、我们的测试与工具）
+2. 清理：删除上游已迁移/已删除的 0.7.20 旧副本（共约 360 个）；`tsc` 从 688 错降到 0
+3. 入口与壳：`index.tsx` 接原生桥/崩溃诊断/chunk 恢复/帧耗时采样/手机布局/屏幕常亮；
+   `package.json` 合并 capacitor 依赖与 Android 脚本
+4. 渲染：`IS_ANDROID_WEBVIEW` 探测、30 FPS 档与安卓默认 30、Diorama 暂停切 demand + 关 MSAA、
+   Latent 暂停停帧（按上游重写后的 rAF 循环改造）
+5. 诊断：自研的 `buildDiagnosticReport` 全量恢复（上游没有这个文件）+ 帮助页「复制诊断数据」+
+   取流/失败留痕接回 `omni.getAudioSource` 与 `logOnlineFailure`
+6. 运行时：所有在线音源统一走原生流代理、物理返回键、通用设置里的 Android 四件套
+7. 本地音乐：设备扫描/导入动作、原生回环音频播放、封面取色经原生桥，全部嫁接到新 library 结构
+
+已知差异（与我们的 .196 相比）：
+
+- QQ 在 0.7.21 新增的接口（`recommend_new_*`、`radio_*`、`song_similar`、`user_vip`、
+  `user_playlist_create`、`login_refresh`）未在我们的原生桥里实现 —— 这些是上游新功能，
+  .196 时代不存在；对应页面在安卓上暂不可用，其余 QQ 功能（登录/搜索/歌单/收藏/播放）已覆盖。
+- 桌面专用能力（Electron、模组系统、桌面更新检查等）按本仓惯例继续删除。
+
+构建：`npm run build:capacitor` → `npx cap sync android` → `android/gradlew.bat assembleDebug`。
+版本号从 `0.7.21-android.197`（versionCode 235）起。
