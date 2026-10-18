@@ -1,4 +1,5 @@
 import type { SongResult, UnifiedSong } from '../../types';
+import { noteOnlineMutationFailure } from '../../utils/onlineMutationDiagnostics';
 import { proxyNativeRemoteAudioUrl } from '../nativeRemoteAudio';
 import { noteOnlinePlaybackError, noteOnlinePlaybackOutcome } from '../../utils/onlinePlaybackDiagnostics';
 import type {
@@ -172,6 +173,26 @@ const runRequest = async <T>(provider: OnlineMusicProvider, operation: OnlineFai
     }
 };
 
+/**
+ * Android 诊断：在线写入（红心 / 订阅 / 歌单改动）失败时留一条记录再往上抛。
+ *
+ * 这些失败以前在报告里完全看不到：provider 在缺少标识时会**提前拒绝**（一个请求都不发），
+ * 用户只看到「收藏失败」，分不清是缺标识、缺登录还是上游拒收。
+ */
+const tracedMutation = async <T>(
+    providerId: string,
+    operation: string,
+    mediaId: string | number,
+    run: () => Promise<T>,
+): Promise<T> => {
+    try {
+        return await run();
+    } catch (error) {
+        noteOnlineMutationFailure({ providerId, operation, mediaId, error });
+        throw error;
+    }
+};
+
 const emptyPage = <T>(offset: number): OmniPage<T> => ({ items: [], hasMore: false, nextOffset: offset });
 
 // 点赞状态改完要落盘：只更内存的话，重启后靠快照 hydration 的那一帧会恢复旧心形，
@@ -230,8 +251,13 @@ const sendSongLike = async (
         || String(useOnlineProviderAccountStore.getState().accounts[source.providerId]?.user?.id) === String(sentAs)
     );
 
-    // 失败时点赞状态保持原样，错误往上抛给调用方。
-    await provider.mutations.likeSong(song, liked);
+    // 失败时点赞状态保持原样，错误往上抛给调用方；Android 诊断里留一条（provider / 操作 / 条目 / 原因）。
+    try {
+        await provider.mutations.likeSong(song, liked);
+    } catch (error) {
+        noteOnlineMutationFailure({ providerId: source.providerId, operation: 'like', mediaId: songKey, error });
+        throw error;
+    }
 
     // An answer to a request that was given up (the heart was put back and the run ended as
     // failed) writes no like: the next whole read of the liked songs says what the provider
@@ -980,8 +1006,9 @@ export const omni = {
             if (!mutations?.subscribeAlbum) return unsupported(collection.providerId, 'album-subscription');
             return mutations.subscribeAlbum(collection.id, subscribed);
         }
-        if (!mutations?.subscribePlaylist) return unsupported(collection.providerId, 'playlist-subscription');
-        return mutations.subscribePlaylist(collection, subscribed);
+        const subscribePlaylist = mutations?.subscribePlaylist;
+        if (!subscribePlaylist) return unsupported(collection.providerId, 'playlist-subscription');
+        return tracedMutation(collection.providerId, 'subscribe-playlist', collection.id, () => subscribePlaylist(collection, subscribed));
     },
 
     async updateCollectionTracks(collection: OmniCollection, operation: 'add' | 'del', tracks: SongResult[]): Promise<void> {
