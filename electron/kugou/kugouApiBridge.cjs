@@ -27,7 +27,9 @@ const OPERATION_MODULES = {
   song_climax: ['song_climax'],
   search_lyric: ['search_lyric'],
   lyric: ['lyric'],
-  playlist_track_all: ['playlist_track_all', 'playlist_track_all_new'],
+  playlist_track_all: ['playlist_track_all'],
+  // Android 移植：App 端的 /v4/get_list_all_file_v3（按 listid 取行，取消收藏用它定位 fileid）
+  playlist_track_all_new: ['playlist_track_all_new'],
   playlist_detail: ['playlist_detail'],
   album_detail: ['album_detail'],
   album_songs: ['album_songs'],
