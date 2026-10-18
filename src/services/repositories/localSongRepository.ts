@@ -2,6 +2,7 @@ import type { LocalSong } from '../../types';
 import { isBlob } from '../../utils/blobGuards';
 import { migrateLocalSongsRenderHints, migrateMatchedLyricsCarrierRenderHints } from '../../utils/lyrics/storageMigration';
 import { appDatabase } from '../appDatabase';
+import { noteLocalLibraryDiagnostic } from '../../utils/localLibraryDiagnostics';
 
 // src/services/repositories/localSongRepository.ts
 // Stores sanitized local-song records while retaining the existing read-time lyric migrations.
@@ -51,9 +52,36 @@ const migrateStoredLocalSongs = (storedSongs: LocalSong[]): LocalSong[] => {
   return migration.value;
 };
 
-export const readLocalSongs = async (): Promise<LocalSong[]> => (
-  migrateStoredLocalSongs(await appDatabase.local_music.toArray())
+// 读曲库：迁移交给 migrateStoredLocalSongs，这一层补我们自己的读库诊断
+// （用户报告的 local library trace 里那几行 read:start / read:done / read:error）。
+const yieldToMainThread = (): Promise<void> => (
+  new Promise(resolve => setTimeout(resolve, 0))
 );
+
+export const readLocalSongs = async (): Promise<LocalSong[]> => {
+  const startedAt = Date.now();
+  noteLocalLibraryDiagnostic('read:start');
+  try {
+    const storedSongs = await appDatabase.local_music.toArray();
+    const readDoneAt = Date.now();
+    // Let IndexedDB's onsuccess callback finish before doing per-record migration work; otherwise
+    // a large library makes that callback itself a long task and stalls playback startup.
+    await yieldToMainThread();
+    const songs = migrateStoredLocalSongs(storedSongs);
+    noteLocalLibraryDiagnostic('read:done', {
+      songs: songs.length,
+      readMs: readDoneAt - startedAt,
+      totalMs: Date.now() - startedAt,
+    });
+    return songs;
+  } catch (error) {
+    noteLocalLibraryDiagnostic('read:error', {
+      totalMs: Date.now() - startedAt,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
+};
 
 // 按主键读一条记录，读时迁移与 readLocalSongs 一致；播放和匹配路径只关心一首歌时用它，不读整张表。
 export const readLocalSong = async (id: string): Promise<LocalSong | undefined> => {

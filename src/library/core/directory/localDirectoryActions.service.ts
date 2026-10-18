@@ -114,7 +114,34 @@ export const createLocalDirectoryActions = (port: LibraryDirectoryBatchPort): Li
             });
         },
         remove: (context, options) => {
-            if (context.trackIds.length === 0) return Promise.resolve(fail('unsupported'));
+            /*
+             * 目录这边没有「选中某一首歌」这套逻辑：删除的单位就是文件夹（导入进来的那一整个根），
+             * 和原版一样，删掉之后文件夹直接从资料库里消失。
+             *
+             * 以前这里先看 context.trackIds：文件夹行本身不带歌曲 id，于是长度是 0，函数在第一行就
+             * 返回 unsupported —— 连下面「按文件夹删」的那段都没跑到，界面既不提示也不删，正是用户
+             * 报的「点了没反应、歌还在」。现在改成：有选中项就按文件夹删，没有选中项就直接失败报错，
+             * 不再静默吞掉。
+             *
+             * 安全边界：removeImportedRoot / deleteFolderSongs 只会清掉资料库记录和 App 私有目录里
+             * 我们自己复制的那份副本（deleteAndroidImportedAudio 只认 imported- 前缀的 ref）；
+             * 媒体库扫描进来的歌只是引用，nativeAudioRef 是数字 id，不在这个范围内，用户的原文件
+             * 一个字节都不会动。
+             */
+            const selectedFolders = context.items
+                .filter(item => !item.isVirtual)
+                .map(item => item.path || item.name)
+                .filter((path): path is string => Boolean(path));
+            if (context.trackIds.length === 0) {
+                // 目录里选中的就是文件夹行（没有歌曲 id）：按原版删掉整个文件夹。
+                if (selectedFolders.length === 0) return Promise.resolve(fail('unsupported'));
+                return run({ action: 'remove' }, async () => {
+                    for (const path of selectedFolders) {
+                        await port.removeImportedRoot(path);
+                    }
+                    await port.refreshLibrary();
+                }, options);
+            }
             return run({ action: 'remove' }, async () => {
                 for (const path of resolveFolderRemovalPaths(context, port.getLocalSongs())) {
                     await port.deleteFolderSongs(path);

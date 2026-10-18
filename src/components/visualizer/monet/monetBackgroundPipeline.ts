@@ -1,5 +1,6 @@
 import type { MonetBackgroundImage, MonetBackgroundTuning, Theme } from '../../../types';
 import type { MonetBackgroundPaintReply, MonetBackgroundPaintRequest } from './monetBackground.worker';
+import { resolveSameOriginImageSource } from '../../../services/nativeImageFetch';
 
 // src/components/visualizer/monet/monetBackgroundPipeline.ts
 // Builds and caches the static Monet poster background so the visualizer only recomputes when inputs change.
@@ -212,7 +213,17 @@ const buildMonetBackgroundUrl = async ({
         return null;
     }
 
-    const image = await createImageBitmap(await loadImage(sourceUrl));
+    // 远端封面多数没有 CORS 头，直接用会加载失败或污染画布；安卓上先经原生桥
+    // 取回字节转成同源 blob URL，这个背景才真正吃得到封面颜色。
+    const sameOrigin = await resolveSameOriginImageSource(sourceUrl);
+    let image: ImageBitmap;
+    try {
+        image = await createImageBitmap(await loadImage(sameOrigin?.url ?? sourceUrl));
+    } catch (error) {
+        sameOrigin?.revoke();
+        throw error;
+    }
+    sameOrigin?.revoke();
     const picture = await paintOffThread({
         image,
         colors: {

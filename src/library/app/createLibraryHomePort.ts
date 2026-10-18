@@ -5,6 +5,7 @@ import { translateHomeMessage } from '../core/home/homeSources';
 import { importFolder, resyncAllFolders, LOCAL_MUSIC_SCAN_PROGRESS_EVENT } from '../../services/localMusicService';
 import { getLocalLibraryAvailability } from '../../services/localLibraryAvailability';
 import { importLocalPlaylistFile } from '../../services/localPlaylistFileService';
+import { isAndroidNativeRuntime, scanAndroidDeviceMusic } from '../../services/nativeLocalMusic';
 import { omni } from '../../services/onlineMusic/omni';
 import {
     createLocalGridViewCollection,
@@ -22,6 +23,8 @@ type HomePortSurface = Pick<HomeSurfaceProps, 'localSongs' | 'onRefreshLocalSong
 export const createLibraryHomePort = (getSurface: () => HomePortSurface): LibraryHomePort => ({
     localAvailability: () => getLocalLibraryAvailability(),
     importFolder: async () => (await importFolder()).length,
+    scanDeviceMusic: async () => (await scanAndroidDeviceMusic()).length,
+    deviceScanAvailable: () => isAndroidNativeRuntime(),
     resyncAllFolders: async () => (await resyncAllFolders())?.length ?? 0,
     importPlaylistFile: async (file) => {
         const result = await importLocalPlaylistFile(file, getSurface().localSongs);

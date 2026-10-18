@@ -277,6 +277,7 @@ export const localBatchSelectionType = (section: LocalHomeSectionKey): LibraryDi
 /** 本地页签右上角的三个导入动作：文案随进行中的动作变，任何一个在进行或扫描中时都禁用。 */
 export const resolveLocalHomeActions = (snapshot: LibraryHomeActionsSnapshot): LibraryHomeListAction[] => {
     const busy = isHomeImportBusy(snapshot);
+    const busyWithoutDeviceScan = isHomeImportBusy({ ...snapshot, scanningDevice: false });
     const scanning = Boolean(snapshot.scan?.active) || snapshot.refreshingFolders;
     return [
         {
@@ -286,6 +287,13 @@ export const resolveLocalHomeActions = (snapshot: LibraryHomeActionsSnapshot): L
             pending: snapshot.importingFolder,
             disabled: busy,
         },
+        ...(snapshot.deviceScanAvailable ? [{
+            id: 'scan-device-music',
+            labelKey: snapshot.scanningDevice ? 'options.scanning' : 'localMusic.scanDeviceMusic',
+            titleKey: 'localMusic.scanDeviceMusic',
+            pending: snapshot.scanningDevice,
+            disabled: busyWithoutDeviceScan,
+        }] : []),
         {
             id: 'refresh-folders',
             labelKey: scanning ? 'options.scanning' : 'options.refresh',

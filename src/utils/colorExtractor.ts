@@ -1,4 +1,5 @@
 import { extractRepresentativeColorsFromPixels } from './colorPalette';
+import { resolveSameOriginImageSource } from '../services/nativeImageFetch';
 
 // src/utils/colorExtractor.ts
 
@@ -12,7 +13,7 @@ interface RGB {
  * 把图片缩到 50×50 读出像素（crossOrigin 匿名请求）。图片加载失败、没有 CORS 头、画布被污染（读像素抛
  * SecurityError）时都返回 null。silent：失败时不打 warn（墙上一批头像取色时用，失败只是回退）。
  */
-export const loadImagePixels = (imageUrl: string, { silent = false }: { silent?: boolean } = {}): Promise<Uint8ClampedArray | null> => (
+const loadPixelsFromUrl = (imageUrl: string, { silent = false }: { silent?: boolean } = {}): Promise<Uint8ClampedArray | null> => (
     new Promise(resolve => {
         const img = new Image();
         img.crossOrigin = "Anonymous";
@@ -48,6 +49,26 @@ export const loadImagePixels = (imageUrl: string, { silent = false }: { silent?:
         img.src = imageUrl;
     })
 );
+
+/**
+ * 优先用同源地址读像素：安卓容器里远端封面没有 CORS 头，直接加载会污染画布。
+ * 原生桥取回字节转成 blob URL 之后，画布一定可读。
+ */
+export const loadImagePixels = async (
+    imageUrl: string,
+    options: { silent?: boolean } = {},
+): Promise<Uint8ClampedArray | null> => {
+    const { silent = false } = options;
+    const sameOrigin = await resolveSameOriginImageSource(imageUrl);
+    if (sameOrigin) {
+        try {
+            return await loadPixelsFromUrl(sameOrigin.url, { silent });
+        } finally {
+            sameOrigin.revoke();
+        }
+    }
+    return await loadPixelsFromUrl(imageUrl, { silent });
+};
 
 const extractVibrantColorsFromPixels = (imageData: Uint8ClampedArray, count: number): string[] => {
     const colors: RGB[] = [];

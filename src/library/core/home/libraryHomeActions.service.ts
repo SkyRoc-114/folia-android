@@ -29,12 +29,17 @@ const IDLE: LibraryHomeActionsSnapshot = {
     importingFolder: false,
     refreshingFolders: false,
     importingPlaylist: false,
+    scanningDevice: false,
+    deviceScanAvailable: false,
     scan: null,
 };
 
 /** 创建首页动作控制器。端口在调用时现读（宿主每次渲染都可能换新的曲库与回调）。 */
 export const createLibraryHomeActions = (port: LibraryHomePort): LibraryHomeActionsController => {
-    let snapshot = IDLE;
+    let snapshot: LibraryHomeActionsSnapshot = {
+        ...IDLE,
+        deviceScanAvailable: port.deviceScanAvailable(),
+    };
     const listeners = new Set<() => void>();
     let stopScanProgress: (() => void) | null = null;
 
@@ -90,6 +95,32 @@ export const createLibraryHomeActions = (port: LibraryHomePort): LibraryHomeActi
                 return FAILED;
             } finally {
                 patch({ importingFolder: false });
+            }
+        },
+
+        scanDeviceMusic: async () => {
+            if (isHomeImportBusy(snapshot)) return BUSY;
+            if (!port.deviceScanAvailable()) return UNSUPPORTED;
+            patch({ scanningDevice: true });
+            try {
+                const imported = await port.scanDeviceMusic();
+                if (imported > 0) {
+                    await port.refreshLocalSongs();
+                    port.notify({
+                        kind: 'status',
+                        type: 'success',
+                        message: { key: 'localMusic.scanDeviceMusicDone', values: { count: imported } },
+                    });
+                } else {
+                    port.notify({ kind: 'status', type: 'info', message: { key: 'localMusic.scanDeviceMusicEmpty' } });
+                }
+                return OK;
+            } catch (error) {
+                console.error('[LibraryHome] Failed to scan device music library:', error);
+                port.notify({ kind: 'status', type: 'error', message: { key: 'localMusic.scanDeviceMusicFailed' } });
+                return FAILED;
+            } finally {
+                patch({ scanningDevice: false });
             }
         },
 

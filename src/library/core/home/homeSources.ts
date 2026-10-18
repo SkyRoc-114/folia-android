@@ -174,6 +174,7 @@ export const resolveOnlineHomeLoading = ({
 /** 三个本地导入动作（导入文件夹、刷新、导入歌单文件）此刻是否都该禁用：任何一个在进行，或扫描在进行。 */
 export const isHomeImportBusy = (snapshot: LibraryHomeActionsSnapshot): boolean => (
     snapshot.importingFolder
+    || snapshot.scanningDevice
     || snapshot.importingPlaylist
     || snapshot.refreshingFolders
     || Boolean(snapshot.scan?.active)

@@ -24,6 +24,8 @@ const createPort = (patch: Partial<LibraryHomePort> = {}) => {
     const port: LibraryHomePort = {
         localAvailability: () => ({ supported: true, reason: null }),
         importFolder: vi.fn(async () => 2),
+        scanDeviceMusic: vi.fn(async () => 2),
+        deviceScanAvailable: () => true,
         resyncAllFolders: vi.fn(async () => 1),
         importPlaylistFile: vi.fn(async () => ({ playlistName: 'List', matchedCount: 3, skippedCount: 0 })),
         refreshLocalSongs: vi.fn(),
@@ -115,6 +117,47 @@ describe('createLibraryHomeActions — local imports', () => {
         emitScan({ active: false, folderName: 'Music', totalSongs: 10, completedSongs: 10 });
         expect(actions.getSnapshot().scan).toBeNull();
         unsubscribe();
+    });
+
+    it('scans the device library, refreshes the songs and reports the imported count', async () => {
+        const { port, notices } = createPort();
+        const actions = createLibraryHomeActions(port);
+        expect(actions.getSnapshot().deviceScanAvailable).toBe(true);
+        expect(await actions.scanDeviceMusic()).toEqual({ ok: true });
+        expect(port.scanDeviceMusic).toHaveBeenCalledTimes(1);
+        expect(port.refreshLocalSongs).toHaveBeenCalledTimes(1);
+        expect(notices).toEqual([{
+            kind: 'status',
+            type: 'success',
+            message: { key: 'localMusic.scanDeviceMusicDone', values: { count: 2 } },
+        }]);
+        expect(actions.getSnapshot().scanningDevice).toBe(false);
+    });
+
+    it('reports an empty device library without refreshing', async () => {
+        const { port, notices } = createPort({ scanDeviceMusic: vi.fn(async () => 0) });
+        const actions = createLibraryHomeActions(port);
+        expect(await actions.scanDeviceMusic()).toEqual({ ok: true });
+        expect(port.refreshLocalSongs).not.toHaveBeenCalled();
+        expect(notices).toEqual([{
+            kind: 'status',
+            type: 'info',
+            message: { key: 'localMusic.scanDeviceMusicEmpty' },
+        }]);
+    });
+
+    it('reports a failed device scan and clears its pending state', async () => {
+        const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const { port, notices } = createPort({ scanDeviceMusic: vi.fn(async () => { throw new Error('denied'); }) });
+        const actions = createLibraryHomeActions(port);
+        expect(await actions.scanDeviceMusic()).toEqual({ ok: false, reason: 'failed' });
+        expect(notices).toEqual([{
+            kind: 'status',
+            type: 'error',
+            message: { key: 'localMusic.scanDeviceMusicFailed' },
+        }]);
+        expect(actions.getSnapshot().scanningDevice).toBe(false);
+        error.mockRestore();
     });
 });
 

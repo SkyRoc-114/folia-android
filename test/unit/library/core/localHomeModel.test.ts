@@ -100,7 +100,14 @@ describe('local home sections and cards', () => {
 });
 
 describe('resolveLocalHomeActions', () => {
-    const idle = { importingFolder: false, refreshingFolders: false, importingPlaylist: false, scan: null };
+    const idle = {
+        importingFolder: false,
+        refreshingFolders: false,
+        importingPlaylist: false,
+        scanningDevice: false,
+        deviceScanAvailable: false,
+        scan: null,
+    };
 
     it('offers import folder, refresh and import playlist, all enabled when idle', () => {
         expect(resolveLocalHomeActions(idle)).toEqual([
@@ -126,5 +133,24 @@ describe('resolveLocalHomeActions', () => {
 
     it('a playlist import relabels the playlist button', () => {
         expect(resolveLocalHomeActions({ ...idle, importingPlaylist: true })[2]).toMatchObject({ labelKey: 'localMusic.importingPlaylist', pending: true, disabled: true });
+    });
+
+    it('adds the device scan action only when the host supports it', () => {
+        expect(resolveLocalHomeActions({ ...idle, deviceScanAvailable: true }).map(action => action.id)).toEqual([
+            'import-folder', 'scan-device-music', 'refresh-folders', 'import-playlist',
+        ]);
+        expect(resolveLocalHomeActions(idle).map(action => action.id)).toEqual([
+            'import-folder', 'refresh-folders', 'import-playlist',
+        ]);
+    });
+
+    it('device scanning disables the other local actions without disabling its own pending button', () => {
+        const actions = resolveLocalHomeActions({ ...idle, deviceScanAvailable: true, scanningDevice: true });
+        expect(actions.map(action => [action.id, action.pending, action.disabled])).toEqual([
+            ['import-folder', false, true],
+            ['scan-device-music', true, false],
+            ['refresh-folders', false, true],
+            ['import-playlist', false, true],
+        ]);
     });
 });

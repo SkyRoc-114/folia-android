@@ -30,6 +30,7 @@ const SECTION_ICONS: Record<LocalHomeSectionKey, React.ReactNode> = {
 
 const ACTION_ICONS: Record<string, React.ReactNode> = {
     'import-folder': <FolderOpen size={13} />,
+    'scan-device-music': <Music size={13} />,
     'refresh-folders': <RefreshCw size={13} />,
     'import-playlist': <FileUp size={13} />,
 };
@@ -132,6 +133,7 @@ export const LocalGrid3DView: React.FC<LocalGrid3DViewProps> = ({
 
     const runAction = (id: string) => {
         if (id === 'import-folder') void homeActions.importFolder();
+        else if (id === 'scan-device-music') void homeActions.scanDeviceMusic();
         else if (id === 'refresh-folders') void homeActions.refreshFolders();
         else if (id === 'import-playlist') playlistFileInputRef.current?.click();
     };
@@ -183,14 +185,26 @@ export const LocalGrid3DView: React.FC<LocalGrid3DViewProps> = ({
             <div className="w-full h-full flex flex-col items-center justify-center gap-4 opacity-60">
                 <Music size={64} />
                 <p className="text-lg">{t('localMusic.noLocalMusic')}</p>
-                <button
-                    onClick={() => void homeActions.importFolder()}
-                    disabled={importBusy}
-                    className="px-6 py-3 rounded-full transition-colors text-sm flex items-center gap-2 bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    {importBusy ? <Loader2 size={16} className="animate-spin" /> : <FolderOpen size={16} />}
-                    {scanning ? t('options.scanning') : actionState.importingFolder ? t('localMusic.importing') : t('localMusic.importFolder')}
-                </button>
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                    <button
+                        onClick={() => void homeActions.importFolder()}
+                        disabled={importBusy}
+                        className="px-6 py-3 rounded-full transition-colors text-sm flex items-center gap-2 bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        {importBusy ? <Loader2 size={16} className="animate-spin" /> : <FolderOpen size={16} />}
+                        {scanning ? t('options.scanning') : actionState.importingFolder ? t('localMusic.importing') : t('localMusic.importFolder')}
+                    </button>
+                    {actionState.deviceScanAvailable ? (
+                        <button
+                            onClick={() => void homeActions.scanDeviceMusic()}
+                            disabled={importBusy && !actionState.scanningDevice}
+                            className="px-6 py-3 rounded-full transition-colors text-sm flex items-center gap-2 bg-white/10 hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            {actionState.scanningDevice ? <Loader2 size={16} className="animate-spin" /> : <Music size={16} />}
+                            {actionState.scanningDevice ? t('options.scanning') : t('localMusic.scanDeviceMusic')}
+                        </button>
+                    ) : null}
+                </div>
             </div>
         );
     }
