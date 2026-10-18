@@ -1410,8 +1410,7 @@ describe('kugouProvider', () => {
         ));
         await kugouProvider.library?.getLikedSongIds?.('web-session-user');
         requestMock.mockClear();
-        await kugouProvider.mutations?.likeSong?.(song, false);
-        expect(requestMock).not.toHaveBeenCalledWith('playlist_tracks_del', expect.anything());
+        await expect(kugouProvider.mutations?.likeSong?.(song, false)).rejects.toThrow(/did not show the track to remove/);
     });
 
     it('reads the liked songs from KuGou again when they are read twice in a row', async () => {
@@ -1526,9 +1525,9 @@ describe('kugouProvider', () => {
             providerId: 'kugou', id: 'cloud', type: 'cloud', coverUrl: 'avatar.jpg',
         });
         expect(requestMock).not.toHaveBeenCalled();
-    });
-
-    it('treats an unlike as done when the liked playlist does not contain the song', async () => {
+    // Android 移植：读回一直看不到这首歌时**抛错**，而不是假装已取消 —— 读取端延迟时假成功会让
+    // 用户以为取消了、APP 里却还在（现场反馈过）。
+    // Android 移植：读回一直看不到这首歌时**抛错**，而不是假装已取消 —— 读取端延迟时假成功会让\n    // 用户以为取消了、APP 里却还在（现场反馈过）。\n    it('reports an unlike it cannot locate instead of pretending it is done', async () => {
         requestMock
             .mockResolvedValueOnce({
                 data: {
@@ -1560,10 +1559,8 @@ describe('kugouProvider', () => {
         });
 
         // 服务端本来就没有这首歌，目标状态已经达成：不发删除请求，也不能抛错把心形卡在点亮状态。
-        await expect(kugouProvider.mutations?.likeSong?.(song, false)).resolves.toBeUndefined();
-        expect(requestMock).not.toHaveBeenCalledWith('playlist_tracks_del', expect.anything());
-        // 下结论之前必须绕过 10 秒缓存重扫一次。
-        expect(requestMock.mock.calls.filter(([endpoint]) => endpoint === 'playlist_track_all')).toHaveLength(2);
+        // 读回三次都看不到这首歌：报失败让用户重试，而不是假报成功。
+        await expect(kugouProvider.mutations?.likeSong?.(song, false)).rejects.toThrow(/did not show the track to remove/);
     });
 
     it('rejects unlike when the liked playlist has no global collection id', async () => {

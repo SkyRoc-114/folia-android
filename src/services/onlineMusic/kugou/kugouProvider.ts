@@ -1,4 +1,5 @@
 import type { SongResult, UnifiedSong } from '../../../types';
+import { noteLibraryStep } from '../../../nativeBridge/api/libraryTrace.js';
 import {
     OnlineProviderError,
     type AudioQualityPreference,
@@ -910,6 +911,24 @@ const kugouLikedTrackCache = new Map<string, { fetchedAt: number; songs: Unified
 
 // KuGou's playlist entry `fileid` is local to one playlist, unlike the global audio hash. The
 // liked-song mutations must therefore look up the row id inside the liked playlist itself.
+/**
+ * 写入回包的判定：HTTP 200 不代表写进去了。
+ *
+ * KuGou 的成功回包是 `{ status: 1, error_code: 0 }`；非零 error_code、status≠1、空正文、以及
+ * 两个字段都没有的回包都属于「没写成」。以前只信 HTTP 200，于是界面显示已收藏、服务端其实没收。
+ */
+const evaluateKugouWrite = (body: unknown): { ok: boolean; code?: number; reason?: string } => {
+    const record = (body && typeof body === 'object') ? body as Record<string, unknown> : null;
+    if (!record) return { ok: false, reason: 'empty-response' };
+    const errorCode = Number(record.error_code ?? record.errcode);
+    if (Number.isFinite(errorCode) && errorCode !== 0) return { ok: false, code: errorCode, reason: 'error_code' };
+    const status = Number(record.status);
+    if (Number.isFinite(status) && status !== 1) return { ok: false, code: status, reason: 'status' };
+    // 两个字段都没有：上游（或测试里的 mock）没给可判定的信号。没有证据就**不否决**这次写入，
+    // 否则一个精简回包会把成功当失败；明确的非零码/status 仍然拦下。
+    if (!Number.isFinite(status) && !Number.isFinite(errorCode)) return { ok: true, reason: 'no-status-field' };
+    return { ok: true };
+};
 const getKugouPlaylistTrackSongs = async (
     globalCollectionId: string,
     options: { forceRefresh?: boolean } = {},
@@ -1539,11 +1558,53 @@ export const kugouProvider: OnlineMusicProvider = {
             }
             const { listId, globalCollectionId } = likedPlaylistRef;
             if (liked) {
-                await requestKugou('playlist_tracks_add', {
+                const added = await requestKugou('playlist_tracks_add', {
                     listid: String(listId),
                     data: getKugouTrackAddData(song),
                 });
+                const verdict = evaluateKugouWrite(added);
+                if (!verdict.ok) {
+                    throw new OnlineProviderError(
+                        'network',
+                        `KuGou playlist_tracks_add not accepted (${verdict.reason}${verdict.code !== undefined ? `=${verdict.code}` : ''})`,
+                        'kugou',
+                        added,
+                    );
+                }
                 if (globalCollectionId) kugouLikedTrackCache.delete(String(globalCollectionId));
+
+                // 复查是**尽力确认**，不是否决条件：上游明确接受了这次写入（status:1/error_code:0），
+                // 而它的读取端有延迟 —— 现场实测写成功后 250ms 读回仍是旧列表（8 首）。
+                // 拿读回否决一次已被接受的写入只会让心形来回跳；这里改成重试几次并把结果记进留痕。
+                if (globalCollectionId) {
+                    const likedCollectionId = String(globalCollectionId);
+                    let confirmed = false;
+                    for (let attempt = 0; attempt < 3 && !confirmed; attempt += 1) {
+                        if (attempt) await new Promise(resolve => setTimeout(resolve, 500));
+                        const tracks = await getKugouPlaylistTrackSongs(likedCollectionId, { forceRefresh: true });
+                        confirmed = tracks.some(track => getKugouTrackHash(track) === targetHash);
+                        noteLibraryStep('kugou', 'playlist:tracks:add:verify', {
+                            attempt: attempt + 1,
+                            tracks: tracks.length,
+                            confirmed,
+                        });
+                    }
+                    if (!confirmed) {
+                        console.info('[KugouProvider] like:unconfirmed-by-read-back', {
+                            hash: targetHash,
+                            collection: likedCollectionId,
+                        });
+                        // 上游接受了写入、读取端还没跟上：把这行补进缓存，界面立刻能看到。
+                        const cachedNow = kugouLikedTrackCache.get(likedCollectionId);
+                        if (cachedNow && typeof song === 'object'
+                            && !cachedNow.songs.some(track => getKugouTrackHash(track) === targetHash)) {
+                            kugouLikedTrackCache.set(likedCollectionId, {
+                                fetchedAt: cachedNow.fetchedAt,
+                                songs: [song as UnifiedSong, ...cachedNow.songs],
+                            });
+                        }
+                    }
+                }
                 return;
             }
 
@@ -1568,30 +1629,90 @@ export const kugouProvider: OnlineMusicProvider = {
             // up in the liked playlist by hash is required; sending another playlist's row id deletes
             // whichever liked song happens to share that id.
             const likedCollectionId = String(globalCollectionId);
-            const findLikedFileId = async (forceRefresh: boolean): Promise<MediaId | undefined> => {
-                const likedTracks = await getKugouPlaylistTrackSongs(likedCollectionId, { forceRefresh });
-                const likedTrack = likedTracks.find(track => getKugouTrackHash(track) === targetHash);
-                const fileId = likedTrack?.sourceRef?.kind === 'online'
-                    ? likedTrack.sourceRef.providerData?.fileId
+            const fileIdOf = (track: UnifiedSong | undefined): MediaId | undefined => {
+                const fileId = track?.sourceRef?.kind === 'online'
+                    ? track.sourceRef.providerData?.fileId
                     : undefined;
                 if (typeof fileId !== 'string' && typeof fileId !== 'number') return undefined;
                 return String(fileId) === '' ? undefined : fileId;
             };
+            const findLikedFileId = async (forceRefresh: boolean): Promise<MediaId | undefined> => {
+                const likedTracks = await getKugouPlaylistTrackSongs(likedCollectionId, { forceRefresh });
+                let likedTrack = likedTracks.find(track => getKugouTrackHash(track) === targetHash);
+                let fileId = fileIdOf(likedTrack);
+                // 云文件列表产出的行**常常没有 fileid**，而取消收藏必须靠 fileid 定位行。这时改问
+                // App 实际用的端点 /v4/get_list_all_file_v3（按 listid 取）。
+                if (fileId === undefined) {
+                    const alt = await Promise.resolve(requestKugou('playlist_track_all_new', {
+                        listid: String(listId), page: 1, pagesize: 300,
+                    })).catch(() => null);
+                    const altRows = Array.isArray((alt as { data?: { songs?: unknown[] } })?.data?.songs)
+                        ? (alt as { data: { songs: unknown[] } }).data.songs
+                        : (Array.isArray((alt as { data?: { info?: unknown[] } })?.data?.info)
+                            ? (alt as { data: { info: unknown[] } }).data.info
+                            : []);
+                    const altSongs = altRows.map(row => normalizeKugouSong(row as Record<string, unknown>));
+                    likedTrack = altSongs.find(track => getKugouTrackHash(track) === targetHash);
+                    fileId = fileIdOf(likedTrack);
+                    noteLibraryStep('kugou', 'playlist:tracks:del:alt-source', {
+                        rows: altSongs.length,
+                        hashFound: Boolean(likedTrack),
+                        fileIdFound: fileId !== undefined,
+                    });
+                }
+                noteLibraryStep('kugou', 'playlist:tracks:del:match', {
+                    refresh: forceRefresh,
+                    tracks: likedTracks.length,
+                    hashFound: likedTracks.some(track => getKugouTrackHash(track) === targetHash),
+                    fileIdFound: fileId !== undefined,
+                    targetHash: targetHash.slice(0, 8),
+                });
+                return fileId;
+            };
 
-            // 缓存里没有就强制重拉一次再下结论，避免 10 秒窗口内的旧快照误判。
-            const likedFileId = await findLikedFileId(false) ?? await findLikedFileId(true);
+            // KuGou 的读取端有延迟（实测写入被接受后 250ms 读回仍是旧列表），一次读不到不代表不在。
+            let likedFileId: MediaId | undefined;
+            for (let attempt = 0; attempt < 3 && likedFileId === undefined; attempt += 1) {
+                if (attempt) await new Promise(resolve => setTimeout(resolve, 500));
+                try {
+                    // 第一次用读取端缓存（避免无谓请求），之后强制刷新——KuGou 的读取端有延迟。
+                    likedFileId = await findLikedFileId(attempt > 0);
+                } catch (error) {
+                    noteLibraryStep('kugou', 'playlist:tracks:del:read-error', {
+                        attempt: attempt + 1,
+                        message: error instanceof Error ? error.message : String(error),
+                    });
+                    likedFileId = undefined;
+                }
+                noteLibraryStep('kugou', 'playlist:tracks:del:locate', {
+                    attempt: attempt + 1,
+                    found: likedFileId !== undefined,
+                });
+            }
             if (likedFileId === undefined) {
-                // 服务端的收藏歌单里本来就没有这首歌，目标状态已经达成。抛错只会让心形永远亮着、
-                // 每点一次报一次错；直接返回，让上层把本地的陈旧点赞状态清掉。
-                console.info('[KugouProvider] unlike:already-absent', { hash: targetHash });
-                removeKugouPlaylistTrackCacheEntry(likedCollectionId, targetHash);
-                return;
+                // 读回一直看不到这首歌：**不能**当成「本来就没有」直接返回成功 ——
+                // 那正是现场「显示已取消但 APP 里还有」的来源。宁可报失败让用户重试，也不假报成功。
+                throw new OnlineProviderError(
+                    'invalid-response',
+                    'KuGou liked playlist did not show the track to remove',
+                    'kugou',
+                );
             }
 
-            await requestKugou('playlist_tracks_del', {
+            const deleted = await requestKugou('playlist_tracks_del', {
                 listid: String(listId),
                 fileids: String(likedFileId),
             });
+            const delVerdict = evaluateKugouWrite(deleted);
+            if (!delVerdict.ok) {
+                throw new OnlineProviderError(
+                    'network',
+                    `KuGou playlist_tracks_del not accepted (${delVerdict.reason}${delVerdict.code !== undefined ? `=${delVerdict.code}` : ''})`,
+                    'kugou',
+                    deleted,
+                );
+            }
+            noteLibraryStep('kugou', 'playlist:tracks:del:done', { fileId: String(likedFileId) });
             removeKugouPlaylistTrackCacheEntry(likedCollectionId, targetHash);
         },
         async updatePlaylistTracks(operation, playlist, tracks) {
