@@ -1,0 +1,82 @@
+#!/usr/bin/env node
+// dev/verify-android-bundle.mjs
+//
+// 发布前检查：本轮的关键标记必须同时出现在
+//   1) vite 的 dist 输出里（web 包是新的），
+//   2) `npx cap sync android` 复制后的 android/app/src/main/assets/public 里（APK 拿到的也是新的）。
+// 以前出过「代码改了、构建顺序错了，装上的 APK 还是旧 bundle」的问题（.218 的诊断标记没进包），
+// 这个脚本用几条不会被打包器改名的字符串挡住它。
+//
+// 用法：node dev/verify-android-bundle.mjs [--require <标记>]...
+
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const ROOTS = [
+    'dist/assets',
+    'android/app/src/main/assets/public/assets',
+];
+
+// 每轮改动后在下面补一条能唯一指认本次改动的字符串（打包器不会改字符串字面量）。
+const SENTINELS = [
+    // 酷狗概念版/标准版：会员识别、取链重试、补领、播放路由
+    'conceptVipType',
+    'auth:user-vip:probe',
+    'url:retry-vip-state',
+    'claim-on-fail:start',
+    'youth:union:done',
+    'native-stream:',
+    'proxy-source',
+    // 网易云探索页路由 / 安卓桥登录
+    'explore:route',
+    'ne:qr:key:start',
+    // 播放失败可见化
+    'media-error-',
+];
+
+const extra = [];
+for (let index = 2; index < process.argv.length; index += 1) {
+    if (process.argv[index] === '--require' && process.argv[index + 1]) extra.push(process.argv[index + 1]);
+}
+
+const sentinels = [...SENTINELS, ...extra];
+
+const readText = (file) => readFileSync(file, 'utf8');
+
+const scanRoot = (root) => {
+    if (!existsSync(root)) return { root, missing: sentinels, files: 0 };
+    const found = new Set();
+    let files = 0;
+    const walk = (directory) => {
+        for (const entry of readdirSync(directory, { withFileTypes: true })) {
+            const path = join(directory, entry.name);
+            if (entry.isDirectory()) { walk(path); continue; }
+            if (!entry.name.endsWith('.js')) continue;
+            files += 1;
+            const text = readText(path);
+            for (const sentinel of sentinels) {
+                if (!found.has(sentinel) && text.includes(sentinel)) found.add(sentinel);
+            }
+        }
+    };
+    walk(root);
+    return { root, missing: sentinels.filter((sentinel) => !found.has(sentinel)), files };
+};
+
+let failed = false;
+for (const root of ROOTS) {
+    const result = scanRoot(root);
+    if (result.missing.length === 0) {
+        console.log(`[verify-android] ✅ ${root}（${result.files} 个 js，全部标记都在）`);
+    } else {
+        failed = true;
+        console.error(`[verify-android] ❌ ${root}（${result.files} 个 js，缺 ${result.missing.length} 个标记）`);
+        for (const missing of result.missing) console.error(`  - ${missing}`);
+    }
+}
+
+if (failed) {
+    console.error('[verify-android] 构建顺序应为：npm run build:capacitor → npx cap sync android → gradle assembleDebug');
+    process.exit(1);
+}
+console.log('[verify-android] OK');

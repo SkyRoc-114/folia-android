@@ -61,6 +61,7 @@
     "contributors:generate": "npx all-contributors-cli generate",
     "models:fetch": "node build/fetchModels.mjs",
     "manual:ai-probe": "node test/manual/ai_probe.mjs",
+    "verify:android": "node dev/verify-android-bundle.mjs",
     "build:capacitor": "cross-env FOLIA_BUILD_TARGET=capacitor VITE_NETEASE_API_BASE=extension VITE_KUGOU_API_BASE=extension VITE_QQ_API_BASE=extension vite build",
     "cap:sync:android": "npm run build:capacitor && cap sync android",
     "cap:open:android": "cap open android",
