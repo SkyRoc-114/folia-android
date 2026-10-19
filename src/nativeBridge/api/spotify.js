@@ -182,7 +182,9 @@ const handlers = {
                 return;
             }
             activeLogin.failed = true;
-            activeLogin.message = typeof result?.reason === 'string' ? result.reason : 'Spotify sign-in failed';
+            const reason = typeof result?.reason === 'string' && result.reason ? result.reason : 'failed';
+            const detail = typeof result?.detail === 'string' && result.detail ? ': ' + result.detail.slice(0, 180) : '';
+            activeLogin.message = 'Spotify sign-in failed (' + reason + ')' + detail;
         }).catch(error => {
             if (activeLogin?.key !== key) return;
             activeLogin.failed = true;

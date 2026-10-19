@@ -1153,6 +1153,7 @@ public class FoliaNativePlugin extends Plugin {
                 result.put("signedIn", id != null);
                 result.put("id", id);
                 result.put("reason", SpotifyAuth.lastError());
+                result.put("detail", SpotifyAuth.lastDetail() == null ? "" : SpotifyAuth.lastDetail());
                 if (id != null) result.put("user", toJsUser(SpotifyAuth.profile(getContext())));
                 call.resolve(result);
             } catch (IOException error) {

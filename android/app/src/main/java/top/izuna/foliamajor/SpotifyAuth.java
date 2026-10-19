@@ -65,6 +65,8 @@ final class SpotifyAuth {
     private static volatile ServerSocket server;
     private static volatile CountDownLatch pending;
     private static volatile String lastError;
+    /** 失败的真实原因（HTTP 码 / Spotify 的 error 字段 / 回调里缺什么），给诊断报告用。 */
+    private static volatile String lastDetail;
 
     private SpotifyAuth() { }
 
@@ -114,6 +116,7 @@ final class SpotifyAuth {
             signOut(context);
         }
         lastError = null;
+        lastDetail = null;
         String verifier = randomBase64Url(64);
         String challenge = base64Url(sha256(verifier));
         CountDownLatch latch = new CountDownLatch(1);
@@ -160,6 +163,10 @@ final class SpotifyAuth {
         return lastError;
     }
 
+    static String lastDetail() {
+        return lastDetail;
+    }
+
     // ── 回环监听 ────────────────────────────────────────────────────────────
 
     private static void startListener(Context context, String verifier, CountDownLatch latch) throws IOException {
@@ -175,6 +182,7 @@ final class SpotifyAuth {
                 boolean refused = "access_denied".equals(error);
                 if (code == null) {
                     lastError = refused ? "not-authorized" : "failed";
+                    lastDetail = "callback without code: " + (requestLine == null ? "(no request line)" : requestLine);
                     writePage(client.getOutputStream(), refused ? "未授权。请回到 Folia 重试。" : "登录未完成。请回到 Folia 重试。");
                 } else {
                     try {
@@ -187,14 +195,21 @@ final class SpotifyAuth {
                                 .build());
                         if (tokens == null) {
                             lastError = "failed";
+                            lastDetail = "token exchange failed: " + tokenDetail;
                             writePage(client.getOutputStream(), "登录未完成。请回到 Folia 重试。");
                         } else {
                             saveTokens(context, tokens);
-                            fetchProfile(context);
+                            try {
+                                fetchProfile(context);
+                            } catch (IOException profileError) {
+                                // 资料页失败不影响登录态：令牌已经存下，下次登录状态会重新拉资料。
+                                lastDetail = "profile fetch failed: " + profileError.getMessage();
+                            }
                             writePage(client.getOutputStream(), "已登录 Spotify，可以回到 Folia 了。");
                         }
                     } catch (IOException failed) {
                         lastError = "failed";
+                        lastDetail = "callback exchange error: " + failed.getMessage();
                         writePage(client.getOutputStream(), "登录未完成。请回到 Folia 重试。");
                     }
                 }
@@ -254,20 +269,35 @@ final class SpotifyAuth {
 
     // ── 令牌与资料 ──────────────────────────────────────────────────────────
 
+    /** 上一次 token 请求的失败细节（HTTP 状态与响应体），随 lastDetail 带进诊断。 */
+    private static volatile String tokenDetail;
+
     private static JSONObject tokenRequest(RequestBody form) throws IOException {
+        tokenDetail = null;
         Request request = new Request.Builder()
                 .url("https://accounts.spotify.com/api/token")
                 .post(form)
                 .build();
         try (Response response = HTTP.newCall(request).execute()) {
-            if (!response.isSuccessful()) return null;
             String body = response.body() == null ? "" : response.body().string();
-            try {
-                JSONObject json = new JSONObject(body);
-                return json.optString("access_token", "").isEmpty() ? null : json;
-            } catch (JSONException error) {
+            if (!response.isSuccessful()) {
+                tokenDetail = "HTTP " + response.code() + " " + body.trim();
                 return null;
             }
+            try {
+                JSONObject json = new JSONObject(body);
+                if (json.optString("access_token", "").isEmpty()) {
+                    tokenDetail = "no access_token in " + body.trim();
+                    return null;
+                }
+                return json;
+            } catch (JSONException error) {
+                tokenDetail = "unreadable token body: " + body.trim();
+                return null;
+            }
+        } catch (IOException error) {
+            tokenDetail = "token request error: " + error.getMessage();
+            throw error;
         }
     }
 
