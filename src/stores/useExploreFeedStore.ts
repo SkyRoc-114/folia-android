@@ -361,6 +361,8 @@ export const useExploreFeedStore = create<ExploreFeedStore>((set, get) => {
                 const first = arrived(inKeptOrder(key, page.sections));
                 set({ feed: { ...blank('ready', read), ...first, nextCursor: page.nextCursor, pages: 1, ...(page.refreshReadsAnew ? { refreshReadsAnew: true } : {}) } });
                 console.log(`[Explore] Page ${read}: ${first.sections.length} sections`);
+                // 探索页读成功时报告里也留一条：能区分「没打开探索页」和「打开了但内容空」。
+                noteLibraryStep(String(key).split(':')[0] || 'unknown', 'explore:page', { sections: first.sections.length });
                 return;
             }
             const next = await exchanged(key, shown, () => read === reads, listened);
@@ -376,6 +378,8 @@ export const useExploreFeedStore = create<ExploreFeedStore>((set, get) => {
             // The listener switched provider meanwhile: nothing failed, and a tab still showing this key asks again.
             if (isOvertaken(error)) { set({ key: null, feed: null }); return; }
             console.warn(`[Explore] The page could not be read: ${wordsOf(error)}`);
+            // 整页失败时把平台与错误原文记进诊断（平台名取 key 的第一段）。
+            noteLibraryStep(String(key).split(':')[0] || 'unknown', 'explore:error', { message: wordsOf(error) });
             // The page as it is now: a card may have been taken off it while the read was under way.
             const current = get().feed;
             set({ feed: shown && current ? { ...current, refreshing: false, refreshFailed: true } : blank('error', read) });
@@ -390,6 +394,8 @@ export const useExploreFeedStore = create<ExploreFeedStore>((set, get) => {
         key: null,
         feed: null,
         show(key, listened) {
+            // 只要有界面要展示探索页就记一条：报告里没有 explore 行 = 界面根本没走到这里。
+            noteLibraryStep(String(key).split(':')[0] || 'unknown', 'explore:show', { key: String(key).slice(0, 60) });
             if (get().key !== key) void load(key, listened);
         },
         refresh(listened) {
