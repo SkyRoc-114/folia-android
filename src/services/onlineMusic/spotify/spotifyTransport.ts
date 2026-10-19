@@ -46,10 +46,23 @@ export async function requestSpotify<T = unknown>(operation: SpotifyOperation, p
     const named = operation === 'query' ? `${operation} ${String(params.name)}` : operation;
     const startedAt = Date.now();
     let result: SpotifyBridgeResult;
-    try { result = await window.electron!.spotifyRequest(operation, params); }
-    catch {
-        console.warn(`[Spotify] ${named} did not reach the desktop app`);
-        throw new OnlineProviderError('network', 'Spotify desktop request failed', 'spotify');
+    if (typeof window.electron?.spotifyRequest === 'function') {
+        try { result = await window.electron.spotifyRequest(operation, params); }
+        catch {
+            console.warn(`[Spotify] ${named} did not reach the desktop app`);
+            throw new OnlineProviderError('network', 'Spotify desktop request failed', 'spotify');
+        }
+    } else {
+        // Android：内置桥直连（错误以 Error 抛出，登录失效按 auth-required 归）。
+        try {
+            result = { ok: true, data: await requestFoliaExtension({ provider: 'spotify', operation, params }) };
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            console.warn(`[Spotify] ${named} failed after ${Date.now() - startedAt}ms: ${message}`);
+            const authRequired = /sign-in is required|sign-in required/i.test(message);
+            const unsupported = /not available on Android|Unsupported Spotify/i.test(message);
+            throw new OnlineProviderError(authRequired ? 'auth-required' : unsupported ? 'unsupported' : 'network', message, 'spotify');
+        }
     }
     if (!result.ok) {
         console.warn(`[Spotify] ${named} failed after ${Date.now() - startedAt}ms: ${result.error.code} (${result.error.message ?? ''})`);
