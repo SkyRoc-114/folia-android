@@ -5,6 +5,7 @@ import { hasUploadedObsAsset } from '../../../services/obs/visualSettingsConfig'
 import type { CommandPaletteCommand } from '../types';
 import type { GpuPreference } from '../../../stores/useDesktopSettingsStore';
 import { createToggleCommand, createAppLanguageCommand, createSettingsCommand, createSettingsAnchorCommand, defineCommand } from '../commandFactories';
+import { nowPlayingCardPositionCommand } from './nowPlayingCardPositionCommand';
 import { sleepTimerCommand } from './sleepTimerCommand';
 import { lyricExportCommands } from './lyricExportCommands';
 import { Gauge, Images, Layers3, Library } from 'lucide-react';
@@ -51,6 +52,7 @@ export const settingsCommands: CommandPaletteCommand[] = [
         },
     },
     sleepTimerCommand,
+    nowPlayingCardPositionCommand,
     createSettingsCommand('settings-options', 'Open Options', 'Open the options center', ['settings', 'options', '设置', '选项'], 'options', null, { executeShortcut: 'o' }),
     createSettingsCommand('settings-appearance', 'Appearance settings', 'Open visual and appearance settings', ['appearance', 'visual settings', '外观', '视觉'], 'options', 'appearance'),
     createSettingsAnchorCommand('settings-ai-provider', 'AI provider settings', 'Choose an AI provider and model', ['model connection', 'api key', '模型设置', '供应商', '密钥', 'deepseek', 'kimi', 'glm', 'qwen', '通义', '智谱'], 'electronSettings', { platform: ['electron'] }),
