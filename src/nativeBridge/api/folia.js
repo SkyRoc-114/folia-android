@@ -1417,7 +1417,8 @@ export async function handleFoliaApiRequest(input) {
     }
     return await qqMusicRequest(body, await getQQCookie());
   }
-  const cookie = await getNeteaseCookie();
+  // 安卓上渲染层把登录 cookie 存成会话值随请求带来（query.cookie）；带 cookie 的先用。
+  const cookie = firstValue(params.get('cookie'), body.cookie) || await getNeteaseCookie();
   const path = url.pathname;
   const params = url.searchParams;
   // 电台/推荐相关请求才留痕（全量留痕会把诊断窗口挤满，电台那几行反而被裁掉）。
@@ -1569,7 +1570,8 @@ export async function handleFoliaApiRequest(input) {
 }
 
 export async function getFoliaBridgeStatus() {
-  const cookie = await getNeteaseCookie();
+  // 安卓上渲染层把登录 cookie 存成会话值随请求带来（query.cookie）；带 cookie 的先用。
+  const cookie = firstValue(params.get('cookie'), body.cookie) || await getNeteaseCookie();
   const info = await getLoginInfo(cookie);
   return {
     netease: {

@@ -5,6 +5,8 @@ import type { PersonalFmRequestOptions, ProviderSongAvailability } from '../../.
 import { withLoginRequestLimit } from '../login/loginRequestLimit';
 import { withOnlineRequestLimit } from '../failure/onlineRequestLimit';
 import { errorFields } from '../../../utils/errorText';
+import { IS_ANDROID_WEBVIEW } from '../../../utils/platform';
+import { requestFoliaExtension } from '../../foliaExtensionBridge';
 
 type UnavailableSongReplacement = {
   replacementSong: SongResult;
@@ -41,7 +43,7 @@ const getConfiguredApiBase = () => {
 };
 
 /** 网页版配置的远端 API 地址（自检与诊断报告用）；桌面版走内嵌后端，返回 null。 */
-export const getNeteaseRemoteApiBase = (): string | null => (isElectronRuntime() ? null : getConfiguredApiBase());
+export const getNeteaseRemoteApiBase = (): string | null => (isElectronRuntime() || IS_ANDROID_WEBVIEW ? null : getConfiguredApiBase());
 
 // Thrown (as the error's `code`, and at the start of its message) when the Electron backend is not
 // listening, so it stays distinguishable from an ordinary request failure. The message carries the
@@ -235,7 +237,32 @@ const fetchWithCreds = async (endpoint: string, options: RequestInit = {}, limit
   const send = async (signal?: AbortSignal) => {
     let res: Response;
     try {
-      res = await fetch(finalUrl, { ...defaultOptions, credentials: 'include', ...(signal ? { signal } : {}) });
+      if (IS_ANDROID_WEBVIEW) {
+        // 安卓没有本地后端/远端 API：请求交给原生内置桥（nativeBridge/api/netease.js），
+        // 把桥返回的 JSON 包成 Response，后面的解析与错误映射和桌面版一致。
+        const target = new URL(endpoint, 'https://folia.local');
+        if (cookieToUse) target.searchParams.set('cookie', cookieToUse);
+        const data = await requestFoliaExtension<Record<string, unknown>>({
+          provider: 'netease',
+          operation: target.pathname.replace(/^\/extension/, '') || '/',
+          method: String(defaultOptions.method || 'GET').toUpperCase(),
+          query: Object.fromEntries(target.searchParams.entries()),
+          ...(typeof defaultOptions.body === 'string' && defaultOptions.body ? { body: defaultOptions.body } : {}),
+        });
+        const failure = data && typeof data === 'object'
+          ? (data as { __foliaBridgeError?: unknown }).__foliaBridgeError
+          : undefined;
+        if (failure) {
+          const status = failure === 'AUTH_REQUIRED' ? 401 : 502;
+          const message = String((data as { message?: unknown }).message || 'NetEase bridge request failed');
+          res = new Response(JSON.stringify({ code: status, message }), { status, headers: { 'content-type': 'application/json' } });
+        } else {
+          res = new Response(JSON.stringify(data ?? {}), { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+      } else {
+        
+res = await fetch(finalUrl, { ...defaultOptions, credentials: 'include', ...(signal ? { signal } : {}) });
+      }
     } catch (error) {
       // The API itself could not be reached (the local backend has exited, a remote API is down): not a
       // failure of NetEase's. The error names the route, keeps the fetch's own error as its cause, and

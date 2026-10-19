@@ -1277,8 +1277,10 @@ export async function handleLoginQrCheck(key) {
         hasCookie: true,
       };
     }
+    // 渲染层在 803 时把这份 cookie 存成会话值、之后随请求带回内置桥；不带上它就永远显示未登录。
     return Object.assign({}, info, {
       code: 803,
+      cookie: cookieText || cookie,
       message: body.message || '授权登录成功',
       nickname: profile.nickname || body.nickname || info.nickname || '网易云用户',
       avatar: profile.avatarUrl || body.avatarUrl || info.avatar || '',
