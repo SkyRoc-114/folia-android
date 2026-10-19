@@ -1,4 +1,5 @@
 import { OnlineProviderError } from '../../../types/onlineMusic';
+import { IS_ANDROID_WEBVIEW } from '../../../utils/platform';
 import type { ProviderErrorCode } from '../../../types/onlineMusic';
 
 // src/services/onlineMusic/ytm/ytmTransport.ts
@@ -68,13 +69,20 @@ export type YtmWireWebLoginState =
     | { state: 'confirmed'; account: unknown }
     | { state: 'error'; message: string; code?: ProviderErrorCode; reason?: string };
 
+// Android 版先把 YouTube Music 做成「入口」：平台在列表里可见、点开能看到登录说明，
+// 但登录/浏览/播放的传输层还没实现，请求会明确报「暂不支持」而不是假装没配置。
 export const getYtmTransportAvailability = () => (
-    typeof window !== 'undefined' && typeof window.electron?.ytmRequest === 'function'
+    typeof window !== 'undefined'
+    && (typeof window.electron?.ytmRequest === 'function' || IS_ANDROID_WEBVIEW)
         ? { configured: true } as const
         : { configured: false, reason: 'runtime-unavailable' } as const
 );
 
 export async function requestYtm<T = unknown>(operation: YtmOperation, params: YtmParams = {}): Promise<T> {
+    if (typeof window !== 'undefined' && !window.electron?.ytmRequest) {
+        // Android 版入口：传输层未实现，明确告诉用户是「暂不支持」而不是「没配置」。
+        throw new OnlineProviderError('unsupported', 'YouTube Music 在 Android 版暂不支持（仅入口）', 'ytm');
+    }
     if (!getYtmTransportAvailability().configured) {
         throw new OnlineProviderError('unavailable', 'YouTube Music requires the desktop app', 'ytm');
     }

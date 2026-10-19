@@ -1419,7 +1419,8 @@ export default {
     "loginNoteYtmBrowserMac": "A separate browser window opens. Sign in to Google there, and quit that browser (⌘Q) once YouTube Music shows your account.",
     "loginNoBrowserYtm": "Signing in to YouTube Music needs Chrome, Edge, Chromium or Brave installed.",
     "loginCodeWaiting": "Waiting for confirmation in your browser",
-    "loginTitleSpotify": "Sign in to Spotify",
+    "loginTitleSpotify": "Sign in to Spotify",      "loginNoteYtmAndroid": "YouTube Music is an entry point only on Android: sign-in, browsing and playback are not implemented yet.",
+
     "loginNoteSpotify": "Choose Agree on the Spotify page that opens in your browser",
     "loginCaseSpotifyUnfinished": "Not confirmed within 10 minutes",
     "loginCaseSpotifyDenied": "Choose Agree on the Spotify page",

@@ -1419,7 +1419,8 @@ export default {
     "loginNoteYtmBrowserMac": "Jendela browser terpisah akan terbuka. Masuk ke Google di sana, lalu keluar dari browser itu (⌘Q) setelah YouTube Music menampilkan akun Anda.",
     "loginNoBrowserYtm": "Masuk ke YouTube Music memerlukan Chrome, Edge, Chromium, atau Brave yang terpasang.",
     "loginCodeWaiting": "Menunggu konfirmasi di browser",
-    "loginTitleSpotify": "Masuk ke Spotify",
+    "loginTitleSpotify": "Masuk ke Spotify",      "loginNoteYtmAndroid": "YouTube Music hanya berupa entri di Android: masuk, jelajah, dan pemutaran belum tersedia.",
+
     "loginNoteSpotify": "Pilih Setuju di halaman Spotify yang terbuka di browser",
     "loginCaseSpotifyUnfinished": "Tidak dikonfirmasi dalam 10 menit",
     "loginCaseSpotifyDenied": "Pilih Setuju di halaman Spotify",

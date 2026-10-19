@@ -1,7 +1,7 @@
 import type { UnifiedSong } from '../../../types';
 import type { OnlineMusicProvider, ProviderUser } from '../../../types/onlineMusic';
 import { createProviderSongMetadata } from '../../../utils/songMetadata';
-import { isMacPlatform } from '../../../utils/platform';
+import { isMacPlatform, IS_ANDROID_WEBVIEW } from '../../../utils/platform';
 import { parseLyricsByFormat } from '../../../utils/lyrics/parserCore';
 import { noteYtmAccount, ytmHasPremium } from './ytmAccount';
 import { getYtmTransportAvailability, requestYtm } from './ytmTransport';
@@ -135,7 +135,9 @@ export const ytmProvider: OnlineMusicProvider = {
         // On macOS a browser goes on running after its last window is closed: the note says to quit it.
         getLoginTexts: () => ({
             title: 'home.loginTitleYtm',
-            note: isMacPlatform ? 'home.loginNoteYtmBrowserMac' : 'home.loginNoteYtmBrowser',
+            // Android 版目前只是入口：登录说明直接讲清楚「还没实现」。
+        note: IS_ANDROID_WEBVIEW ? 'home.loginNoteYtmAndroid'
+            : isMacPlatform ? 'home.loginNoteYtmBrowserMac' : 'home.loginNoteYtmBrowser',
             // The desktop side found none of the browsers it opens: the window then says which ones the sign-in needs.
             caseNotes: { 'browser-unfinished': 'home.loginCaseYtmUnfinished', 'no-browser': 'home.loginNoBrowserYtm' },
         }),
