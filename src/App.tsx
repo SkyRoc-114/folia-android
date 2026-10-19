@@ -49,6 +49,8 @@ import WallToolsDockHost from './components/wall/WallToolsDock';
 import { buildPlayerViewFlags } from './components/app/presentation/buildPlayerViewFlags';
 import { buildVisualizerTheme } from './components/app/presentation/buildVisualizerTheme';
 import { createCoverUrlResolver } from './components/app/playback/createCoverUrlResolver';
+import { getSizedCoverUrl } from './utils/coverUrl';
+import { prewarmCoverImage } from './utils/coverPrewarm';
 import { createLyricsSetter } from './components/app/playback/createLyricsSetter';
 import { createLyricSegmentationActions } from './components/app/playback/createLyricSegmentationActions';
 import { useLyricWordSegmentation } from './hooks/useLyricWordSegmentation';
@@ -626,6 +628,10 @@ export default function App() {
     );
 
     const coverUrl = getCoverUrl();
+    // Android 移植：预热当前封面（列表/切歌时先解码，避免墙面与播放条白闪）。
+    useEffect(() => {
+        if (coverUrl) prewarmCoverImage(getSizedCoverUrl(coverUrl, 512));
+    }, [coverUrl]);
 
     // Theme Controller
     // manages current theme, daylight mode, and related actions like generating AI themes 
