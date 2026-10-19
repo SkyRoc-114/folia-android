@@ -766,7 +766,7 @@ async function ensureKGAndroidAuth(cookieHeader, opts) {
   };
 }
 
-function resolveKGEffectiveVipToken(cookieHeader, cached) {
+export function resolveKGEffectiveVipToken(cookieHeader, cached) {
   return kgCookieVipToken(cookieHeader) || (cached && cached.vipToken) || '';
 }
 
@@ -2199,7 +2199,7 @@ export async function getKGUserVipDetail(cookieHeader) {
   };
 }
 
-function mergeKGVipState(base, extra) {
+export function mergeKGVipState(base, extra) {
   base = base || { vipType: 0, isVip: false };
   extra = extra || { vipType: 0, isVip: false };
   const vipType = Math.max(Number(base.vipType) || 0, Number(extra.vipType) || 0);
@@ -2207,7 +2207,7 @@ function mergeKGVipState(base, extra) {
   return { vipType: vipType || (isVip ? 6 : 0), isVip };
 }
 
-function resolveKGTrackerVipType(cookieHeader, loginVipType) {
+export function resolveKGTrackerVipType(cookieHeader, loginVipType) {
   const fromCookie = kgCookieVipType(cookieHeader);
   if (fromCookie > 0) return String(fromCookie);
   if (Number(loginVipType) > 0) return String(loginVipType);
@@ -2216,7 +2216,7 @@ function resolveKGTrackerVipType(cookieHeader, loginVipType) {
   return '0';
 }
 
-function buildKGTrackerVipTypeCandidates(cookieHeader, loginVipType) {
+export function buildKGTrackerVipTypeCandidates(cookieHeader, loginVipType) {
   return [...new Set([
     resolveKGTrackerVipType(cookieHeader, loginVipType),
     String(kgCookieVipType(cookieHeader) || ''),
