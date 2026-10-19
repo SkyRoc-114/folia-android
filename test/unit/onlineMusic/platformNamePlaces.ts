@@ -151,7 +151,7 @@ export const PLATFORM_NAME_PLACES: Record<string, PlatformNamePlace> = {
     "src/nativeBridge/api/bodian.js": { n: { bodian: 71 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质' },
     "src/nativeBridge/api/cookies.js": { n: { kugou: 9, netease: 9, qq: 50 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质' },
     "src/nativeBridge/api/eapi.js": { n: { netease: 7 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质' },
-    "src/nativeBridge/api/folia.js": { n: { bodian: 3, kugou: 13, netease: 17, qq: 129, spotify: 3 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质；路由表按平台名分发' },
+    "src/nativeBridge/api/folia.js": { n: { bodian: 3, kugou: 13, netease: 16, qq: 129, spotify: 3 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质；路由表按平台名分发' },
     "src/nativeBridge/api/kugou.js": { n: { kugou: 262 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质' },
     "src/nativeBridge/api/libraryTrace.js": { n: { kugou: 1, netease: 1, qq: 1 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质' },
     "src/nativeBridge/api/login.js": { n: { kugou: 9, netease: 20, qq: 17 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质' },
