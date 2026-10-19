@@ -3050,7 +3050,7 @@ export async function handleKGSongUrl(hash, albumId, albumAudioId, quality, cook
   }
   const qualityCode = picked.level === 'lossless' ? 'flac' : (picked.level === 'exhigh' ? 320 : 128);
   const cacheKey = buildKGPlayUrlCacheKey(playHash, albumId, albumAudioId, picked.level);
-  const login = await getKGPlayContext(cookieHeader);
+  let login = await getKGPlayContext(cookieHeader);
   const hasVipToken = !!resolveKGEffectiveVipToken(cookieHeader, await loadKGVipSessionCache(login.userId));
   const successPayload = (url, source) => ({
     provider: 'kg',
@@ -3115,6 +3115,18 @@ export async function handleKGSongUrl(hash, albumId, albumAudioId, quality, cook
         await clearKGVipAppToken(login.userId);
         const forced = await ensureKGAndroidAuth(cookieHeader, { force: true, requireAppToken: true });
         cookieHeader = forced.cookieHeader || cookieHeader;
+      }
+      // 强制刷新里同时做了标准版 token 刷新和概念版会员探测：用刷新后的登录态重试，
+      // 否则重试仍按刷新前的「免费账号」判断，概念版会员这一轮就白刷了。
+      const loginBeforeRetry = login;
+      login = await getKGPlayContext(cookieHeader);
+      if (login.vipType !== loginBeforeRetry.vipType || login.isVip !== loginBeforeRetry.isVip) {
+        noteLibraryStep('kugou', 'url:retry-vip-state', {
+          vipTypeBefore: Number(loginBeforeRetry.vipType) || 0,
+          vipTypeAfter: Number(login.vipType) || 0,
+          isVipBefore: !!loginBeforeRetry.isVip,
+          isVipAfter: !!login.isVip,
+        });
       }
       const retry = await resolveKGSongPlayUrl(playHash, albumId, albumAudioId, cookieHeader, login, qualityCode);
       if (retry && retry.url) {
