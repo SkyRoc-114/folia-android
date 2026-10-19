@@ -2133,7 +2133,9 @@ export default {
     "disableVisualizerVignette": "禁用暗角",
     "visualizerVignette": "暗角",
     "disableVisualizerVignetteDesc": "关闭几何背景自带的边缘暗角，建议配合透明背景使用。",
-    "latticeSettings": "拼贴墙外观",
+    "latticeSettings": "拼贴墙外观",      "latticePerformanceMode": "性能优先",
+      "latticePerformanceModeDesc": "默认开启：关掉墙面的噪点混合层、暗角、海报叠层与悬停滤镜，封面降一档分辨率 —— 手机上的墙不再灰蒙蒙、也更省电。",
+
     "latticeVignette": "边缘暗角",
     "latticeVignetteDesc": "在队列拼贴与资料库墙四周加一层淡淡的暗角，让视线落在中间的海报上。",
     "latticePosterTint": "海报聚焦叠色",

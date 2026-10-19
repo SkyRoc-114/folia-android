@@ -74,6 +74,20 @@
     cursor: grab;
     touch-action: none;
     overscroll-behavior: none;
+    /*
+     * 把整面墙的重绘圈在墙自己的层里。
+     *
+     * 磁贴的 width/height 动画是布局动画，重绘会沿着祖先链一路冒泡 —— 没有 containment
+     * 时 Chromium 把它记到 #document 上（轨迹实测：一次选歌整屏级 paint 10 次）。
+     * Android WebView 的合成器面对整屏重栅格化 + 根层上方那层噪点混合
+     * （.lattice-root::after 的 mix-blend-mode），低端 GPU 上来不及稳定供帧，
+     * 用户看到的就是「整屏一直闪烁」。
+     * paint containment 让 field 成为独立绘制边界：墙内怎么动，重绘都被裁在这块区域里，
+     * 不再惊动整屏。layout containment 同时隔断墙内布局变化对外部的反噬
+     * （field 本身 absolute inset:0，尺寸不依赖内容，安全）。
+     * world 已有的 overflow: clip 语义被完整包含，无行为变化。
+     */
+    contain: layout paint;
 }
 
 .lattice-field:active { cursor: grabbing; }
@@ -93,6 +107,18 @@
     position: absolute;
     inset: 0;
     transform-origin: 0 0;
+    /*
+     * 这里**刻意不加** will-change: transform。
+     *
+     * world 的实际 bounds 是整面墙（实测 12212x11580，远超移动 GPU 的最大纹理尺寸）。
+     * will-change 把它变成常驻合成层后，任何一张磁贴做尺寸动画（width/height 是布局
+     * 属性，必然 repaint）都会落到这个巨型层上，触发整层 tile 重栅格化 —— 超限层在
+     * Android WebView 的合成器上会反复丢弃重建，用户看到的就是「选歌时整屏一直闪烁」。
+     * 桌面 GPU 撑得住，所以桌面复现不了。
+     *
+     * 相机 pan 不受影响：transform 是合成属性，rAF 写 transform 时 Chromium
+     * 会把新的一帧直接交给合成器，不需要合成层常驻。
+     */
 }
 
 .lattice-poster {
@@ -360,3 +386,37 @@
 
 /* 降级状态的来源同 wall.css 里海报的那条规则（useMotionSettingsStore → <html data-reduce-motion>）。 */
 :root[data-reduce-motion~='lattice'] .lattice-poster-lights-out { transition: none; }
+
+/* ---------- 性能优先（.is-performance，由 useLatticeSettingsStore.latticePerformanceMode 挂上，默认开） ---------- */
+/*
+ * 只留翻牌 / 入场波次 / 缝的展开收起，其余装饰全部让路。关掉的正好是两类最贵的：
+ *   1. 整屏一层的：::after 的噪点（feTurbulence + mix-blend-mode: soft-light）是逐帧的整屏重混合，
+ *      暗角 ::before 与根节点的两层光晕同样是整屏渐变 —— 墙一动就要跟着重画一遍；
+ *   2. 每张卡一层的：海报的 box-shadow / filter 与它们的过渡，展开卡还有 0 42px 110px 的大面积模糊。
+ * tint / lights-out 两张叠层在组件里直接不渲染（LatticePoster / BravaisTile），这里只管 CSS 自己加的。
+ * 焦点环是键盘可达性，不能砍，但收成一圈描边，不再叠三条阴影。
+ */
+.lattice-root.is-performance::after,
+.lattice-root.is-performance.has-vignette::before { display: none; }
+
+.lattice-root.is-performance { background: var(--bg-color, #070707); }
+
+.lattice-root.is-performance .lattice-poster {
+    box-shadow: none;
+    transition: none;
+}
+
+.lattice-root.is-performance .lattice-poster:hover { filter: none; }
+.lattice-root.is-performance .lattice-poster::after { display: none; }
+
+.lattice-root.is-performance .lattice-poster.is-focused,
+.lattice-root.is-performance .lattice-poster:focus-visible {
+    box-shadow: 0 0 0 2px var(--text-primary, #fff);
+}
+
+/* 展开卡的那一大块模糊收成一小圈：它在展开动画期间每帧都要重画一遍。 */
+.lattice-root.is-performance .lattice-poster.is-expanded {
+    --lattice-poster-elevation: 0 10px 24px var(--lattice-expanded-shadow);
+}
+
+.lattice-root.is-performance .lattice-poster.is-current::before { transition: none; }

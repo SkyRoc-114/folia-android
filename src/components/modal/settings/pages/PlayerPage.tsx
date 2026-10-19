@@ -33,6 +33,7 @@ const PLAYER_UI: SettingsGroupDef = { id: 'labPlayerUi', titleKey: 'options.labP
 const O = {
     entryView: option(VIEW, 'playbackEntryViewChoice', 'options.playbackEntryView'),
     vignette: option(VIEW, 'latticeSettings', 'options.latticeVignette'),
+    performanceMode: option(VIEW, 'latticePerformanceMode', 'options.latticePerformanceMode'),
     tint: option(VIEW, 'latticePosterTint', 'options.latticePosterTint'),
     tintCustomColor: option(VIEW, 'latticePosterTintCustomColor', 'options.latticePosterTintCustomColor'),
     tintColor: option(VIEW, 'latticePosterTintColor', 'options.latticePosterTintColor'),
@@ -70,6 +71,8 @@ const PlayerPage: React.FC = () => {
         setPlaybackEntryView: state.setPlaybackEntryView,
     })));
     const lattice = useLatticeSettingsStore(useShallow(state => ({
+        performanceMode: state.latticePerformanceMode,
+        setPerformanceMode: state.handleToggleLatticePerformanceMode,
         vignette: state.latticeVignette,
         tintEnabled: state.latticePosterTintEnabled,
         tintUseCustomColor: state.latticePosterTintUseCustomColor,
@@ -184,6 +187,10 @@ const PlayerPage: React.FC = () => {
                         ]}
                         onChange={setPlaybackEntryView}
                     />
+                </Row>
+                {/* Android 移植：性能优先（默认开）—— 关掉噪点混合、暗角、海报叠层，封面降档。 */}
+                <Row option={O.performanceMode} note={t('options.latticePerformanceModeDesc')}>
+                    <Toggle checked={lattice.performanceMode} onChange={lattice.setPerformanceMode} />
                 </Row>
                 <Row option={O.vignette} note={t('options.latticeVignetteDesc')}>
                     <Toggle checked={lattice.vignette} onChange={lattice.setVignette} />

@@ -4,6 +4,7 @@ exports[`store contract > keeps every localStorage key the stores read or write 
 [
   "active_online_provider_id",
   "audio_output_device_id",
+  "auto_hide_command_palette_button",
   "auto_hide_player_chrome",
   "background_opacity",
   "cadenza_tuning",
@@ -57,6 +58,7 @@ exports[`store contract > keeps every localStorage key the stores read or write 
   "latent_background_tuning",
   "lattice_auto_focus_on_song_change",
   "lattice_lights_on",
+  "lattice_performance_mode",
   "lattice_poster_tint_color",
   "lattice_poster_tint_enabled",
   "lattice_poster_tint_intensity",

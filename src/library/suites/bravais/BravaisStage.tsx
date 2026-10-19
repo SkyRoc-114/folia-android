@@ -134,6 +134,7 @@ const BravaisStage: React.FC<LibrarySuiteStageProps> = ({
     // B11：换层的翻牌 / 波次按「降低动态效果」降级成淡入淡出（lattice 或 collectionMorph，见 bravaisMotion）。
     const reducedTransitions = useBravaisReducedTransitions();
     const devicePixelRatio = useDevicePixelRatio();
+    const performanceMode = useLatticeSettingsStore(state => state.latticePerformanceMode);
     const vignette = useLatticeSettingsStore(state => state.latticeVignette);
     const lightsOn = useLatticeSettingsStore(state => state.latticeLightsOn);
     const tintEnabled = useLatticeSettingsStore(state => state.latticePosterTintEnabled);
@@ -479,6 +480,7 @@ const BravaisStage: React.FC<LibrarySuiteStageProps> = ({
         'lattice-root',
         'bravais-root',
         isDaylight ? 'is-daylight' : '',
+        performanceMode ? 'is-performance' : '',
         vignette ? 'has-vignette' : '',
         lightsOn ? '' : 'is-lights-out',
         tintEnabled ? 'has-poster-tint' : '',
@@ -551,7 +553,10 @@ const BravaisStage: React.FC<LibrarySuiteStageProps> = ({
                     expandedSlotKey={focus.expandedSlotKey}
                     focusedSlotKey={focus.focusedSlotKey}
                     linkedKey={panelFor !== null && panelFor === display?.layer.key ? linkedKey : null}
-                    pixelScale={(view?.scale ?? 1) * devicePixelRatio}
+                    /* 性能优先：封面按世界尺寸（而不是设备像素）取档，高 DPR 屏上不再去拉大一档的图。 */
+                    pixelScale={performanceMode
+                        ? Math.min((view?.scale ?? 1) * devicePixelRatio, 1)
+                        : (view?.scale ?? 1) * devicePixelRatio}
                     reducedMotion={reducedTransitions}
                     didDragRef={camera.pointer.didDragRef}
                     handlers={interactions.handlers}

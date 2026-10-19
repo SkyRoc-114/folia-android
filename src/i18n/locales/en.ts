@@ -2133,7 +2133,9 @@ export default {
     "disableVisualizerVignette": "Disable vignette",
     "visualizerVignette": "Vignette",
     "disableVisualizerVignetteDesc": "Only removes the geometric background edge vignette. Transparent background and geometric shapes stay separate.",
-    "latticeSettings": "Tile wall appearance",
+    "latticeSettings": "Tile wall appearance",      "latticePerformanceMode": "Performance first",
+      "latticePerformanceModeDesc": "On by default: drops the wall grain layer, vignette, poster stacking and hover filters, and lowers cover resolution one step.",
+
     "latticeVignette": "Edge vignette",
     "latticeVignetteDesc": "Darkens the edges of the queue collage and the library wall so the middle of the wall carries the eye.",
     "latticePosterTint": "Poster focus tint",
