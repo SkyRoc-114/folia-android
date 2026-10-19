@@ -1142,4 +1142,99 @@ public class FoliaNativePlugin extends Plugin {
         }
         return cookies;
     }
+    // ── Spotify 登录（OAuth PKCE + 回环回调，见 SpotifyAuth.java）────────────────
+
+    @PluginMethod
+    public void spotifyStartLogin(PluginCall call) {
+        new Thread(() -> {
+            try {
+                String id = SpotifyAuth.signIn(getContext());
+                JSObject result = new JSObject();
+                result.put("signedIn", id != null);
+                result.put("id", id);
+                result.put("reason", SpotifyAuth.lastError());
+                if (id != null) result.put("user", toJsUser(SpotifyAuth.profile(getContext())));
+                call.resolve(result);
+            } catch (IOException error) {
+                call.reject("Spotify sign-in failed: " + error.getMessage(), error);
+            }
+        }, "folia-spotify-login").start();
+    }
+
+    @PluginMethod
+    public void spotifyCancelLogin(PluginCall call) {
+        SpotifyAuth.cancel();
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void spotifyLoginStatus(PluginCall call) {
+        JSObject result = new JSObject();
+        String id = SpotifyAuth.signedInId(getContext());
+        result.put("signedIn", id != null);
+        result.put("id", id);
+        if (id != null) result.put("user", toJsUser(SpotifyAuth.profile(getContext())));
+        call.resolve(result);
+    }
+
+    @PluginMethod
+    public void spotifyLogout(PluginCall call) {
+        SpotifyAuth.signOut(getContext());
+        call.resolve();
+    }
+
+    /** Spotify 的 Web API 代取：令牌留在原生侧，渲染层只说「哪个接口」。 */
+    @PluginMethod
+    public void spotifyRequest(PluginCall call) {
+        String method = call.getString("method", "GET").toUpperCase(Locale.ROOT);
+        String path = call.getString("path", "");
+        String bodyText = call.getString("bodyText", "");
+        if (path == null || (!path.startsWith("/") && !path.startsWith("https://api.spotify.com/"))) {
+            call.reject("Spotify request path must be a Spotify API path");
+            return;
+        }
+        new Thread(() -> {
+            try {
+                String token = SpotifyAuth.accessToken(getContext());
+                if (token == null) {
+                    call.reject("Spotify is not signed in");
+                    return;
+                }
+                String url = path.startsWith("https://") ? path : "https://api.spotify.com" + path;
+                RequestBody body = null;
+                if (!bodyText.isEmpty()) {
+                    body = RequestBody.create(bodyText, MediaType.parse("application/json; charset=utf-8"));
+                }
+                Request.Builder builder = new Request.Builder()
+                        .url(url)
+                        .header("Authorization", "Bearer " + token);
+                if (body != null) builder.method(method, body);
+                else if ("GET".equals(method)) builder.get();
+                else builder.method(method, RequestBody.create(new byte[0], null));
+                try (Response response = client.newCall(builder.build()).execute()) {
+                    JSObject result = new JSObject();
+                    result.put("status", response.code());
+                    String responseBody = response.body() == null ? "" : response.body().string();
+                    result.put("body", responseBody);
+                    call.resolve(result);
+                }
+            } catch (IOException error) {
+                call.reject("Spotify request failed: " + error.getMessage(), error);
+            }
+        }, "folia-spotify-api").start();
+    }
+
+    private JSObject toJsUser(JSONObject profile) {
+        JSObject user = new JSObject();
+        if (profile == null) return user;
+        user.put("id", profile.optString("id", ""));
+        user.put("displayName", profile.optString("display_name", ""));
+        user.put("product", profile.optString("product", ""));
+        user.put("country", profile.optString("country", ""));
+        org.json.JSONArray images = profile.optJSONArray("images");
+        if (images != null && images.length() > 0) {
+            user.put("avatarUrl", images.optJSONObject(0) == null ? "" : images.optJSONObject(0).optString("url", ""));
+        }
+        return user;
+    }
 }

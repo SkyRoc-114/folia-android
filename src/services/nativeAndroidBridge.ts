@@ -40,6 +40,10 @@ const API_HOSTS = [
   // 封面与头像。前端会为了封面缓存 / 预加载直接 fetch 这些 CDN（coverCache、playedTrackCache、
   // useLocalCoverPreloader 都是 `mode: 'cors'`），漏掉一个就是「封面永远缓存不上」且不报错。
   // 整域名匹配，网易云的 p1/p2/... 与酷狗的 c1/imge 等子域一并覆盖。
+  // Spotify：登录后 Web API 走 /v1/*、图片与 30 秒试听走 CDN；不带进白名单就是跨域失败。
+  'spotify.com',
+  'spotifycdn.com',
+  'scdn.co',
   'y.gtimg.cn',
   'qlogo.cn',
   '126.net',
