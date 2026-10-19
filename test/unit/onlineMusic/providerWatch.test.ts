@@ -47,7 +47,7 @@ describe('what a provider watches while the app is open', () => {
     });
 
     it('is declared only by the provider that has something to watch', () => {
-        expect(listOnlineMusicProviders().filter(provider => provider.watch).map(provider => provider.id)).toEqual(['netease']);
+        // kugou 的 watch 每 6 小时重确认一次概念版每日 VIP；netease 看本地服务状态。        expect(listOnlineMusicProviders().filter(provider => provider.watch).map(provider => provider.id)).toEqual(['netease', 'kugou']);
     });
 
     it('does nothing where there is no desktop bridge', async () => {
