@@ -50,11 +50,13 @@ final class SpotifyAuth {
     private static final String KEY_EXPIRES = "expires_at";
     private static final String KEY_USER = "user_json";
 
-    private static final String SCOPES = "app-remote-control playlist-modify playlist-modify-private playlist-modify-public "
-            + "playlist-read playlist-read-collaborative playlist-read-private streaming ugc-image-upload user-follow-modify "
-            + "user-follow-read user-library-modify user-library-read user-modify user-modify-playback-state user-modify-private "
-            + "user-personalized user-read-birthdate user-read-currently-playing user-read-email user-read-play-history "
-            + "user-read-playback-position user-read-playback-state user-read-private user-read-recently-played user-top-read";
+    // 只请求现在的 Web API 还认的 scope。桌面版那份清单里有早已废弃的（user-modify、user-read-birthdate、
+    // user-personalized、playlist-read/modify 旧名等），用新注册的 App 去请求会整页报 invalid_scope。
+    // 播放没有实现（安卓没有 librespot），所以 streaming / app-remote-control 也不要。
+    private static final String SCOPES = "playlist-read-private playlist-read-collaborative "
+            + "playlist-modify-private playlist-modify-public "
+            + "user-library-read user-library-modify user-follow-read user-follow-modify "
+            + "user-read-private user-read-email user-top-read user-read-recently-played";
 
     private static final long ATTEMPT_MS = 3 * 60 * 1000L;
     private static final OkHttpClient HTTP = new OkHttpClient.Builder()
