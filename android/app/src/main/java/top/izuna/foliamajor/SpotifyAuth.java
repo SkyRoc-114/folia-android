@@ -74,14 +74,20 @@ final class SpotifyAuth {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
     }
 
-    /** 已登录时返回账号 id，否则 null。 */
-    static String signedInId(Context context) {
+    /** 有 refresh token 就是已登录（资料页拿不到不影响登录态）。 */
+    static boolean hasSession(Context context) {
         String refresh = prefs(context).getString(KEY_REFRESH, null);
-        if (refresh == null || refresh.isEmpty()) return null;
+        return refresh != null && !refresh.isEmpty();
+    }
+
+    /** 已登录时返回账号 id（资料页还没拉到时给一个占位 id），没有令牌时 null。 */
+    static String signedInId(Context context) {
+        if (!hasSession(context)) return null;
         try {
-            return new JSONObject(prefs(context).getString(KEY_USER, "{}")).optString("id", null);
+            String id = new JSONObject(prefs(context).getString(KEY_USER, "{}")).optString("id", "");
+            return id.isEmpty() ? "spotify" : id;
         } catch (JSONException error) {
-            return null;
+            return "spotify";
         }
     }
 
@@ -143,9 +149,9 @@ final class SpotifyAuth {
             pending = null;
         }
         if (lastError != null) return null;
-        String id = signedInId(context);
-        if (id == null && lastError == null) lastError = "failed";
-        return id;
+        // 令牌存下来就算登录成功：资料页（/v1/me）只是展示信息，Spotify 的公共 Web API 会对
+        // 这个 client 直接回 429，拿不到也不该把登录判死；资料由渲染层用 pathfinder 再拉。
+        return signedInId(context);
     }
 
     /** 用户从登录窗口取消：关掉回环监听，登录线程会尽快结束。 */
@@ -313,6 +319,7 @@ final class SpotifyAuth {
         editor.apply();
     }
 
+    /** 资料页只是展示信息：拿不到就留空，下次登录状态再拉（公共 Web API 可能回 429）。 */
     private static void fetchProfile(Context context) throws IOException {
         String access = accessToken(context);
         if (access == null) return;

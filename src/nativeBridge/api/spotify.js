@@ -209,11 +209,29 @@ const handlers = {
         const status = await authStatus();
         if (!status.signedIn) return null;
         const user = status.user ?? {};
+        let id = typeof user.id === 'string' && user.id ? user.id : (typeof status.id === 'string' ? status.id : '');
+        let nickname = typeof user.displayName === 'string' && user.displayName ? user.displayName : '';
+        let avatarUrl = typeof user.avatarUrl === 'string' ? user.avatarUrl : '';
+        let premium = user.product === 'premium';
+        // 资料优先走 pathfinder：这是应用自己用的接口，公共 Web API 会对这个 client 回 429。
+        if (!id || id === 'spotify' || !nickname) {
+            try {
+                const profile = await query('profileAttributes', {});
+                const me = profile?.me?.profile;
+                if (typeof me?.username === 'string' && me.username) id = me.username;
+                if (typeof me?.name === 'string' && me.name) nickname = me.name;
+                const pictures = Array.isArray(me?.avatar?.sources) ? me.avatar.sources : [];
+                const largest = pictures.reduce((best, picture) => ((picture?.width ?? 0) > (best?.width ?? -1) ? picture : best), null);
+                if (typeof largest?.url === 'string' && largest.url) avatarUrl = largest.url;
+            } catch (error) {
+                console.warn('[Spotify] profile unavailable', error);
+            }
+        }
         return {
-            id: typeof user.id === 'string' && user.id ? user.id : status.id,
-            nickname: typeof user.displayName === 'string' && user.displayName ? user.displayName : 'Spotify',
-            avatarUrl: typeof user.avatarUrl === 'string' ? user.avatarUrl : '',
-            vipType: user.product === 'premium' ? 1 : 0,
+            id: id || 'spotify',
+            nickname: nickname || 'Spotify',
+            avatarUrl,
+            vipType: premium ? 1 : 0,
         };
     },
     async logout() {
