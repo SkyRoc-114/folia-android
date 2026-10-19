@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { noteLibraryStep } from '../../../../nativeBridge/api/libraryTrace.js';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { ChevronLeft, ChevronRight, Loader2, Plus } from 'lucide-react';
@@ -185,6 +186,14 @@ export const ExploreSections: React.FC<ExploreSectionsProps> = ({ page, sections
     });
     told.current = arrivals;
     const select = useCallback((item: OmniExploreItem, section: OmniExploreSection) => {
+        // 点探索卡片时留痕：点的是哪一栏、什么类型、交给谁打开。报告里能看出点击有没有到达这里。
+        noteLibraryStep('explore', 'explore:select', {
+            section: String(section.title || section.id).slice(0, 40),
+            kind: item.kind,
+            ...(item.kind === 'collection'
+                ? { collectionType: String(item.collection.type), id: String(item.collection.id).slice(0, 40) }
+                : { songId: String(item.song.id).slice(0, 40) }),
+        });
         if (item.kind === 'collection') { onOpenCollection(item.collection); return; }
         onPlaySong(item.song, section.items.flatMap(entry => (entry.kind === 'song' ? [entry.song] : [])));
     }, [onOpenCollection, onPlaySong]);

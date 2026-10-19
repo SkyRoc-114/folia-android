@@ -2876,7 +2876,8 @@ const qqExploreToplistCard = entry => {
         id,
         title: String(entry?.title ?? ''),
         ...(period ? { period } : {}),
-        cover: String(entry?.headPicUrl ?? entry?.frontPicUrl ?? entry?.musichallPicUrl ?? ''),
+        // 封面字段名各版本不同：全空时卡片会是白图。
+        cover: String(entry?.headPicUrl ?? entry?.frontPicUrl ?? entry?.musichallPicUrl ?? entry?.picUrl ?? entry?.cover ?? entry?.imgurl ?? ''),
         total: Number(entry?.totalNum) || 0,
         listenNum: Number(entry?.listenNum) || 0,
         intro: typeof entry?.intro === 'string' ? entry.intro : '',

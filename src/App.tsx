@@ -80,6 +80,7 @@ import { consumeProgrammaticPause, playbackFade } from './services/playbackFade'
 import { getSongArtistLabel, getSongCoverUrl } from './services/onlineMusic/songMetadata';
 import { isNavidromeEnabled } from './services/navidromeService';
 import { useAppNavigation } from './hooks/useAppNavigation';
+import { noteLibraryStep } from './nativeBridge/api/libraryTrace.js';
 import { useNeteaseLibrary } from './hooks/useNeteaseLibrary';
 import { useLibraryAccountController } from './library/app/useLibraryAccountController';
 import { createLibraryAccountSwitchCleanupPort } from './library/app/createLibraryAccountPort';
@@ -956,7 +957,14 @@ export default function App() {
 
     const localLibraryCatalog = useLocalLibraryCatalog(localSongs);
     const openHomeCollection = useCallback(
-        (collection: GridViewCollectionDescriptor) => navigateToCollection(collection, 'home'),
+        (collection: GridViewCollectionDescriptor) => {
+            noteLibraryStep('collection', 'open:home', {
+                source: String(collection.source ?? '?'),
+                type: String(collection.type ?? '?'),
+                id: String(collection.id ?? '?').slice(0, 40),
+            });
+            navigateToCollection(collection, 'home');
+        },
         [navigateToCollection],
     );
     const handleSaveLyricFilterPattern = useMemo(() => createLyricFilterPatternSaver({
