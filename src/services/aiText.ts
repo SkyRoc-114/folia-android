@@ -1,4 +1,15 @@
+import { CapacitorHttp } from '@capacitor/core';
 import { DualTheme } from "../types";
+import {
+  AI_CLIENT_GEMINI_MODEL,
+  DEFAULT_AI_CLIENT_MODEL,
+  DEFAULT_AI_CLIENT_TEMPERATURE,
+  aiClientApiKeyOf,
+  isDirectAiTextRuntime,
+  useAiClientSettingsStore,
+} from '../stores/useAiClientSettingsStore';
+import { THEME_GENERATION_PROMPT_PREFIX, buildThemeSourcePrompt, parseAiThemeJsonInput } from '../utils/aiThemePrompts';
+import { DEFAULT_OPENAI_CHAT_COMPLETIONS_URL, geminiGenerateContentUrl } from '../utils/openAIEndpoint';
 import { applyStoredAnimationIntensityToDualTheme } from "./themePreferences";
 import { sanitizeDualTheme } from "./themeSanitizer";
 import { getWebAiProvider, type WebAiProvider } from "./runtimeConfig";
@@ -20,6 +31,9 @@ import { getWebAiProvider, type WebAiProvider } from "./runtimeConfig";
  * serverless routes send it, with the deployment's key (worker/, and api-ts/ built into api/;
  * segmentation in shared/lyricSegmentationService.mjs). Which service the web build uses is the
  * deployment's choice, read by ./runtimeConfig.
+ *
+ * The Android shell has neither: the key typed in settings stays in the renderer
+ * (useAiClientSettingsStore) and the request goes straight to the service through CapacitorHttp.
  *
  * It lives in src/services/ because the theme controller, the OBS overlay, the lyric segmentation
  * and the settings form all use it, and none of them owns it.
@@ -44,6 +58,252 @@ const getErrorMessage = (error: unknown) => {
   return String(error ?? '');
 };
 
+// ---------------------------------------------------------------------------
+// 安卓壳直连：没有主进程也没有部署的 /api，密钥来自设置页（useAiClientSettingsStore），
+// 请求在 WebView 里直接发；原生 CapacitorHttp 优先，避开浏览器 CORS。
+// ---------------------------------------------------------------------------
+
+const AI_DIRECT_TIMEOUT_MS = 120_000;
+const DIRECT_AI_ERROR_PREFIX = 'AI direct request failed';
+
+const missingDirectAiKeyError = () => new Error(
+  'AI API key is not configured: add it in Appearance → AI theme settings.',
+);
+
+const resolveDirectAiKey = (savedKey: string): string => {
+  const trimmed = savedKey.trim();
+  if (!trimmed) throw missingDirectAiKeyError();
+  return trimmed;
+};
+
+const parseJsonText = (text: string): unknown => {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+};
+
+const providerErrorOf = (payload: unknown): string => {
+  if (!payload || typeof payload !== 'object') return '';
+  const record = payload as Record<string, unknown>;
+  const error = record.error;
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object' && typeof (error as { message?: unknown }).message === 'string') {
+    return String((error as { message: string }).message);
+  }
+  return typeof record.message === 'string' ? record.message : '';
+};
+
+type DirectAiReply = { status: number; ok: boolean; text: string };
+
+const postDirectAiJson = async (
+  url: string,
+  headers: Record<string, string>,
+  body: unknown,
+): Promise<DirectAiReply> => {
+  const controller = typeof AbortController === 'undefined' ? null : new AbortController();
+  const timer = controller ? window.setTimeout(() => controller.abort(), AI_DIRECT_TIMEOUT_MS) : null;
+  try {
+    // 原生外壳里先走 CapacitorHttp：WebView 的 CORS 策略对第三方 AI 接口不一定放行。
+    if (typeof CapacitorHttp?.request === 'function') {
+      const response = await CapacitorHttp.request({
+        url,
+        method: 'POST',
+        headers,
+        data: body,
+        connectTimeout: AI_DIRECT_TIMEOUT_MS,
+        readTimeout: AI_DIRECT_TIMEOUT_MS,
+      });
+      return {
+        status: response.status,
+        ok: response.status >= 200 && response.status < 300,
+        text: typeof response.data === 'string' ? response.data : JSON.stringify(response.data ?? ''),
+      };
+    }
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+      signal: controller?.signal,
+    });
+    return { status: response.status, ok: response.ok, text: await response.text() };
+  } catch (error) {
+    const name = error instanceof Error ? error.name : '';
+    if (name === 'AbortError' || name === 'TimeoutError') {
+      throw new Error(`${DIRECT_AI_ERROR_PREFIX}: timed out after ${Math.round(AI_DIRECT_TIMEOUT_MS / 1000)}s`);
+    }
+    throw error;
+  } finally {
+    if (timer !== null) window.clearTimeout(timer);
+  }
+};
+
+/** OpenAI 兼容接口的 chat-completions 地址：与主进程的 normalizeOpenAIChatCompletionsUrl 同规则。 */
+const directOpenAiChatCompletionsUrl = (rawUrl: string): string => {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return DEFAULT_OPENAI_CHAT_COMPLETIONS_URL;
+  try {
+    const parsed = new URL(trimmed);
+    const normalizedPath = parsed.pathname.replace(/\/+$/, '');
+    if (!normalizedPath || normalizedPath === '/') {
+      parsed.pathname = '/v1/chat/completions';
+    } else if (/\/v\d+$/.test(normalizedPath)) {
+      parsed.pathname = `${normalizedPath}/chat/completions`;
+    } else {
+      parsed.pathname = normalizedPath;
+    }
+    return parsed.toString();
+  } catch {
+    return trimmed.replace(/\/+$/, '');
+  }
+};
+
+const directAiTemperature = (raw: string): number => {
+  const parsed = Number.parseFloat(raw.trim());
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 2 ? parsed : Number(DEFAULT_AI_CLIENT_TEMPERATURE);
+};
+
+const textOfOpenAiContent = (content: unknown): string => {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .filter((part): part is { type?: unknown; text?: unknown } => Boolean(part) && typeof part === 'object')
+    .filter(part => part.type === 'text' && typeof part.text === 'string')
+    .map(part => String(part.text))
+    .join('');
+};
+
+const generateThemeWithDirectClient = async (
+  lyricsText: string,
+  options?: { isPureMusic?: boolean; songTitle?: string },
+): Promise<DualTheme> => {
+  const settings = useAiClientSettingsStore.getState().settings;
+  const snippet = lyricsText.slice(0, 2000);
+  const sourcePrompt = buildThemeSourcePrompt(snippet, options?.isPureMusic === true, options?.songTitle);
+  const temperature = directAiTemperature(settings.openaiTemperature);
+  let text = '';
+
+  if (settings.provider === 'openai') {
+    const key = resolveDirectAiKey(settings.openaiApiKey);
+    const reply = await postDirectAiJson(
+      directOpenAiChatCompletionsUrl(settings.openaiApiUrl),
+      { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      {
+        model: settings.openaiApiModel.trim() || DEFAULT_AI_CLIENT_MODEL,
+        messages: [
+          { role: 'system', content: THEME_GENERATION_PROMPT_PREFIX },
+          { role: 'user', content: sourcePrompt },
+        ],
+        temperature,
+        response_format: { type: 'json_object' },
+      },
+    );
+    const payload = parseJsonText(reply.text);
+    if (!reply.ok) {
+      throw new Error(`${DIRECT_AI_ERROR_PREFIX} (${reply.status}): ${providerErrorOf(payload) || reply.text.slice(0, 300)}`);
+    }
+    text = textOfOpenAiContent((payload as { choices?: { message?: { content?: unknown } }[] } | null)?.choices?.[0]?.message?.content);
+  } else {
+    const key = resolveDirectAiKey(settings.geminiApiKey);
+    const reply = await postDirectAiJson(
+      geminiGenerateContentUrl(AI_CLIENT_GEMINI_MODEL),
+      { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+      {
+        systemInstruction: { parts: [{ text: THEME_GENERATION_PROMPT_PREFIX }] },
+        contents: [{ role: 'user', parts: [{ text: sourcePrompt }] }],
+        generationConfig: { temperature, responseMimeType: 'application/json' },
+      },
+    );
+    const payload = parseJsonText(reply.text);
+    if (!reply.ok) {
+      throw new Error(`${DIRECT_AI_ERROR_PREFIX} (${reply.status}): ${providerErrorOf(payload) || reply.text.slice(0, 300)}`);
+    }
+    const parts = (payload as { candidates?: { content?: { parts?: unknown } }[] } | null)?.candidates?.[0]?.content?.parts;
+    text = Array.isArray(parts)
+      ? parts
+        .filter((part): part is { text?: unknown } => Boolean(part) && typeof part === 'object')
+        .filter(part => typeof part.text === 'string')
+        .map(part => String(part.text))
+        .join('')
+      : '';
+  }
+
+  if (!text.trim()) {
+    throw new Error('The AI answered an empty theme; try again or switch models.');
+  }
+  return applyStoredAnimationIntensityToDualTheme(sanitizeDualTheme(parseAiThemeJsonInput(text) as DualTheme));
+};
+
+const testDirectAiConnection = async (payload: AiConnectionTestPayload): Promise<AiConnectionTestResult> => {
+  const settings = useAiClientSettingsStore.getState().settings;
+  const provider = payload.provider === 'openai' ? 'openai' : 'gemini';
+  const typedKey = payload.apiKey.trim();
+  const savedKey = aiClientApiKeyOf(settings, provider);
+  const key = typedKey || savedKey;
+  if (!key) {
+    return { ok: false, durationMs: 0, errorKind: 'config', error: missingDirectAiKeyError().message };
+  }
+  const started = Date.now();
+  const prompt = 'Reply with exactly one word: ok';
+  try {
+    if (provider === 'openai') {
+      const reply = await postDirectAiJson(
+        directOpenAiChatCompletionsUrl(payload.apiUrl ?? settings.openaiApiUrl),
+        { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+        {
+          model: (payload.model ?? '').trim() || settings.openaiApiModel.trim() || DEFAULT_AI_CLIENT_MODEL,
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0,
+        },
+      );
+      const payloadJson = parseJsonText(reply.text);
+      const text = textOfOpenAiContent((payloadJson as { choices?: { message?: { content?: unknown } }[] } | null)?.choices?.[0]?.message?.content).trim();
+      return reply.ok
+        ? { ok: true, status: reply.status, durationMs: Date.now() - started, model: (payload.model ?? '').trim() || settings.openaiApiModel.trim(), text }
+        : {
+          ok: false,
+          status: reply.status,
+          durationMs: Date.now() - started,
+          error: providerErrorOf(payloadJson) || reply.text.slice(0, 300) || `HTTP ${reply.status}`,
+          errorKind: reply.status === 401 || reply.status === 403 ? 'invalid' : 'http',
+        };
+    }
+    const reply = await postDirectAiJson(
+      geminiGenerateContentUrl(AI_CLIENT_GEMINI_MODEL),
+      { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+      { contents: [{ role: 'user', parts: [{ text: prompt }] }], generationConfig: { temperature: 0 } },
+    );
+    const payloadJson = parseJsonText(reply.text);
+    const parts = (payloadJson as { candidates?: { content?: { parts?: unknown } }[] } | null)?.candidates?.[0]?.content?.parts;
+    const text = Array.isArray(parts)
+      ? parts
+        .filter((part): part is { text?: unknown } => Boolean(part) && typeof part === 'object')
+        .filter(part => typeof part.text === 'string')
+        .map(part => String(part.text))
+        .join('')
+        .trim()
+      : '';
+    return reply.ok
+      ? { ok: true, status: reply.status, durationMs: Date.now() - started, model: AI_CLIENT_GEMINI_MODEL, text }
+      : {
+        ok: false,
+        status: reply.status,
+        durationMs: Date.now() - started,
+        error: providerErrorOf(payloadJson) || reply.text.slice(0, 300) || `HTTP ${reply.status}`,
+        errorKind: reply.status === 401 || reply.status === 403 ? 'invalid' : 'http',
+      };
+  } catch (error) {
+    const message = getErrorMessage(error);
+    return {
+      ok: false,
+      durationMs: Date.now() - started,
+      error: message,
+      errorKind: /timed out/i.test(message) ? 'timeout' : 'network',
+    };
+  }
+};
+
 /** What our web theme routes answer when the deployment has no key; they say it for nothing else. */
 const WEB_ROUTE_WITHOUT_KEY = 'Server configuration error';
 
@@ -63,6 +323,11 @@ export const generateThemeFromLyrics = async (
     if ((window as any).electron && typeof (window as any).electron.generateTheme === 'function') {
       const dualTheme = await (window as any).electron.generateTheme(lyricsText, options);
       return sanitizeDualTheme(dualTheme);
+    }
+
+    // 安卓壳：没有主进程、也没有部署的 /api，用设置页里的密钥直接问服务商。
+    if (isDirectAiTextRuntime()) {
+      return await generateThemeWithDirectClient(lyricsText, options);
     }
 
     const response = await fetch(themeRoute(getWebAiProvider()), {
@@ -161,13 +426,19 @@ export const requestLyricSegmentation = async (lines: string[], signal?: AbortSi
   return (payload as { lines?: unknown }).lines;
 };
 
-/** Whether the connection test can run here. It is desktop only: there is no web route for it. */
-export const canRunAiConnectionTest = (): boolean => Boolean(window.electron?.testAiConnection);
+/** Whether the connection test can run here. No web route exists for it: desktop bridge, or the Android shell's direct client. */
+export const canRunAiConnectionTest = (): boolean => (
+  Boolean(window.electron?.testAiConnection) || isDirectAiTextRuntime()
+);
 
 /**
- * Hands the unsaved values of the settings form to the main process, which sends one "hello" with
- * them and answers with what came back. Only where canRunAiConnectionTest() says yes.
+ * Hands the unsaved values of the settings form to wherever the request can be sent from: the main
+ * process on the desktop, the service itself in the Android shell (the key typed in the form is
+ * the one it uses, so the test runs before anything is saved).
  */
-export const runAiConnectionTest = (payload: AiConnectionTestPayload): Promise<AiConnectionTestResult> => (
-  window.electron!.testAiConnection(payload)
-);
+export const runAiConnectionTest = (payload: AiConnectionTestPayload): Promise<AiConnectionTestResult> => {
+  if (window.electron?.testAiConnection) {
+    return window.electron.testAiConnection(payload);
+  }
+  return testDirectAiConnection(payload);
+};

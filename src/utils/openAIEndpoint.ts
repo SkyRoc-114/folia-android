@@ -18,3 +18,10 @@ export const openAIEndpointOf = (rawUrl: unknown): string => {
         return trimmed.replace(/\/+$/, '');
     }
 };
+/** OpenAI 兼容接口的默认地址：安卓壳直连时与 Electron 主进程用同一个。 */
+export const DEFAULT_OPENAI_CHAT_COMPLETIONS_URL = 'https://api.openai.com/v1/chat/completions';
+
+/** Gemini 的 generateContent 地址；密钥走请求头，不放在 query 里。 */
+export const geminiGenerateContentUrl = (model: string): string => (
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
+);

@@ -45,3 +45,12 @@ export const isAndroidNativeRuntime = (): boolean => (
 
 /** 模块加载时求值一次：渲染器每帧读它，避免反复探测。 */
 export const IS_ANDROID_WEBVIEW = isAndroidNativeRuntime();
+/**
+ * 安卓壳里没有 Electron 主进程，AI 主题生成只能用设置页里填的密钥直连服务商；
+ * 浏览器版仍走部署自己的 /api 路由（密钥在服务端），不在这里。
+ */
+export const canUseDirectAiText = (): boolean => (
+    IS_ANDROID_WEBVIEW
+    && typeof window !== 'undefined'
+    && !(window as unknown as { electron?: unknown }).electron
+);

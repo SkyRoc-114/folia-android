@@ -55,6 +55,8 @@ import { selectThemeSettingsSnapshot, useThemeSettingsStore } from '../../stores
 import { selectDesktopSettingsSnapshot, useDesktopSettingsStore } from '../../stores/useDesktopSettingsStore';
 import { useSettingsModalStore } from '../../stores/useSettingsModalStore';
 import { setNavidromeEnabledState, useLibraryStore } from '../../stores/useLibraryStore';
+import { isDirectAiTextRuntime, useAiClientSettingsStore } from '../../stores/useAiClientSettingsStore';
+import { openAIEndpointOf } from '../../utils/openAIEndpoint';
 
 const DEFAULT_OPENAI_TEMPERATURE = '0.7';
 
@@ -383,30 +385,46 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     // Electron Settings State
     // Seeded synchronously so a remembered desktop/mods section has its title on the first frame; the effect below still confirms it.
     const [isElectron, setIsElectron] = useState(hasElectronBridge);
-    const [electronSettings, setElectronSettings] = useState({
-        GEMINI_API_KEY: '',
-        OPENAI_API_KEY: '',
-        OPENAI_API_URL: '',
-        OPENAI_API_MODEL: '',
-        OPENAI_API_TEMPERATURE: DEFAULT_OPENAI_TEMPERATURE,
-        OPENAI_API_STREAM: false,
-        AI_PROVIDER: 'gemini',
-        USE_SYSTEM_PROXY_FOR_AI: false,
-        ENABLE_UPDATE_CHECK: true,
-        ENABLE_AUTO_UPDATE: false,
-        UPDATE_CHANNEL: DEFAULT_UPDATE_CHANNEL,
-        STAGE_MODE_SOURCE: 'stage-api',
-        DISCORD_RICH_PRESENCE_ENABLED: false,
+    // 安卓壳没有主进程：AI 设置保存在 useAiClientSettingsStore（localStorage），下面这份表单与它同源。
+    const directAiRuntime = isDirectAiTextRuntime();
+    const [electronSettings, setElectronSettings] = useState(() => {
+        const aiSeed = directAiRuntime ? useAiClientSettingsStore.getState().settings : null;
+        return {
+            GEMINI_API_KEY: '',
+            OPENAI_API_KEY: '',
+            OPENAI_API_URL: aiSeed?.openaiApiUrl ?? '',
+            OPENAI_API_MODEL: aiSeed?.openaiApiModel ?? '',
+            OPENAI_API_TEMPERATURE: aiSeed?.openaiTemperature ?? DEFAULT_OPENAI_TEMPERATURE,
+            OPENAI_API_STREAM: aiSeed?.openaiStream ?? false,
+            AI_PROVIDER: (aiSeed?.provider ?? 'gemini') as string,
+            USE_SYSTEM_PROXY_FOR_AI: false,
+            ENABLE_UPDATE_CHECK: true,
+            ENABLE_AUTO_UPDATE: false,
+            UPDATE_CHANNEL: DEFAULT_UPDATE_CHANNEL,
+            STAGE_MODE_SOURCE: 'stage-api',
+            DISCORD_RICH_PRESENCE_ENABLED: false,
+        };
     });
-    const [electronSettingsLoaded, setElectronSettingsLoaded] = useState(false);
+    const [electronSettingsLoaded, setElectronSettingsLoaded] = useState(directAiRuntime);
     // Keys stay in the main process; the renderer only knows which ones are saved, and the endpoint
     // the OpenAI-compatible key is bound to. The GEMINI_API_KEY / OPENAI_API_KEY fields in
-    // electronSettings are drafts of a replacement key.
-    const [savedElectronAiCredentials, setSavedElectronAiCredentials] = useState({
-        AI_PROVIDER: 'gemini',
-        GEMINI_API_KEY: false,
-        OPENAI_API_KEY: false,
-        OPENAI_API_KEY_ENDPOINT: null as string | null,
+    // electronSettings are drafts of a replacement key. (Android: the store keeps the saved keys.)
+    const [savedElectronAiCredentials, setSavedElectronAiCredentials] = useState(() => {
+        const aiSeed = directAiRuntime ? useAiClientSettingsStore.getState().settings : null;
+        if (!aiSeed) {
+            return {
+                AI_PROVIDER: 'gemini',
+                GEMINI_API_KEY: false,
+                OPENAI_API_KEY: false,
+                OPENAI_API_KEY_ENDPOINT: null as string | null,
+            };
+        }
+        return {
+            AI_PROVIDER: aiSeed.provider,
+            GEMINI_API_KEY: Boolean(aiSeed.geminiApiKey.trim()),
+            OPENAI_API_KEY: Boolean(aiSeed.openaiApiKey.trim()),
+            OPENAI_API_KEY_ENDPOINT: aiSeed.openaiApiKey.trim() ? openAIEndpointOf(aiSeed.openaiApiUrl) : null,
+        };
     });
     const [electronSaveStatus, setElectronSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
     const [updateStatus, setUpdateStatus] = useState<ElectronUpdateStatus | null>(null);
@@ -418,13 +436,19 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     const savedAiApiKey = savedElectronAiCredentials.AI_PROVIDER === 'openai'
         ? savedElectronAiCredentials.OPENAI_API_KEY
         : savedElectronAiCredentials.GEMINI_API_KEY;
-    const aiApiKeyStatus: 'loading' | 'configured' | 'missing' = !isElectronRuntime
-        ? 'configured'
-        : !electronSettingsLoaded
+    const aiApiKeyStatus: 'loading' | 'configured' | 'missing' = directAiRuntime
+        ? !electronSettingsLoaded
             ? 'loading'
             : savedAiApiKey
                 ? 'configured'
-                : 'missing';
+                : 'missing'
+        : !isElectronRuntime
+            ? 'configured'
+            : !electronSettingsLoaded
+                ? 'loading'
+                : savedAiApiKey
+                    ? 'configured'
+                    : 'missing';
 
     useEffect(() => {
         if (aiApiKeyStatus === 'missing' && themeGenerationSource === 'ai') {
@@ -573,11 +597,54 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             }));
             setElectronSaveStatus('saved');
             setTimeout(() => setElectronSaveStatus('idle'), 2000);
+        } else if (directAiRuntime) {
+            // 安卓壳：保存进 store（本机 localStorage）。空密钥输入框表示「不替换已保存的密钥」。
+            const configuredTemperature = parseNumberText(electronSettings.OPENAI_API_TEMPERATURE);
+            const temperature = configuredTemperature !== null && configuredTemperature >= 0 && configuredTemperature <= 2
+                ? String(configuredTemperature)
+                : DEFAULT_OPENAI_TEMPERATURE;
+            const geminiKeyDraft = electronSettings.GEMINI_API_KEY.trim();
+            const openaiKeyDraft = electronSettings.OPENAI_API_KEY.trim();
+            const next = useAiClientSettingsStore.getState().update({
+                provider: electronSettings.AI_PROVIDER === 'openai' ? 'openai' : 'gemini',
+                ...(geminiKeyDraft ? { geminiApiKey: geminiKeyDraft } : {}),
+                ...(openaiKeyDraft ? { openaiApiKey: openaiKeyDraft } : {}),
+                openaiApiUrl: electronSettings.OPENAI_API_URL,
+                openaiApiModel: electronSettings.OPENAI_API_MODEL,
+                openaiTemperature: temperature,
+                openaiStream: electronSettings.OPENAI_API_STREAM === true,
+            });
+            setElectronSettings(prev => ({
+                ...prev,
+                OPENAI_API_TEMPERATURE: temperature,
+                GEMINI_API_KEY: prev.GEMINI_API_KEY.trim() === geminiKeyDraft ? '' : prev.GEMINI_API_KEY,
+                OPENAI_API_KEY: prev.OPENAI_API_KEY.trim() === openaiKeyDraft ? '' : prev.OPENAI_API_KEY,
+            }));
+            setSavedElectronAiCredentials({
+                AI_PROVIDER: next.provider,
+                GEMINI_API_KEY: Boolean(next.geminiApiKey.trim()),
+                OPENAI_API_KEY: Boolean(next.openaiApiKey.trim()),
+                OPENAI_API_KEY_ENDPOINT: next.openaiApiKey.trim() ? openAIEndpointOf(next.openaiApiUrl) : null,
+            });
+            setElectronSaveStatus('saved');
+            setTimeout(() => setElectronSaveStatus('idle'), 2000);
         }
     };
 
     const handleClearAiApiKey = async (key: 'GEMINI_API_KEY' | 'OPENAI_API_KEY') => {
         if (!window.electron?.saveSettings) {
+            if (!directAiRuntime) {
+                return;
+            }
+            const next = useAiClientSettingsStore.getState().clearApiKey(key === 'OPENAI_API_KEY' ? 'openai' : 'gemini');
+            setSavedElectronAiCredentials(prev => ({
+                ...prev,
+                [key]: false,
+                ...(key === 'OPENAI_API_KEY' ? { OPENAI_API_KEY_ENDPOINT: null } : {}),
+            }));
+            setElectronSettings(prev => ({ ...prev, [key]: '' }));
+            setElectronSettingsLoaded(true);
+            console.info('[ai] cleared the saved', key, next.provider);
             return;
         }
         const settings = await window.electron.saveSettings(key, '');

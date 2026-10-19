@@ -8,6 +8,7 @@ import { openSettings } from '../../../../stores/useSettingsModalStore';
 import { useThemeSettingsStore } from '../../../../stores/useThemeSettingsStore';
 import { useVisualizerSettingsStore } from '../../../../stores/useVisualizerSettingsStore';
 import { openAIEndpointOf } from '../../../../utils/openAIEndpoint';
+import { canUseDirectAiText } from '../../../../utils/platform';
 import { Button, FoldedGroup, Group, NumberField, Reveal, Row, Segmented, TextField, Toggle, Value, option, parseNumberText, type SettingsGroupDef, type SettingsOptionDef } from '../kit';
 import { settingsAnchorSubview } from '../navigation/settingsAnchorModel';
 import { AiConnectionTestReply, useAiConnectionTest } from './AiConnectionTest';
@@ -22,7 +23,8 @@ import { useSettingsPage, type AiApiKeyName } from './settingsPageContext';
 const LYRICS: SettingsGroupDef = { id: 'lyricsRenderer', titleKey: 'options.lyricsRenderer' };
 const THEME: SettingsGroupDef = { id: 'themePresets', titleKey: 'options.settingsHeadingTheme' };
 const SONG_THEME: SettingsGroupDef = { id: 'songTheme', titleKey: 'options.settingsHeadingSongTheme' };
-const AI: SettingsGroupDef = { id: 'electronSettings', titleKey: 'options.electronSettings', electronOnly: true };
+// 桌面（Electron）与安卓壳都有 AI 主题设置；浏览器版用部署的服务端密钥，不画这一组。
+const AI: SettingsGroupDef = { id: 'electronSettings', titleKey: 'options.electronSettings', available: () => typeof window !== 'undefined' && (Boolean((window as unknown as { electron?: unknown }).electron) || canUseDirectAiText()) };
 
 const O = {
     lyricsAnimation: option(LYRICS, 'lyricsAnimationAdjust', 'options.lyricsAnimationAdjust'),
@@ -70,6 +72,8 @@ const AiKeyField: React.FC<AiKeyFieldProps> = ({ value, onChange, saved, onClear
 const AppearancePage: React.FC = () => {
     const { t } = useTranslation();
     const { isElectron, themeControls, onOpenVisPlayground, onOpenThemePark, viewProps } = useSettingsPage();
+    // 安卓壳没有 Electron 主进程，但 AI 主题设置（密钥、接口）在这一页里直连服务商。
+    const showAiSettings = isElectron || canUseDirectAiText();
     const { electronSettings, setElectronSettings, onSaveElectronSettings, electronSaveStatus, savedAiApiKeys, savedOpenAIKeyEndpoint, onClearAiApiKey } = viewProps.desktop.model;
     const { isDaylight, followSystemTheme, setDaylightPreference, setFollowSystemTheme } = useThemeSettingsStore(useShallow(state => ({
         isDaylight: state.isDaylight,
@@ -96,7 +100,9 @@ const AppearancePage: React.FC = () => {
             useSystemProxy: electronSettings.USE_SYSTEM_PROXY_FOR_AI === true,
         }, usesOpenAi ? savedAiApiKeys.OPENAI_API_KEY : savedAiApiKeys.GEMINI_API_KEY);
     const setAi = (patch: Partial<typeof electronSettings>) => setElectronSettings({ ...electronSettings, ...patch });
-    const savedKeyHint = (key: AiApiKeyName) => (savedAiApiKeys[key] ? t('options.aiApiKeySavedDesc') : undefined);
+    const savedKeyHint = (key: AiApiKeyName) => (savedAiApiKeys[key]
+        ? t(showAiSettings && !isElectron ? 'options.aiApiKeySavedDescLocal' : 'options.aiApiKeySavedDesc')
+        : undefined);
     // The saved OpenAI-compatible key is sent only to the endpoint it was saved for: say so while the
     // URL in the form points elsewhere and no replacement key has been typed.
     const boundOpenAiEndpoint = savedOpenAIKeyEndpoint
@@ -188,7 +194,7 @@ const AppearancePage: React.FC = () => {
                 </Row>
             </Group>
 
-            {isElectron && (
+            {showAiSettings && (
                 <FoldedGroup def={AI} summary={usesOpenAi ? t('options.otherCompatibleApi') : 'Google Gemini'}>
                     <Row option={O.aiProvider}>
                         <Segmented
@@ -226,12 +232,14 @@ const AppearancePage: React.FC = () => {
                                 placeholder="0.7"
                             />
                         </Row>
+                        {/* 安卓直连固定非流式。 */}                         {isElectron && (
                         <Row option={O.openaiStream} note={t('options.openaiApiStreamDesc')}>
                             <Toggle
                                 checked={electronSettings.OPENAI_API_STREAM === true}
                                 onChange={enabled => setAi({ OPENAI_API_STREAM: enabled })}
                             />
                         </Row>
+                        )}
                         <Row
                             option={O.openaiKey}
                             hint={boundOpenAiEndpoint
@@ -257,12 +265,14 @@ const AppearancePage: React.FC = () => {
                             />
                         </Row>
                     </Reveal>
+                    {/* 系统代理是主进程的能力，安卓壳没有。 */}                     {isElectron && (
                     <Row option={O.aiProxy} hint={t('options.useSystemProxyAIDesc')}>
                         <Toggle
                             checked={electronSettings.USE_SYSTEM_PROXY_FOR_AI}
                             onChange={enabled => setAi({ USE_SYSTEM_PROXY_FOR_AI: enabled })}
                         />
                     </Row>
+                    )}
                     <Row below={aiTest.result && <AiConnectionTestReply result={aiTest.result} />}>
                         {electronSaveStatus === 'saved' && <Value>{t('options.settingsSaved')}</Value>}
                         <Button icon={Zap} tip={t('options.aiTestConnectionDesc')} onClick={() => void aiTest.run()} disabled={aiTest.running}>
