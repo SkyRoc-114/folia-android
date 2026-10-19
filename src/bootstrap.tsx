@@ -4,6 +4,8 @@ import './i18n/config';
 import './index.css';
 import App from './App';
 import AppSplashGate from './components/AppSplashGate';
+import ChunkLoadBoundary from './components/app/ChunkLoadBoundary';
+import { installPlaybackHeartbeat } from './services/playbackHeartbeat';
 import RemoteControlApp from './components/remote/RemoteControlApp';
 import ObsBrowserSourceApp from './components/obs/ObsBrowserSourceApp';
 import ObsNowPlayingSourceApp from './components/obs/ObsNowPlayingSourceApp';
@@ -70,7 +72,8 @@ const FirstScreenMounted: React.FC<{ children: React.ReactNode }> = ({ children 
 
 const renderApp = () => root.render(
     <React.StrictMode>
-      <AppSplashGate>
+      <ChunkLoadBoundary>
+        <AppSplashGate>
         {isNowPlayingObsSource
           ? <ObsNowPlayingSourceApp />
           : isPlayerCapObsSource
@@ -80,13 +83,16 @@ const renderApp = () => root.render(
               : isRemoteControl
                 ? <RemoteControlApp />
                 : <FirstScreenMounted><App /></FirstScreenMounted>}
-      </AppSplashGate>
+        </AppSplashGate>
+      </ChunkLoadBoundary>
     </React.StrictMode>
   );
 
 // Library suites declare their chrome actions in their manifests; the palette cannot import the
 // registry, so the commands are put into its list here, before anything renders (main window only,
 // like the mod commands below). A clashing execute shortcut throws here, at startup.
+// Android 移植：播放心跳（前台服务/通知状态刷新）。桌面上是空操作。
+if (isMainApp) installPlaybackHeartbeat();
 if (isMainApp) installLibrarySuiteChromeCommands();
 
 const bootFolium = async () => {
