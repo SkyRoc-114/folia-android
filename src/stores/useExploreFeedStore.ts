@@ -4,6 +4,7 @@ import { inKeptOrder, noteCollectionSaved, withoutTakenOut } from '../components
 import type { UnifiedSong } from '../types';
 import type { OmniCollection, OmniExploreItem, OmniExploreSection } from '../types/onlineMusic';
 import { errorMessage } from '../utils/errorText';
+import { noteLibraryStep } from '../nativeBridge/api/libraryTrace.js';
 
 // src/stores/useExploreFeedStore.ts
 // The active provider's recommendation page behind the explore tab: its sections, the further
