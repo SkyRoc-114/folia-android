@@ -35,6 +35,16 @@ import {
   handleQQGuessYouLike,
   handleQQDailySongs,
   handleQQRecommendPlaylists,
+    handleQQRecommendRadar,
+    handleQQSimilarSongs,
+    handleQQRadioList,
+    handleQQRadioTracks,
+    handleQQRecommendNewSongs,
+    handleQQRecommendNewAlbums,
+    handleQQRecommendToplists,
+    handleQQRecommendToplist,
+    handleQQRecommendCategories,
+    handleQQRecommendCategoryPlaylists,
   handleQQPlaylistTracksWrite,
   handleQQPlaylistSubscribe,
   handleQQSubscriptionStatus,
@@ -1046,6 +1056,42 @@ async function routeFoliaQqRequest(operation, params, segments, url, cookie) {
   if (operation === 'recommend_playlists') {
     const limit = numberValue(params.limit, 25);
     return await handleQQRecommendPlaylists(limit, cookie);
+  }
+  // ---- 探索页（0.7.21 的 qqExplore.ts 用；之前缺这组路由导致整页失败）----
+  if (operation === 'recommend_radar') {
+    return await handleQQRecommendRadar(numberValue(params.page, 1), cookie);
+  }
+  if (operation === 'recommend_new_songs') {
+    return await handleQQRecommendNewSongs(params.area ?? params.type, cookie);
+  }
+  if (operation === 'recommend_new_albums') {
+    return await handleQQRecommendNewAlbums(numberValue(params.offset, 0), numberValue(params.limit, 12), cookie);
+  }
+  if (operation === 'recommend_toplists') {
+    return await handleQQRecommendToplists(cookie);
+  }
+  if (operation === 'recommend_toplist') {
+    return await handleQQRecommendToplist(
+      params.id, numberValue(params.offset, 0), numberValue(params.limit, 12),
+      firstValue(params.period, ''), cookie,
+    );
+  }
+  if (operation === 'recommend_categories') {
+    return await handleQQRecommendCategories();
+  }
+  if (operation === 'recommend_category_playlists') {
+    return await handleQQRecommendCategoryPlaylists(
+      params.id, numberValue(params.page, 1), numberValue(params.limit, 12), cookie,
+    );
+  }
+  if (operation === 'radio_list') {
+    return await handleQQRadioList(cookie);
+  }
+  if (operation === 'radio_tracks') {
+    return await handleQQRadioTracks(params.id, cookie);
+  }
+  if (operation === 'song_similar') {
+    return await handleQQSimilarSongs(params.id, cookie);
   }
   // ---- 写入：正文已经在 mergeOperationParams 里并进 params，不重试 ----
   if (operation === 'user_playlist_tracks') {

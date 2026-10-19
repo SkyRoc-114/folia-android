@@ -2853,3 +2853,204 @@ export async function handleQQAlbumSubscribe(input, cookieHeader) {
   }
   return { code: 0, subscribed };
 }
+
+// ── 探索页（0.7.21 新增）────────────────────────────────────────────────
+// qqExplore.ts 用的这批路由在 .196 的桥里没有，之前整页报「bridge does not implement」。
+// 按 qq-music-api 3.3.3 的 module/method/param（node_modules 里的实现）搬到内置桥：
+// 雷达、相似歌曲、新歌速递、新碟上架、排行榜清单/单榜、歌单分类/分类歌单、电台清单/电台曲目。
+// 推荐内容一律匿名读；电台清单带登录态时会话 cookie 本来就在。
+
+const qqExploreTrackList = data => (
+    Array.isArray(data?.songlist) ? data.songlist
+        : Array.isArray(data?.songs) ? data.songs
+            : Array.isArray(data?.songInfoList) ? data.songInfoList
+                : Array.isArray(data?.track_list) ? data.track_list
+                    : []
+);
+
+const qqExploreToplistCard = entry => {
+    const id = Number(entry?.topId);
+    if (!Number.isSafeInteger(id) || id <= 0) return null;
+    const period = typeof entry?.period === 'string' && entry.period ? entry.period : undefined;
+    return {
+        id,
+        title: String(entry?.title ?? ''),
+        ...(period ? { period } : {}),
+        cover: String(entry?.headPicUrl ?? entry?.frontPicUrl ?? entry?.musichallPicUrl ?? ''),
+        total: Number(entry?.totalNum) || 0,
+        listenNum: Number(entry?.listenNum) || 0,
+        intro: typeof entry?.intro === 'string' ? entry.intro : '',
+    };
+};
+
+/** 刷歌模式（客户端「雷达」）：一页约 10 首，匿名也读。 */
+export async function handleQQRecommendRadar(page, cookieHeader) {
+    const pageNumber = Math.max(1, Math.min(100, Math.floor(Number(page)) || 1));
+    const result = await qqMusicuCall(
+        'music.recommend.TrackRelationServer', 'GetRadarSong',
+        { Page: pageNumber, ReqType: 0, FavSongs: [], EntranceSongs: [] },
+        cookieHeader,
+    );
+    if (!result.ok) return { code: 0, songs: [], more: false };
+    const entries = Array.isArray(result.data?.VecSongs) ? result.data.VecSongs : [];
+    const songs = entries.map(entry => entry && entry.Track)
+        .filter(track => track && typeof track.mid === 'string' && track.mid);
+    return { code: 0, songs, more: result.data?.HasMore === true };
+}
+
+/** 相似歌曲：`songid` 认数字歌曲 id。 */
+export async function handleQQSimilarSongs(id, cookieHeader) {
+    const result = await qqMusicuCall(
+        'music.recommend.TrackRelationServer', 'GetSimilarSongs',
+        { songid: Number(id) || 0 },
+        cookieHeader,
+    );
+    if (!result.ok) return { code: 0, songs: [] };
+    return { code: 0, songs: Array.isArray(result.data?.songs) ? result.data.songs : [] };
+}
+
+/** 电台清单（要登录态）。 */
+export async function handleQQRadioList(cookieHeader) {
+    const uin = qqCookieMusicId(cookieHeader) || qqCookieUin(cookieHeader) || 0;
+    const result = await qqMusicuCall('pf.radiosvr', 'GetRadiolist', { uin: Number(uin) || 0 }, cookieHeader);
+    if (!result.ok) return { code: 0, groups: [] };
+    const groups = Array.isArray(result.data?.radio_list) ? result.data.radio_list : [];
+    return {
+        code: 0,
+        groups: groups.map(group => ({
+            id: String(group?.group_id ?? group?.id ?? ''),
+            title: String(group?.group_name ?? group?.title ?? ''),
+            radios: (Array.isArray(group?.radios) ? group.radios : []).map(radio => ({
+                id: Number(radio?.id ?? radio?.radio_id) || 0,
+                title: String(radio?.title ?? radio?.name ?? radio?.radio_name ?? ''),
+                picurl: String(radio?.pic_url ?? radio?.picurl ?? ''),
+            })).filter(radio => radio.id > 0 && radio.title),
+        })).filter(group => group.id && group.title && group.radios.length > 0),
+    };
+}
+
+/** 一个电台的一批歌（点开电台卡片时读）。 */
+export async function handleQQRadioTracks(id, cookieHeader) {
+    const result = await qqMusicuCall(
+        'pf.radiosvr', 'GetRadiosonglist',
+        { id: Number(id) || 0, firstplay: 0, num: 30 },
+        cookieHeader,
+    );
+    if (!result.ok) return { code: 0, songs: [] };
+    return { code: 0, songs: qqExploreTrackList(result.data) };
+}
+
+/** 新歌速递：type 5 是上游的「最新」。 */
+export async function handleQQRecommendNewSongs(area, cookieHeader) {
+    const result = await qqMusicuCall(
+        'newsong.NewSongServer', 'get_new_song_info',
+        { type: Number(area) || 5 },
+        cookieHeader,
+    );
+    if (!result.ok) return { code: 0, songs: [] };
+    return { code: 0, songs: qqExploreTrackList(result.data) };
+}
+
+/** 新碟上架：地区 1 是华语，暂只取这一区。 */
+export async function handleQQRecommendNewAlbums(offset, limit, cookieHeader) {
+    const size = Math.max(1, Math.min(40, Math.floor(Number(limit)) || 12));
+    const start = Math.max(0, Math.floor(Number(offset)) || 0);
+    const result = await qqMusicuCall(
+        'newalbum.NewAlbumServer', 'get_new_album_info',
+        { area: 1, sin: 0, start, num: size },
+        cookieHeader,
+    );
+    if (!result.ok) return { code: 0, albums: [], more: false };
+    const entries = Array.isArray(result.data?.albums) ? result.data.albums : [];
+    const albums = entries.map(item => {
+        const mid = typeof item?.mid === 'string' ? item.mid : '';
+        if (!mid) return null;
+        return {
+            mid,
+            name: String(item?.name ?? ''),
+            singers: (Array.isArray(item?.singers) ? item.singers : [])
+                .map(singer => ({ mid: String(singer?.mid ?? ''), name: String(singer?.name ?? '') }))
+                .filter(singer => singer.mid),
+            ...(item?.release_time ? { publishDate: String(item.release_time) } : {}),
+            ...(Number.isFinite(Number(item?.ex?.track_nums)) ? { trackCount: Number(item.ex.track_nums) } : {}),
+        };
+    }).filter(Boolean);
+    const total = Number(result.data?.total);
+    return {
+        code: 0,
+        albums,
+        more: Number.isFinite(total) ? start + entries.length < total : false,
+    };
+}
+
+/** 榜单清单（分组，组里是榜卡片）。 */
+export async function handleQQRecommendToplists(cookieHeader) {
+    const result = await qqMusicuCall('musicToplist.ToplistInfoServer', 'GetAll', {}, cookieHeader);
+    if (!result.ok) return { code: 0, groups: [] };
+    const groups = Array.isArray(result.data?.group) ? result.data.group : [];
+    return {
+        code: 0,
+        groups: groups.map(group => ({
+            toplists: (Array.isArray(group?.toplist) ? group.toplist : [])
+                .map(qqExploreToplistCard).filter(Boolean),
+        })).filter(group => group.toplists.length > 0),
+    };
+}
+
+/** 一个榜的一批歌；`period` 传榜单卡片记下的期数，空串是最新一期。 */
+export async function handleQQRecommendToplist(id, offset, limit, period, cookieHeader) {
+    const size = Math.max(1, Math.min(100, Math.floor(Number(limit)) || 12));
+    const start = Math.max(0, Math.floor(Number(offset)) || 0);
+    const result = await qqMusicuCall(
+        'musicToplist.ToplistInfoServer', 'GetDetail',
+        { topid: Number(id) || 0, offset: start, num: size, period: typeof period === 'string' ? period : '' },
+        cookieHeader,
+    );
+    if (!result.ok) return { code: 0, songs: [], more: false };
+    const songs = Array.isArray(result.data?.songInfoList) ? result.data.songInfoList : [];
+    const total = Number(result.data?.data?.totalNum);
+    return {
+        code: 0,
+        songs,
+        ...(Number.isFinite(total) && total >= 0 ? { total } : {}),
+        more: Number.isFinite(total) && total >= 0 ? start + songs.length < total : false,
+    };
+}
+
+/** 歌单分类（热门分组）。 */
+export async function handleQQRecommendCategories() {
+    const result = await qqMusicuCall('music.web_category_svr', 'get_hot_category', {}, '');
+    if (!result.ok) return { code: 0, groups: [] };
+    const groups = Array.isArray(result.data?.category) ? result.data.category : [];
+    return {
+        code: 0,
+        groups: groups.map(group => ({
+            id: Number(group?.group_id) || 0,
+            name: String(group?.group_name ?? ''),
+            categories: (Array.isArray(group?.items) ? group.items : [])
+                .map(item => ({ id: Number(item?.item_id) || 0, name: String(item?.item_name ?? '') }))
+                .filter(category => category.id > 0 && category.name),
+        })).filter(group => group.id > 0 && group.categories.length > 0),
+    };
+}
+
+/** 一个分类下的一页歌单。 */
+export async function handleQQRecommendCategoryPlaylists(id, page, limit, cookieHeader) {
+    const size = Math.max(1, Math.min(40, Math.floor(Number(limit)) || 12));
+    const pageNumber = Math.max(1, Math.floor(Number(page)) || 1);
+    const result = await qqMusicuCall(
+        'music.playlist.PlayListCategory', 'get_category_content',
+        { caller: '0', category_id: Number(id) || 0, page: pageNumber - 1, size, use_page: 1 },
+        cookieHeader,
+    );
+    if (!result.ok) return { code: 0, playlists: [], more: false };
+    const content = result.data?.content ?? {};
+    const entries = Array.isArray(content.v_item) ? content.v_item : [];
+    const playlists = entries.map(entry => qqRecommendPlaylistRow(entry)).filter(Boolean);
+    const total = Number(content.total_cnt);
+    return {
+        code: 0,
+        playlists,
+        more: Number.isFinite(total) && pageNumber * size < total,
+    };
+}
