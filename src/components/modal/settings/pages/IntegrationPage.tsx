@@ -1,4 +1,6 @@
 import React from 'react';
+import { getColorOsLyricsSupport } from '../../../../platform/foliaColorOsLyrics';
+import { IS_ANDROID_WEBVIEW } from '../../../../utils/platform';
 import { useTranslation } from 'react-i18next';
 import { usePlaybackReportReady } from '../../../../services/onlineMusic/playbackReportGate';
 import { useAudioSettingsStore } from '../../../../stores/useAudioSettingsStore';
@@ -35,6 +37,12 @@ const IntegrationPage: React.FC = () => {
     const setScrobbleEnabled = useAudioSettingsStore(state => state.handleToggleNeteaseScrobble);
     // Subscribed to, so the row follows the reporting account signing in or out while the page is open.
     const canScrobble = usePlaybackReportReady();
+    // ColorOS 16+ 的锁屏歌词是原生自动启用的；这里只显示探测结果，不给手动开关。
+    const [colorOsSupport, setColorOsSupport] = React.useState<{ supported: boolean; colorOsMajor: number } | null>(null);
+    React.useEffect(() => {
+        if (!IS_ANDROID_WEBVIEW) return;
+        void getColorOsLyricsSupport().then(result => setColorOsSupport({ supported: result.supported, colorOsMajor: result.colorOsMajor }));
+    }, []);
 
     return (
         <>
@@ -57,6 +65,17 @@ const IntegrationPage: React.FC = () => {
                             <Row sub label={<Status tone="error">{discord.status?.error}</Status>} />
                         </Reveal>
                     </>
+                )}
+                {IS_ANDROID_WEBVIEW && (
+                    <Row option={O.colorOsLyrics} hint={t(colorOsSupport?.supported ? 'options.colorOsLyricsActiveDesc' : 'options.colorOsLyricsDesc')}>
+                        {colorOsSupport && (
+                            <Status tone={colorOsSupport.supported ? 'ok' : undefined}>
+                                {colorOsSupport.supported
+                                    ? `${t('options.colorOsLyricsActive')} · ColorOS ${colorOsSupport.colorOsMajor}`
+                                    : t('options.colorOsLyricsInactive')}
+                            </Status>
+                        )}
+                    </Row>
                 )}
                 <Row
                     option={O.scrobble}
