@@ -1,6 +1,7 @@
 import type { SongResult } from '../../../types';
 import { distrustCachedSongAudio } from '../../../services/playbackRecovery/mediaCacheGuard';
 import { logOnlineFailure, mediaFailureOf, type OnlineFailure } from '../../../services/onlineMusic/failure/onlineFailureCase';
+import { noteOnlinePlaybackOutcome } from '../../../utils/onlinePlaybackDiagnostics';
 import { getOnlineProviderIdForSong, getPlaybackSongKey } from '../../../utils/appPlaybackGuards';
 import { startOfAskedSong } from './currentSong';
 import type { OnlineRecovery, OnlineRecoveryOptions } from './restore/createOnlineRecoveryController';
@@ -41,6 +42,15 @@ export const handleOnlineMediaFailure = async ({
     const failedStart = startOfAskedSong();
     const mediaFailure = mediaFailureOf(mediaError, getOnlineProviderIdForSong(song) ?? undefined);
     logOnlineFailure(mediaFailure);
+    // 现场：用户只看到「暂时无法播放这首歌」，报告里却没有任何播放记录。这里把媒体阶段的
+    // 媒体错误码 + 分类记下来（取流阶段已在 onlinePlayback 记过）。
+    noteOnlinePlaybackOutcome({
+        stage: 'media', outcome: 'error',
+        providerId: getOnlineProviderIdForSong(song) ?? 'unknown',
+        mediaId: failedSongKey, quality: '-',
+        kind: mediaFailure.case, code: mediaError?.code,
+        detail: failedSrc ? 'src=' + failedSrc.slice(0, 60) : '',
+    });
 
     // A copy from the media cache that cannot be decoded is not trusted again in this session: the
     // address is asked of the platform, past the cache.

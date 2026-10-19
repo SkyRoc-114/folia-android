@@ -16,9 +16,10 @@ import { deleteCachedSongAudio, getCachedSongAudioBlob, getCachedSongReplayGain,
 import { measureSongAudio, notTheSongWhy } from './wholeSongCheck';
 import { isCachedSongAudioDistrusted } from './playbackRecovery/mediaCacheGuard';
 import { toPlayableAudioUrl } from '../utils/appPlaybackHelpers';
-import { getOnlineProviderIdForSong } from '../utils/appPlaybackGuards';
+import { getOnlineProviderIdForSong, getPlaybackSongKey } from '../utils/appPlaybackGuards';
 import { getProviderSongMetadata } from './onlineMusic/songMetadata';
 import { useLyricSettingsStore } from '../stores/useLyricSettingsStore';
+import { noteOnlinePlaybackOutcome } from '../utils/onlinePlaybackDiagnostics';
 import { useOnlineProviderAccountStore } from '../stores/useOnlineProviderAccountStore';
 import { saveLyricCacheSongMetadata } from './lyricExport/lyricCacheMetadata';
 import { errorFields } from '../utils/errorText';
@@ -131,6 +132,13 @@ export async function loadOnlineSongAudioSource(
         // The platform asked to wait and the wait is not over: it is not asked again before then.
         const cooldown = providerId ? onlineRequestCooldown(providerId, 'play') : null;
         if (cooldown) {
+            // 冷却期内不会发起取流：单独留痕，否则报告里既没有请求也没有失败。
+            noteOnlinePlaybackOutcome({
+                stage: 'resolve', outcome: 'error', providerId: providerId ?? 'unknown',
+                mediaId: getPlaybackSongKey(song), quality: audioQuality,
+                kind: 'rate-limited(cooldown)', code: cooldown.remainingMs,
+                detail: 'provider cooldown: request skipped', elapsedMs: 0,
+            });
             return await unavailable(onlineFailureOf(
                 { operation: 'audio', providerId },
                 { detail: { case: 'retry-later', retryAfterMs: cooldown.remainingMs } },
@@ -157,6 +165,17 @@ export async function loadOnlineSongAudioSource(
             ? onlineFailureOf({ operation: 'audio', providerId, signedOut }, { detail: { case: 'no-audio' } })
             : onlineFailureOf({ operation: 'audio', providerId, signedOut }, { error: thrown });
         noteOnlineRequestCooldown(failure);
+        // 「暂时无法播放这首歌」来自 invalid-response / unknown 两档：把 stage、reason、上游码、是否拿到地址
+        // 记下来，否则报告里只有一条 ok 记录、对不上。
+        noteOnlinePlaybackOutcome({
+            stage: 'resolve', outcome: 'error', providerId: providerId ?? 'unknown',
+            mediaId: getPlaybackSongKey(song), quality: audioQuality,
+            kind: failure.case,
+            code: failure.facts?.upstreamCode ?? failure.facts?.httpStatus,
+            detail: [failure.operation ? 'op=' + failure.operation : '', failure.facts?.message ?? '']
+                .filter(Boolean).join(' ').slice(0, 140),
+            elapsedMs: 0,
+        });
 
         const delays = autoRetryDelaysMs(failure);
         const retry = options.retry;
