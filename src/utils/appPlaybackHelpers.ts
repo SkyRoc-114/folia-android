@@ -221,3 +221,34 @@ export const describePlaybackSource = (src: string | null | undefined): { kind: 
     }
     return { kind: 'other', host: '' };
 };
+
+/**
+ * 经原生桥拉下来的音频 blob 该用什么 MIME：CDN 经常回 application/octet-stream 或不给类型，
+ * 只靠 URL 后缀又可能没有后缀。先按文件头认（ID3/帧同步/fLaC/OggS/RIFF/fTyp），
+ * 再退声明值、URL 后缀；都认不出回 null（交给播放器自己嗅探）。
+ */
+export const audioMimeTypeFor = (
+    url: string,
+    declared?: string | null,
+    head?: Uint8Array | null,
+): string | null => {
+    if (head && head.length >= 4) {
+        const [b0, b1, b2, b3] = head;
+        if (b0 === 0x49 && b1 === 0x44 && b2 === 0x33) return 'audio/mpeg';
+        if (b0 === 0xff && (b1 & 0xe0) === 0xe0) return 'audio/mpeg';
+        if (b0 === 0x66 && b1 === 0x4c && b2 === 0x61 && b3 === 0x43) return 'audio/flac';
+        if (b0 === 0x4f && b1 === 0x67 && b2 === 0x67 && b3 === 0x53) return 'audio/ogg';
+        if (head.length >= 12 && b0 === 0x52 && b1 === 0x49 && b2 === 0x46 && b3 === 0x46
+            && head[8] === 0x57 && head[9] === 0x41 && head[10] === 0x56 && head[11] === 0x45) return 'audio/wav';
+        if (head.length >= 8 && head[4] === 0x66 && head[5] === 0x74 && head[6] === 0x79 && head[7] === 0x70) return 'audio/mp4';
+    }
+    const mime = String(declared || '').split(';')[0].trim().toLowerCase();
+    if (mime.startsWith('audio/') && mime !== 'audio/*') return mime;
+    const path = String(url || '').split('?')[0].toLowerCase();
+    if (path.endsWith('.flac')) return 'audio/flac';
+    if (path.endsWith('.ogg') || path.endsWith('.oga')) return 'audio/ogg';
+    if (path.endsWith('.wav')) return 'audio/wav';
+    if (path.endsWith('.m4a') || path.endsWith('.mp4') || path.endsWith('.aac')) return 'audio/mp4';
+    if (path.endsWith('.mp3')) return 'audio/mpeg';
+    return null;
+};

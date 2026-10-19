@@ -15,7 +15,7 @@ import { getSongResourceCacheKey } from './onlineMusic/resourceKeys';
 import { deleteCachedSongAudio, getCachedSongAudioBlob, getCachedSongReplayGain, getSongCacheWithLegacyMigration } from './onlineMusic/resourceCache';
 import { measureSongAudio, notTheSongWhy } from './wholeSongCheck';
 import { isCachedSongAudioDistrusted } from './playbackRecovery/mediaCacheGuard';
-import { toPlayableAudioUrl } from '../utils/appPlaybackHelpers';
+import { audioMimeTypeFor, toPlayableAudioUrl } from '../utils/appPlaybackHelpers';
 import { IS_ANDROID_WEBVIEW } from '../utils/platform';
 import { getOnlineProviderIdForSong, getPlaybackSongKey } from '../utils/appPlaybackGuards';
 import { getProviderSongMetadata } from './onlineMusic/songMetadata';
@@ -87,11 +87,18 @@ const androidProxiedAudioUrl = async (url: string, provider: string | undefined)
         }
     }
     try {
-        const objectUrl = URL.createObjectURL(blob);
-        console.info('[Playback] proxied audio for same-origin playback', { host: new URL(url).hostname, bytes: blob.size, ms: Date.now() - startedAt });
+        // CDN 常把音频标成 application/octet-stream 或不给类型；按文件头补一个正确 MIME，
+        // 否则播放器可能判成不支持的源（报告里是 media-error-4 / no supported sources）。
+        const headBytes = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
+        const mime = audioMimeTypeFor(url, blob.type, headBytes);
+        const playableBlob = mime && mime !== blob.type ? blob.slice(0, blob.size, mime) : blob;
+        const objectUrl = URL.createObjectURL(playableBlob);
+        console.info('[Playback] proxied audio for same-origin playback', {
+            host: new URL(url).hostname, bytes: playableBlob.size, mime: playableBlob.type || '(none)', ms: Date.now() - startedAt,
+        });
         noteOnlinePlaybackOutcome({
             stage: 'media', outcome: 'ok', providerId: provider ?? 'unknown', kind: 'proxy-source',
-            detail: `${describeAudioHost(url)} ${blob.size}B ${Date.now() - startedAt}ms`.slice(0, 160),
+            detail: `${describeAudioHost(url)} ${playableBlob.size}B ${playableBlob.type || 'no-mime'} ${Date.now() - startedAt}ms`.slice(0, 160),
         });
         proxiedAudioObjectUrls.set(url, objectUrl);
         while (proxiedAudioObjectUrls.size > 24) {
