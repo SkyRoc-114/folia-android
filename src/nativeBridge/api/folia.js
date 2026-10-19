@@ -556,17 +556,37 @@ async function handleHistoryRecommend(url, cookie) {
 
 async function handlePersonalFm(url, cookie) {
   const mode = url.searchParams.get('mode');
+  const submode = url.searchParams.get('submode');
+  noteLibraryStep('netease', 'fm:request', { mode: mode || 'DEFAULT', submode: submode || '' });
+  const startedAt = Date.now();
+  const settle = (label, result) => {
+    const songs = Array.isArray(result?.data) ? result.data.length : -1;
+    noteLibraryStep('netease', `fm:${label}`, { mode: mode || 'DEFAULT', code: result?.code, songs, ms: Date.now() - startedAt });
+    return result;
+  };
   if (!mode || mode === 'DEFAULT') {
-    return await eapiJson('/api/v1/radio/get', {}, cookie);
+    try {
+      return settle('default', await eapiJson('/api/v1/radio/get', {}, cookie));
+    } catch (error) {
+      noteLibraryStep('netease', 'fm:default:error', { message: error instanceof Error ? error.message : String(error), ms: Date.now() - startedAt });
+      throw error;
+    }
   }
   const body = { mode };
-  const submode = url.searchParams.get('submode');
   if (submode) body.submode = submode;
   try {
     const result = await eapiJson('/api/personal/fm/mode', body, cookie);
-    if (Array.isArray(result?.data) && result.data.length) return result;
-  } catch (_) {}
-  return await eapiJson('/api/v1/radio/get', {}, cookie);
+    if (Array.isArray(result?.data) && result.data.length) return settle('mode', result);
+    noteLibraryStep('netease', 'fm:mode:empty', { mode, submode: submode || '', code: result?.code, ms: Date.now() - startedAt });
+  } catch (error) {
+    noteLibraryStep('netease', 'fm:mode:error', { mode, message: error instanceof Error ? error.message : String(error), ms: Date.now() - startedAt });
+  }
+  try {
+    return settle('fallback', await eapiJson('/api/v1/radio/get', {}, cookie));
+  } catch (error) {
+    noteLibraryStep('netease', 'fm:fallback:error', { message: error instanceof Error ? error.message : String(error), ms: Date.now() - startedAt });
+    throw error;
+  }
 }
 
 async function handlePlaylistTracks(url, body, cookie) {
