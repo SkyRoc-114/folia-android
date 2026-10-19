@@ -12,8 +12,6 @@
 
 import { create } from 'zustand';
 import { getVisualizerModeLabel } from '../components/visualizer/registry';
-import { resolveTemperaTuningDefaults } from '../services/temperaTuningDefaults';
-import { resolveLumiereTuningDefaults } from '../services/lumiereTuningDefaults';
 import type { StoredTuning, VisualizerTuningSettings } from '../components/visualizer/tuningDefinition';
 import { getBackgroundSettingsSlices, getStoredVisualizerTunings } from '../components/visualizer/tuningRegistry';
 import { type SmartBeatSettings, type VisualizerBackgroundMode, type VisualizerFrameRate, type VisualizerMode } from '../types';
