@@ -3013,13 +3013,23 @@ export async function handleKGSongUrl(hash, albumId, albumAudioId, quality, cook
   // 回 status=2（会员校验不通过），表现为「所有酷狗歌都取不到地址」。这里在缺 vip_token 时强制
   // 走一次 login_by_token 换取，并限流，避免每次播放都打一次登录接口。
   const loginBeforeVip = await getKGPlayContext(cookieHeader);
-  const vipTokenBefore = !!resolveKGEffectiveVipToken(cookieHeader, await loadKGVipSessionCache(loginBeforeVip.userId));
+  const vipCacheBefore = await loadKGVipSessionCache(loginBeforeVip.userId);
+  const vipTokenBefore = !!resolveKGEffectiveVipToken(cookieHeader, vipCacheBefore);
+  // 概念版会员没有 vip_token，但 .225 之后能以 vipType/isVip 记进缓存。认出来了就不再每 5 分钟
+  // 强制做一次 login_by_token（那是每次播放多 1-2 秒等待），只有缓存里没有任何会员线索时才刷新。
+  const vipRecognizedBefore = !!(vipCacheBefore && (vipCacheBefore.isVip || Number(vipCacheBefore.vipType) > 0));
   const shouldFetchVipToken = loginBeforeVip.loggedIn
     && !vipTokenBefore
+    && !vipRecognizedBefore
     && (Date.now() - kgVipTokenRefreshAt) > KG_VIP_TOKEN_REFRESH_INTERVAL_MS;
   if (shouldFetchVipToken) {
     kgVipTokenRefreshAt = Date.now();
     noteLibraryStep('kugou', 'auth:vip-token:refresh', { userId: String(loginBeforeVip.userId || '').slice(0, 6) });
+  } else if (vipRecognizedBefore && !vipTokenBefore) {
+    noteLibraryStep('kugou', 'auth:vip-token:skip', {
+      reason: 'vip-recognised-without-token',
+      vipType: Number(vipCacheBefore.vipType) || 0,
+    });
   }
   const auth = await ensureKGAndroidAuth(cookieHeader, { requireAppToken: true, force: shouldFetchVipToken });
   cookieHeader = auth.cookieHeader || await enrichKGCookieHeader(cookieHeader, { preferAppToken: true });

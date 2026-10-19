@@ -48,7 +48,8 @@ const readProxiedAudioBlob = async (url: string): Promise<Blob> => {
         const response = await fetch(url, { foliaTimeoutMs: PROXIED_AUDIO_TIMEOUT_MS + 5_000 } as RequestInit);
         if (!response.ok) throw new Error(`upstream answered ${response.status}`);
         const blob = await response.blob();
-        if (!blob.size) throw new Error('upstream answered an empty file');
+        // 几百字节的「音频」一定是错误页/占位符，不是能放的文件。
+        if (blob.size < 4096) throw new Error('upstream answered a stub (' + blob.size + ' bytes)');
         return blob;
     };
     let timeout: ReturnType<typeof setTimeout> | null = null;
