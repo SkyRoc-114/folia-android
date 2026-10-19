@@ -1,4 +1,5 @@
 import { animate } from 'framer-motion';
+import { useLatticeSettingsStore } from '../../../stores/useLatticeSettingsStore';
 import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type PointerEvent, type RefObject } from 'react';
 import type { Bounds } from '../../../components/wall/layout';
 import type { LatticeCamera } from '../../../components/wall/useWallCameraPan';
@@ -76,6 +77,9 @@ export const useBravaisCamera = ({
     reducedMotion: boolean;
 }) => {
     // 已裁剪（渲染了 slot）的可见范围；墙渲染它外扩 overscan 的 slot。
+    // 性能优先：相机补间最多只预留一屏，少画一倍的片。
+    const performanceMode = useLatticeSettingsStore(state => state.latticePerformanceMode);
+    const reservedViewports = performanceMode ? 1 : MAX_RESERVED_VIEWPORTS;
     const [bounds, setBounds] = useState<Bounds | null>(null);
     const boundsRef = useRef<Bounds | null>(null);
     boundsRef.current = bounds;
@@ -142,7 +146,7 @@ export const useBravaisCamera = ({
                     top: Math.min(current.top, destination.top),
                     bottom: Math.max(current.bottom, destination.bottom),
                 };
-                return area(merged) > area(destination) * MAX_RESERVED_VIEWPORTS ? destination : merged;
+                return area(merged) > area(destination) * reservedViewports ? destination : merged;
             });
         }
         if (reducedMotion || duration <= 0) {
@@ -165,7 +169,7 @@ export const useBravaisCamera = ({
                 moveTo(target, true);
             },
         });
-    }, [frameRef, moveTo, reducedMotion, renderFrame, stopCamera, syncPointerCamera]);
+    }, [frameRef, moveTo, reducedMotion, renderFrame, reservedViewports, stopCamera, syncPointerCamera]);
 
     // B7 有限拼贴的相机范围：拖动中超出范围按阻尼走（弹性），惯性与滚轮硬钳制，松手后补间回范围里。
     const rangeRef = useRef<WallCameraRange | null>(null);

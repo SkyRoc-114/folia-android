@@ -59,6 +59,8 @@ type PosterWallProps = {
 const CELL_SIZE = 128;
 const GAP = 8;
 const OVERSCAN = 500;
+// 性能优先时只多画一屏多一点：手机上一次滚动的海报量小一半，滚动更顺。
+const PERFORMANCE_OVERSCAN = 140;
 // How much of the flight path may stay rendered while the camera travels, in viewports.
 const MAX_RESERVED_VIEWPORTS = 3;
 // Metro tile landing: the wave starts at the top-left of the viewport and runs down the diagonal.
@@ -127,6 +129,10 @@ export default function PosterWall({
     // 从资料库墙翻牌交接进来（或淡入交叉）：入场由交接代替，不跑抬起落下的波次。
     const entranceSuppressed = useWallHandoffStore(state => resolveWallHandoffRole(state.session, 'lattice') === 'in');
     const autoFocusOnSongChange = useLatticeSettingsStore(state => state.autoFocusOnSongChange);
+    const performanceMode = useLatticeSettingsStore(state => state.latticePerformanceMode);
+    // 性能优先：overscan 收窄、相机最多预留一屏，少挂一半的片。
+    const overscan = performanceMode ? PERFORMANCE_OVERSCAN : OVERSCAN;
+    const reservedViewports = performanceMode ? 1 : MAX_RESERVED_VIEWPORTS;
     const devicePixelRatio = useDevicePixelRatio();
     const pixelScale = cameraScale * devicePixelRatio;
 
@@ -201,9 +207,9 @@ export default function PosterWall({
             const mergedArea = (merged.right - merged.left) * (merged.bottom - merged.top);
             const destinationArea = (destination.right - destination.left)
                 * (destination.bottom - destination.top);
-            return mergedArea > destinationArea * MAX_RESERVED_VIEWPORTS ? destination : merged;
+            return mergedArea > destinationArea * reservedViewports ? destination : merged;
         });
-    }, []);
+    }, [reservedViewports]);
 
     const { panTo, stopPan, animationRef } = useWallCameraPan({ cameraRef, viewportRef, reducedMotion, applyCamera, reserveBounds });
     const wallSections = useWallSections({ layout: wallLayout, cameraRef, viewportRef, animationRef, panTo, corner: CAMERA_HOME });
@@ -251,12 +257,12 @@ export default function PosterWall({
     // The posters, and on the explore wall the headings, that are drawn.
     const drawn = useMemo(() => {
         if (!measured || !opened) return { posters: [], headings: [] };
-        const visible = wallLayout.near(bounds, OVERSCAN);
+        const visible = wallLayout.near(bounds, overscan);
         if (!activePoster || visible.posters.some(instance => instance.instanceId === activePoster.instance.instanceId)) {
             return visible;
         }
         return { posters: [...visible.posters, activePoster.instance], headings: visible.headings };
-    }, [activePoster, bounds, wallLayout, measured, opened]);
+    }, [activePoster, bounds, overscan, wallLayout, measured, opened]);
     const instances = drawn.posters;
 
     // World point the viewport is centred on; both the keyboard seed and playback follow need it.
@@ -275,7 +281,7 @@ export default function PosterWall({
         stopPan,
         containerRef,
         reducedMotion,
-        overscan: OVERSCAN,
+        overscan,
         bounds,
         cameraRef,
         getWorldBounds,
