@@ -134,6 +134,10 @@ const FloatingPlayerControls: React.FC<FloatingPlayerControlsProps> = ({
     const iconBtnClass = isDaylight ? 'hover:bg-black/5 text-black/60' : 'hover:bg-white/10 opacity-40 hover:opacity-100';
 
     const [isHovered, setIsHovered] = useState(false);
+    // Touch devices have no hover, so the capsule needs its own expanded state:
+    // without it the play/pause and prev/next buttons can never be reached on a
+    // tablet. Touching the bar expands it; touching elsewhere collapses it.
+    const [isTouchExpanded, setIsTouchExpanded] = useState(false);
     const [isTimelineOpen, setIsTimelineOpen] = useState(false);
     const expandTimeoutRef = useRef<number | null>(null);
     const collapseTimeoutRef = useRef<number | null>(null);
@@ -152,7 +156,10 @@ const FloatingPlayerControls: React.FC<FloatingPlayerControlsProps> = ({
 
     const canAutoExpand = canTogglePlay && duration > 0;
     // 定位模式强制展开：用户要看到的是最终形态的胶囊，而不是一条细进度条。
-    const showExpanded = isPositioning || isHovered || (canAutoExpand && playerState !== PlayerState.PLAYING && currentView !== 'home');
+    const showExpanded = isPositioning
+        || isHovered
+        || isTouchExpanded
+        || (canAutoExpand && playerState !== PlayerState.PLAYING && currentView !== 'home');
 
     // 上限依赖视口高度，窗口变矮时要跟着收，否则虚线框会画到屏幕外。
     useEffect(() => {
@@ -167,6 +174,10 @@ const FloatingPlayerControls: React.FC<FloatingPlayerControlsProps> = ({
     }, [isPositioning]);
 
     const handlePositionDragStart = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+        // 触摸没有 hover，按下就展开，展开后这一次点击仍然落在同一颗胶囊上。
+        if (e.pointerType === 'touch') {
+            setIsTouchExpanded(true);
+        }
         if (!isPositioning) {
             return;
         }
@@ -274,6 +285,18 @@ const FloatingPlayerControls: React.FC<FloatingPlayerControlsProps> = ({
         };
     }, []);
 
+    // 触摸展开后不会收到 mouseleave，改为点到别处时收起。
+    useEffect(() => {
+        if (!isTouchExpanded) return undefined;
+        const handlePointerDownOutside = (event: PointerEvent) => {
+            if (event.pointerType !== 'touch') return;
+            const target = event.target as Element | null;
+            if (target?.closest?.('[data-ponder="player-bar"]')) return;
+            setIsTouchExpanded(false);
+        };
+        window.addEventListener('pointerdown', handlePointerDownOutside, true);
+        return () => window.removeEventListener('pointerdown', handlePointerDownOutside, true);
+    }, [isTouchExpanded]);
     const handleMouseEnter = () => {
         if (collapseTimeoutRef.current !== null) {
             window.clearTimeout(collapseTimeoutRef.current);
@@ -373,11 +396,14 @@ const FloatingPlayerControls: React.FC<FloatingPlayerControlsProps> = ({
                         // 经外层 lift 表达，再让 drag 往这个节点写一份 y 会叠加成两倍位移；
                         // 而且 dragConstraints 依赖的起始值放在 ref 里不会触发重渲染，读到的会是上一帧的。
                         data-ponder="player-bar"
+                        data-folia-player-bar-expanded={showExpanded ? 'true' : 'false'}
                         onPointerDown={handlePositionDragStart}
                         onPointerMove={handlePositionDragMove}
                         onPointerUp={handlePositionDragEnd}
                         onPointerCancel={handlePositionDragEnd}
-                        style={{ touchAction: isPositioning ? 'none' : undefined }}
+                        // manipulation drops the legacy tap delay and the double-tap zoom on
+                        // touch screens; only the positioning drag needs to swallow gestures.
+                        style={{ touchAction: isPositioning ? 'none' : 'manipulation' }}
                         className={`backdrop-blur-xl shadow-2xl overflow-hidden rounded-full relative transition-colors duration-300
                             ${isPositioning ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}
                             ${showExpanded ? `p-3 ${glassBgExpanded} w-full` : `px-4 py-2 ${glassBgCollapsed} ${COLLAPSED_WIDTH_CLASS}`}`}
@@ -507,7 +533,10 @@ const ExpandedView: React.FC<ExpandedViewProps> = ({
             {/* Desktop Layout - responsive grid positions apply from the sm breakpoint */}
             {/* Mobile Layout - base grid positions apply below the sm breakpoint */}
             {/* Row 1: Centered Title */}
-            <div className="col-span-3 row-start-1 min-w-0 px-2 sm:col-start-2 sm:col-span-1">
+            <div
+                data-folia-player-bar-title="true"
+                className="col-span-3 row-start-1 min-w-0 px-2 sm:col-start-2 sm:col-span-1"
+            >
                 {trackNavigation ? (
                     <TrackTitleNavigator
                         title={currentSong?.name || noTrackText}
@@ -533,6 +562,7 @@ const ExpandedView: React.FC<ExpandedViewProps> = ({
 
             {/* Row 3: Loop Button, Play Button, Lyrics Button */}
             <button
+                data-folia-player-bar-play="true"
                 onClick={(e) => {
                     e.stopPropagation();
                     onTogglePlay();
@@ -573,7 +603,10 @@ const ExpandedView: React.FC<ExpandedViewProps> = ({
             </div>
 
             {/* Row 2: Current Time, Progress Bar, Duration */}
-            <div className="col-span-3 row-start-3 w-full px-2 sm:col-start-2 sm:col-span-1 sm:row-start-2">
+            <div
+                data-folia-player-bar-progress="true"
+                className="col-span-3 row-start-3 w-full px-2 sm:col-start-2 sm:col-span-1 sm:row-start-2"
+            >
                 <ProgressBar
                     currentTime={currentTime}
                     duration={duration}
