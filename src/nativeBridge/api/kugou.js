@@ -3012,6 +3012,18 @@ function normalizePlayUrl(url) {
   return 'http://fs.open.kugou.com/' + url.replace(/^\/+/, '');
 }
 
+// 概念版每日领取用的日期按中国日历算（官方客户端同款），不跟随设备时区。
+function chinaCalendarDate(date = new Date()) {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(date);
+    const value = (type) => parts.find((part) => part.type === type)?.value || '';
+    return `${value('year')}-${value('month')}-${value('day')}`;
+  } catch (_) {
+    return new Date(date.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  }
+}
 export async function handleKGSongUrl(hash, albumId, albumAudioId, quality, cookieHeader, qualityHashes) {
   hash = String(hash || '').trim().toLowerCase();
   albumId = String(albumId || '').trim();
@@ -3193,6 +3205,35 @@ export async function handleKGSongUrl(hash, albumId, albumAudioId, quality, cook
         hasVipToken: currentVipToken,
         vipType: Number(login.vipType) || 0,
       });
+    }
+
+    // 概念版还有一条路：会员歌曲取不到链、账号又完全没有 VIP 时，现场领一次当天的畅听 VIP 再试。
+    // 已领过的那天服务端会拒绝，不会重复领取；标准版账号没领过时也可能受益，行为与官方客户端一致。
+    const stillBlocked = trackerResult.blocked || trackerResult.status === 2;
+    const cacheAfterRetry = await loadKGVipSessionCache(login.userId);
+    const stillNoVip = !resolveKGEffectiveVipToken(cookieHeader, cacheAfterRetry) && !login.isVip;
+    if (stillBlocked && login.loggedIn && stillNoVip) {
+      try {
+        const claimDay = chinaCalendarDate();
+        noteLibraryStep('kugou', 'vip:claim-on-fail:start', { day: claimDay });
+        await claimKGYouthDayVip(cookieHeader, claimDay);
+        await upgradeKGYouthDayVip(cookieHeader, login.userId);
+        const afterClaim = await resolveKGSongPlayUrl(playHash, albumId, albumAudioId, cookieHeader, login, qualityCode);
+        if (afterClaim && afterClaim.url) {
+          writeKGPlayUrlCache(cacheKey, afterClaim.url);
+          noteLibraryStep('kugou', 'url:hit', {
+            source: `${afterClaim.source}+concept-claim`,
+            ms: Date.now() - resolveStartedAt,
+            target: describeKGSchemeAndHost(afterClaim.url),
+          });
+          return successPayload(afterClaim.url, afterClaim.source);
+        }
+        noteLibraryStep('kugou', 'vip:claim-on-fail:miss', { status: (afterClaim && afterClaim.tracker && afterClaim.tracker.status) || 0 });
+      } catch (error) {
+        noteLibraryStep('kugou', 'vip:claim-on-fail:error', {
+          message: error instanceof Error ? error.message.slice(0, 120) : String(error).slice(0, 120),
+        });
+      }
     }
   } catch (_) {}
   const blocked = trackerResult.blocked || trackerResult.status === 2;
