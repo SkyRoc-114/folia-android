@@ -40,7 +40,7 @@ import okhttp3.Response;
  */
 final class SpotifyAuth {
 
-    static final String CLIENT_ID = "65b708073fc0480ea92a077233ca87bd";
+    static final String CLIENT_ID = "1007628e199540e3b9982f3ebbabef7e";
     static final int PORT = 5588;
     static final String REDIRECT_URI = "http://127.0.0.1:" + PORT + "/login";
 

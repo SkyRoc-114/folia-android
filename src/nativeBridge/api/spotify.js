@@ -1,50 +1,16 @@
 // src/nativeBridge/api/spotify.js
 //
-// Spotify 的安卓侧桥：登录交给原生（SpotifyAuth.java 做 OAuth PKCE + 回环回调），令牌留在原生，
-// 这里只按操作名发请求。读取走 Spotify 应用自己用的两个服务（pathfinder 的固定查询名 + spclient），
-// 写入走同一套 pathfinder 变更；移植自 electron/spotify/spotifyApiBridge.cjs，逻辑保持一致，
-// 只是 Node 的 fetch/写文件换成了 WebView 的 fetch（经原生 HTTP 代理绕开 CORS）。
+// Spotify 的安卓侧桥：登录交给原生（SpotifyAuth.java 做 OAuth PKCE + 回环回调），令牌留在原生。
+// 数据走 Spotify **官方 Web API**（api.spotify.com/v1）：桌面版走的 pathfinder 内网接口从
+// 2026-10 起对第三方 OAuth 令牌一律回 403 Client/request not allowed，安卓只能走官方接口。
+// 官方返回的形状与 pathfinder 不同，这里翻译成渲染层（spotifyNormalize.ts）读懂的形状，
+// 渲染层的 provider / catalog / library 代码不用改。
 //
-// 桌面版能放 Spotify 音频（librespot）；安卓没有这条通道，`audio`/`audio_kept`/`audio_keep` 明确
-// 报 unsupported，播放侧按 capability 关掉，不假装能放。
+// 没有官方接口的能力（Spotify 自己的音频、内置歌词）明确报 unsupported / 返回 null，不假装有。
 
 import { noteLibraryStep } from './libraryTrace.js';
 
-const QUERIES = Object.freeze({
-    home: '3357ffed7961629ba92b4e0a41514e4d5004a14355c964c23ce442205c9e44a1',
-    homeSection: 'd62af2714f2623c923cc9eeca4b9545b4363abaa9188a9e94e2b63b823419a2c',
-    browsePage: 'f5c4e6d668f5716464a231c1cc8b22c1cbf6ad68b09929fd7de813a30581298b',
-    queryWhatsNewFeed: '3b53dede3c6054e8b7c962dd280eb6761c5d1c82b06b039f4110d76a62b4966b',
-    libraryV3: '390c78e5b951029bad359785e69b07b536a509c581cbcd0aded5e5067f187455',
-    fetchLibraryTracks: '087278b20b743578a6262c2b0b4bcd20d879c503cc359a2285baf083ef944240',
-    fetchPlaylist: 'cd2275433b29f7316176e7b5b5e098ae7744724e1a52d63549c76636b3257749',
-    getAlbum: 'b9bfabef66ed756e5e13f68a942deb60bd4125ec1f1be8cc42769dc0259b4b10',
-    queryArtistOverview: '7f86ff63e38c24973a2842b672abe44c910c1973978dc8a4a0cb648edef34527',
-    queryArtistDiscographyAll: '5e07d323febb57b4a56a42abbf781490e58764aa45feb6e3dc0591564fc56599',
-    searchTracks: 'bc1ca2fcd0ba1013a0fc88e6cc4f190af501851e3dafd3e1ef85840297694428',
-    getTrack: '612585ae06ba435ad26369870deaae23b5c8800a256cd8a57e08eddc25a37294',
-    areEntitiesInLibrary: '134337999233cc6fdd6b1e6dbf94841409f04a946c5c7b744b09ba0dfe5a85ed',
-    profileAttributes: '53bcb064f6cd18c23f752bc324a791194d20df612d8e1239c735144ab0399ced',
-});
-const CHANGES = Object.freeze({
-    addToLibrary: '896ebcb47815681340860d121cb5d494e157e2a78d3950385cd54e0393c67148',
-    removeFromLibrary: '896ebcb47815681340860d121cb5d494e157e2a78d3950385cd54e0393c67148',
-    addItemsToRootlist: 'bd9c5cae1ee80ebca05d7ed12fd394216f49a20ce72d9dc762868df0f14522ea',
-    removeItemsFromRootlist: '3422f1866532820a1d8d0560f88542dbdbd35d0377ee5ecd49593590f5f1e86b',
-    addToPlaylist: '47b2a1234b17748d332dd0431534f22450e9ecbb3d5ddcdacbd83368636a0990',
-    removeFromPlaylist: '47b2a1234b17748d332dd0431534f22450e9ecbb3d5ddcdacbd83368636a0990',
-});
-const QUERY_URL = 'https://api-partner.spotify.com/pathfinder/v2/query';
-const SPCLIENT_URL = 'https://spclient.wg.spotify.com';
-const LIBRARY_URI = /^spotify:(track|album|playlist):[0-9A-Za-z]{22}$/;
-const PLAYLIST_URI = /^spotify:playlist:[0-9A-Za-z]{22}$/;
-const TRACK_ID = /^[0-9A-Za-z]{22}$/;
-const LIST_ROWS = 500;
-const LIST_MAX_REQUESTS = 40;
-const MAX_SONGS_A_CHANGE = 100;
-const MAX_NAME_LENGTH = 100;
-const MAX_VARIABLES_LENGTH = 4096;
-const RENDERER_QUERIES = Object.keys(QUERIES).filter(name => name !== 'profileAttributes');
+const API = 'https://api.spotify.com/v1';
 
 /** 桥错误：code 用 ProviderErrorCode 的写法，message 是给人看的一句。 */
 class SpotifyBridgeError extends Error {
@@ -63,10 +29,7 @@ const nativePlugin = () => {
     return plugin && typeof plugin.spotifyLoginStatus === 'function' ? plugin : null;
 };
 
-const plugin = () => {
-    const found = nativePlugin();
-    return found ?? fail('unavailable', 'Spotify requires the Android app');
-};
+const plugin = () => nativePlugin() ?? fail('unavailable', 'Spotify requires the Android app');
 
 const authStatus = async () => {
     const status = await plugin().spotifyLoginStatus();
@@ -82,127 +45,393 @@ const accessToken = async () => {
     return token;
 };
 
-/** 带令牌的一次请求：Spotify 的 pathfinder / spclient 都从这里发。 */
-// Spotify 的 partner/pathfinder 服务会按「像不像 Web Player」检查请求：真实的 open.spotify.com
-// 发 Accept/Origin/Referer/Spotify-App/Spotify-App-Version/App-Platform，缺了会被回
-// 403 Client/request not allowed（当前 OAuth 令牌直接发就是这一条）。这里补上同一组头。
-const WEB_PLAYER_HEADERS = Object.freeze({
-    'App-Platform': 'WebPlayer',
-    'Spotify-App': 'web_player',
-    'Spotify-App-Version': '1.2.80.454',
-    Origin: 'https://open.spotify.com',
-    Referer: 'https://open.spotify.com/',
-});
-const call = async (url, { method = 'GET', body, headers = {}, absent, token } = {}) => {
-    const bearer = token ?? await accessToken();
-    const response = await fetch(url, {
-        method,
-        headers: { Accept: 'application/json', 'Accept-Language': 'zh-CN', ...headers, Authorization: `Bearer ${bearer}` },
-        ...(body === undefined ? {} : { body }),
+/** 一次官方 Web API 请求；`path` 是 /v1 之后的路径。 */
+const web = async (path, { method = 'GET', body, query } = {}) => {
+    const token = await accessToken();
+    const url = new URL(API + (path.startsWith('/') ? path : `/${path}`));
+    Object.entries(query ?? {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
     });
-    if (response.status === 404 && absent !== undefined) return absent;
+    const response = await fetch(url.toString(), {
+        method,
+        headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: 'application/json',
+            ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+        },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    if (response.status === 401) fail('auth-required', 'Spotify sign-in is required');
+    if (response.status === 403) fail('unavailable', 'Spotify refused the request (403)');
+    if (response.status === 429) fail('unavailable', 'Spotify rate limited the request (429)');
+    if (response.status === 404) return null;
     if (!response.ok) {
         let said = '';
         try { said = (await response.text()).slice(0, 160); } catch { said = ''; }
-        noteLibraryStep('spotify', 'http:refused', { status: response.status, url: url.split('?')[0], said });
-        fail(response.status === 401 ? 'auth-required' : 'unavailable', 'Spotify refused the request');
+        fail(response.status >= 500 ? 'network' : 'unavailable', `Spotify refused the request (HTTP ${response.status})${said ? `: ${said}` : ''}`);
     }
+    if (response.status === 204) return null;
     return response.json();
 };
 
-const ask = async (name, hash, variables, token) => {
-    const answer = await call(QUERY_URL, {
-        token,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ variables, operationName: name, extensions: { persistedQuery: { version: 1, sha256Hash: hash } } }),
-    });
-    const errors = Array.isArray(answer?.errors) ? answer.errors : [];
-    return { data: answer?.data, refused: errors.length > 0, said: errors.map(error => error?.message).filter(Boolean).join(' | ') };
+// ── 官方形状 → 渲染层读的 pathfinder 形状 ────────────────────────────────
+
+const imageSources = images => (Array.isArray(images)
+    ? images
+        .filter(image => image && typeof image.url === 'string')
+        .map(image => ({ url: image.url, width: typeof image.width === 'number' ? image.width : null }))
+    : []);
+
+const artistRowOf = artist => ({
+    uri: `spotify:artist:${artist.id}`,
+    profile: { name: artist.name ?? '' },
+    visuals: { avatarImage: { sources: imageSources(artist.images) } },
+});
+
+const trackOf = track => ({
+    __typename: 'Track',
+    uri: `spotify:track:${track.id}`,
+    name: track.name ?? '',
+    artists: { items: (track.artists ?? []).map(artistRowOf) },
+    albumOfTrack: track.album
+        ? { uri: `spotify:album:${track.album.id}`, name: track.album.name ?? '', coverArt: { sources: imageSources(track.album.images) } }
+        : undefined,
+    duration: { totalMilliseconds: Number(track.duration_ms) || 0 },
+});
+
+const albumOf = (album, tracks) => ({
+    __typename: 'Album',
+    uri: `spotify:album:${album.id}`,
+    name: album.name ?? '',
+    coverArt: { sources: imageSources(album.images) },
+    artists: { items: (album.artists ?? []).map(artistRowOf) },
+    date: { isoString: album.release_date ?? '' },
+    albumType: album.album_type ? String(album.album_type).toUpperCase() : undefined,
+    ...(tracks === undefined ? {} : {
+        tracksV2: {
+            totalCount: Number(tracks.total) || (tracks.items ?? []).length,
+            items: (tracks.items ?? []).map(track => ({ track: trackOf(track) })),
+        },
+    }),
+});
+
+const playlistOf = playlist => ({
+    __typename: 'Playlist',
+    uri: `spotify:playlist:${playlist.id}`,
+    name: playlist.name ?? '',
+    description: playlist.description ?? '',
+    images: { items: (playlist.images ?? []).map(image => ({ sources: imageSources([image]) })) },
+    ownerV2: { data: { name: playlist.owner?.display_name ?? playlist.owner?.id ?? '', username: playlist.owner?.id ?? '' } },
+    content: { totalCount: Number(playlist.tracks?.total) || 0 },
+    currentUserCapabilities: { canEditItems: playlist.collaborative === true || playlist.owner?.id === (playlist.__meId ?? '') },
+});
+
+const cardOf = (typename, data) => ({ content: { __typename: typename, data } });
+
+const sectionOf = (uri, title, cards) => ({
+    uri,
+    data: { title: { transformedLabel: title } },
+    sectionItems: { totalCount: cards.length, items: cards },
+});
+
+// ── 共享读取 ─────────────────────────────────────────────────────────────
+
+let meCache = null;
+const me = async () => {
+    if (meCache) return meCache;
+    const answer = await web('/me');
+    if (!answer) fail('auth-required', 'Spotify sign-in is required');
+    meCache = answer;
+    return meCache;
 };
 
-const query = async (name, variables, token) => {
-    const { data, said } = await ask(name, QUERIES[name], variables, token);
-    if (!data) fail('invalid-response', `Spotify did not answer the query: ${name}${said ? ` (${said.slice(0, 80)})` : ''}`);
-    return data;
+const likedAnswer = tracks => ({
+    me: {
+        library: {
+            tracks: {
+                totalCount: Number(tracks.total) || (tracks.items ?? []).length,
+                items: (tracks.items ?? []).map(row => ({ track: { _uri: row.track?.uri, data: trackOf(row.track) } })),
+            },
+        },
+    },
+});
+
+const playlistAnswer = (playlist, tracks) => ({
+    playlistV2: {
+        ...playlistOf(playlist),
+        content: {
+            totalCount: Number(tracks?.total) || Number(playlist.tracks?.total) || 0,
+            items: (tracks?.items ?? []).map(row => ({ itemV2: { data: row.track ? trackOf(row.track) : undefined } })),
+        },
+    },
+});
+
+// Spotify 没有「为一首歌生成的电台」官方接口；推荐接口能给出同风格的歌。这里用一个合成的
+// playlist uri 顶替：请求这个 uri 的歌曲时转去 /recommendations。
+const radioIds = new Map();
+
+const syntheticRadioUri = seedId => {
+    // 渲染层要求 playlist id 是 22 位 [0-9A-Za-z]。
+    let id = `${seedId}`.replace(/[^0-9A-Za-z]/g, '').slice(0, 22);
+    while (id.length < 22) id += 'x';
+    radioIds.set(id, seedId);
+    return `spotify:playlist:${id}`;
 };
 
-const change = async (name, variables) => {
-    const { data, refused, said } = await ask(name, CHANGES[name], variables);
-    const results = data && typeof data === 'object' ? Object.values(data) : [];
-    if (refused || results.length === 0 || results.some(result => result === null)) {
-        fail('unavailable', `Spotify refused the change: ${name}${said ? ` (${said.slice(0, 80)})` : ''}`);
-    }
+const radioTracks = async seedId => {
+    const answer = await web('/recommendations', { query: { seed_tracks: seedId, limit: 50 } });
+    const rows = (answer?.tracks ?? []).map(track => trackOf(track));
+    return { totalCount: rows.length, items: rows.map(track => ({ track })) };
 };
 
-const playlistRows = async uri => {
-    const rows = new Map();
-    let offset = 0;
-    for (let request = 0; request < LIST_MAX_REQUESTS; request += 1) {
-        const { data, refused, said } = await ask('fetchPlaylist', QUERIES.fetchPlaylist, { uri, offset, limit: LIST_ROWS, enableWatchFeedEntrypoint: false });
-        const list = data?.playlistV2;
-        if (refused || !list) fail('invalid-response', `Spotify did not give the playlist whole: ${said || 'no data'}`);
-        if (list.currentUserCapabilities?.canEditItems !== true) fail('unsupported', 'The account may not change the songs of this playlist');
-        const items = list.content?.items;
-        if (!Array.isArray(items)) fail('invalid-response', "Spotify did not give the playlist's rows");
-        for (const item of items) {
-            const song = item?.itemV2?.data?.uri;
-            if (typeof song === 'string') rows.set(song, [...(rows.get(song) ?? []), ...(typeof item.uid === 'string' ? [item.uid] : [])]);
+// ── 查询实现 ─────────────────────────────────────────────────────────────
+
+const catalogHandlers = {
+    async libraryV3(variables) {
+        const kind = Array.isArray(variables.filters) ? String(variables.filters[0]) : 'Playlists';
+        const limit = Math.max(1, Math.min(50, Number(variables.limit) || 20));
+        const offset = Math.max(0, Number(variables.offset) || 0);
+        if (kind === 'Albums') {
+            const answer = await web('/me/albums', { query: { limit, offset } });
+            return {
+                me: {
+                    libraryV3: {
+                        totalCount: Number(answer?.total) || 0,
+                        items: (answer?.items ?? []).map(row => ({ item: { data: albumOf(row.album) } })),
+                    },
+                },
+            };
         }
-        offset += items.length;
-        const total = list.content.totalCount;
-        if (items.length === 0 || (typeof total === 'number' && offset >= total)) return rows;
-    }
-    fail('unavailable', 'The playlist is too long to change from here');
+        const account = await me();
+        const answer = await web('/me/playlists', { query: { limit, offset } });
+        return {
+            me: {
+                libraryV3: {
+                    totalCount: Number(answer?.total) || 0,
+                    items: (answer?.items ?? []).map(item => ({ item: { data: { ...playlistOf(item), __meId: account.id } } })),
+                },
+            },
+        };
+    },
+
+    async fetchLibraryTracks(variables) {
+        const limit = Math.max(1, Math.min(50, Number(variables.limit) || 50));
+        const offset = Math.max(0, Number(variables.offset) || 0);
+        const answer = await web('/me/tracks', { query: { limit, offset } });
+        return likedAnswer(answer ?? {});
+    },
+
+    async fetchPlaylist(variables) {
+        const uri = String(variables.uri ?? '');
+        const id = uri.split(':').pop() ?? '';
+        const limit = Math.max(1, Math.min(100, Number(variables.limit) || 100));
+        const offset = Math.max(0, Number(variables.offset) || 0);
+        const seed = radioIds.get(id);
+        if (seed) {
+            const tracks = await radioTracks(seed);
+            return {
+                playlistV2: {
+                    __typename: 'Playlist',
+                    uri,
+                    name: 'Spotify Radio',
+                    description: '',
+                    images: { items: [] },
+                    ownerV2: { data: { name: 'Spotify', username: 'spotify' } },
+                    content: {
+                        totalCount: tracks.totalCount,
+                        items: tracks.items.slice(offset, offset + limit).map(row => ({ itemV2: { data: row.track } })),
+                    },
+                },
+            };
+        }
+        const playlist = await web(`/playlists/${encodeURIComponent(id)}`);
+        if (!playlist) fail('unavailable', 'Spotify has no such playlist');
+        const tracks = await web(`/playlists/${encodeURIComponent(id)}/tracks`, { query: { limit, offset } });
+        const account = await me();
+        return playlistAnswer({ ...playlist, __meId: account.id }, tracks);
+    },
+
+    async getAlbum(variables) {
+        const id = String(variables.uri ?? '').split(':').pop() ?? '';
+        const offset = Math.max(0, Number(variables.offset) || 0);
+        const limit = Math.max(1, Math.min(50, Number(variables.limit) || 50));
+        const album = await web(`/albums/${encodeURIComponent(id)}`);
+        if (!album) fail('unavailable', 'Spotify has no such album');
+        // 官方专辑详情自带前 50 首；再往后单独翻页。
+        const tracks = offset === 0
+            ? { total: album.tracks?.total, items: album.tracks?.items ?? [] }
+            : await web(`/albums/${encodeURIComponent(id)}/tracks`, { query: { limit, offset } });
+        return { albumUnion: albumOf(album, tracks) };
+    },
+
+    async getTrack(variables) {
+        const id = String(variables.uri ?? '').split(':').pop() ?? '';
+        const track = await web(`/tracks/${encodeURIComponent(id)}`);
+        if (!track) fail('unavailable', 'Spotify has no such track');
+        const [first, ...rest] = track.artists ?? [];
+        return {
+            trackUnion: {
+                ...trackOf(track),
+                firstArtist: { items: first ? [artistRowOf(first)] : [] },
+                otherArtists: { items: rest.map(artistRowOf) },
+            },
+        };
+    },
+
+    async queryArtistOverview(variables) {
+        const id = String(variables.uri ?? '').split(':').pop() ?? '';
+        const [artist, top, albums] = await Promise.all([
+            web(`/artists/${encodeURIComponent(id)}`),
+            web(`/artists/${encodeURIComponent(id)}/top-tracks`, { query: { market: 'from_token' } }).catch(() => null),
+            web(`/artists/${encodeURIComponent(id)}/albums`, { query: { include_groups: 'album,single,compilation', limit: 50 } }).catch(() => null),
+        ]);
+        if (!artist) fail('unavailable', 'Spotify has no such artist');
+        const rows = albums?.items ?? [];
+        return {
+            artistUnion: {
+                ...artistRowOf(artist),
+                __typename: 'Artist',
+                discography: {
+                    topTracks: { items: (top?.tracks ?? []).map(track => ({ track: trackOf(track) })) },
+                    albums: { totalCount: rows.length },
+                    singles: { totalCount: rows.filter(row => row.album_type !== 'album').length },
+                },
+            },
+        };
+    },
+
+    async queryArtistDiscographyAll(variables) {
+        const id = String(variables.uri ?? '').split(':').pop() ?? '';
+        const offset = Math.max(0, Number(variables.offset) || 0);
+        const limit = Math.max(1, Math.min(50, Number(variables.limit) || 50));
+        const answer = await web(`/artists/${encodeURIComponent(id)}/albums`, {
+            query: { include_groups: 'album,single,compilation', limit, offset },
+        });
+        return {
+            artistUnion: {
+                discography: {
+                    all: {
+                        totalCount: Number(answer?.total) || 0,
+                        items: (answer?.items ?? []).map(album => ({ releases: { items: [albumOf(album)] } })),
+                    },
+                },
+            },
+        };
+    },
+
+    async searchTracks(variables) {
+        const limit = Math.max(1, Math.min(50, Number(variables.limit) || 20));
+        const offset = Math.max(0, Number(variables.offset) || 0);
+        const answer = await web('/search', {
+            query: { q: String(variables.searchTerm ?? ''), type: 'track,album,artist,playlist', limit, offset },
+        });
+        const tracks = answer?.tracks;
+        return {
+            searchV2: {
+                tracksV2: {
+                    totalCount: Number(tracks?.total) || 0,
+                    items: (tracks?.items ?? []).map(track => ({ item: { data: trackOf(track) } })),
+                },
+                albumsV2: { items: (answer?.albums?.items ?? []).map(album => ({ item: { data: albumOf(album) } })) },
+                artistsV2: { items: (answer?.artists?.items ?? []).map(artist => ({ item: { data: artistRowOf(artist) } })) },
+                playlistsV2: { items: (answer?.playlists?.items ?? []).map(playlist => ({ item: { data: playlistOf(playlist) } })) },
+            },
+        };
+    },
+
+    async areEntitiesInLibrary(variables) {
+        const uris = Array.isArray(variables.uris) ? variables.uris.map(String) : [];
+        const saved = new Map();
+        const asks = uris.map(async (uri, at) => {
+            const [kind, , id] = uri.split(':');
+            const path = kind === 'track' ? '/me/tracks/contains'
+                : kind === 'album' ? '/me/albums/contains'
+                    : kind === 'playlist' ? `/playlists/${encodeURIComponent(id)}/followers/contains`
+                        : null;
+            if (!path) return;
+            const query = kind === 'playlist' ? { ids: id } : { ids: id };
+            const answer = await web(path, { query }).catch(() => null);
+            saved.set(at, Array.isArray(answer) ? Boolean(answer[0]) : false);
+        });
+        await Promise.all(asks);
+        return { lookup: uris.map((_uri, at) => ({ data: { saved: saved.get(at) === true } })) };
+    },
+
+    // 探索页：官方接口没有 Spotify 首页那种「排好的一页」，用精选/新发行/你常听拼。
+    async home() {
+        const [featured, releases, playlists, topArtists] = await Promise.all([
+            web('/browse/featured-playlists', { query: { limit: 10 } }).catch(() => null),
+            web('/browse/new-releases', { query: { limit: 10 } }).catch(() => null),
+            web('/me/playlists', { query: { limit: 10 } }).catch(() => null),
+            web('/me/top/artists', { query: { limit: 10, time_range: 'medium_term' } }).catch(() => null),
+        ]);
+        const sections = [];
+        if (featured?.playlists?.items?.length) {
+            sections.push(sectionOf('spotify-featured', '为你精选', featured.playlists.items.map(playlist => cardOf('Playlist', playlistOf(playlist)))));
+        }
+        if (playlists?.items?.length) {
+            sections.push(sectionOf('spotify-your-playlists', '你的歌单', playlists.items.map(playlist => cardOf('Playlist', playlistOf(playlist)))));
+        }
+        if (releases?.albums?.items?.length) {
+            sections.push(sectionOf('spotify-new-releases', '新发行', releases.albums.items.map(album => cardOf('Album', albumOf(album)))));
+        }
+        if (topArtists?.items?.length) {
+            sections.push(sectionOf('spotify-top-artists', '你常听的歌手', topArtists.items.map(artist => cardOf('Artist', artistRowOf(artist)))));
+        }
+        return { home: { sectionContainer: { sections: { items: sections } } } };
+    },
+
+    async homeSection(variables) {
+        const uri = String(variables.uri ?? '');
+        const home = await catalogHandlers.home();
+        const sections = home.home.sectionContainer.sections.items;
+        const found = sections.filter(section => section.uri === uri);
+        return { homeSections: { sections: found.length ? found : sections.slice(0, 1) } };
+    },
+
+    async browsePage(variables) {
+        const pagination = variables.sectionPagination ?? { offset: 0, limit: 20 };
+        const offset = Math.max(0, Number(pagination.offset) || 0);
+        const limit = Math.max(1, Math.min(20, Number(pagination.limit) || 20));
+        const answer = await web('/me/playlists', { query: { limit, offset } });
+        const items = (answer?.items ?? []).map(playlist => cardOf('Playlist', playlistOf(playlist)));
+        return {
+            browse: {
+                sections: {
+                    items: [{
+                        uri: 'spotify-made-for-you',
+                        data: { title: { transformedLabel: '为你而做' } },
+                        sectionItems: { totalCount: Number(answer?.total) || items.length, items },
+                    }],
+                },
+            },
+        };
+    },
+
+    async queryWhatsNewFeed(variables) {
+        const limit = Math.max(1, Math.min(50, Number(variables.limit) || 20));
+        const offset = Math.max(0, Number(variables.offset) || 0);
+        const answer = await web('/browse/new-releases', { query: { limit, offset } });
+        return { whatsNewFeedItems: { items: (answer?.albums?.items ?? []).map(album => cardOf('Album', albumOf(album))) } };
+    },
 };
 
-const profileOf = profile => {
-    const me = profile?.me?.profile;
-    const pictures = Array.isArray(me?.avatar?.sources) ? me.avatar.sources : [];
-    const largest = pictures.reduce((best, picture) => ((picture?.width ?? 0) > (best?.width ?? -1) ? picture : best), null);
-    return {
-        id: typeof me?.username === 'string' ? me.username : undefined,
-        nickname: String(me?.name || 'Spotify'),
-        avatarUrl: typeof largest?.url === 'string' ? largest.url : '',
-    };
-};
+// ── 操作处理 ─────────────────────────────────────────────────────────────
 
-// 登录是「原生阻塞浏览器流程 + 这里轮询状态」：start 立刻返回 key，check 在看原生结果。
 let activeLogin = null;
-let publicApiProbed = false;
-
-const loginState = async key => {
-    if (!activeLogin || activeLogin.key !== key) return { state: 'expired' };
-    const native = nativePlugin();
-    if (!native) return { state: 'error', message: 'Spotify requires the Android app' };
-    if (activeLogin.confirmed) return { state: 'confirmed' };
-    const status = await authStatus();
-    if (status.signedIn) {
-        activeLogin.confirmed = true;
-        return { state: 'confirmed' };
-    }
-    if (activeLogin.failed) {
-        return { state: 'error', message: activeLogin.message || 'Spotify sign-in failed' };
-    }
-    return { state: 'waiting' };
-};
 
 const handlers = {
     async login_start() {
         const native = plugin();
         const key = `spotify-${Date.now()}`;
-        activeLogin = { key, startedAt: Date.now(), confirmed: false, failed: false };
-        // 原生在后台跑完整条浏览器登录；失败原因经 spotifyLoginStatus 读不到，只能在 check 里超时/取消。
+        activeLogin = { key, confirmed: false, failed: false };
         native.spotifyStartLogin().then(result => {
             if (activeLogin?.key !== key) return;
-            if (result && result.signedIn) {
-                activeLogin.confirmed = true;
-                return;
-            }
+            if (result && result.signedIn) { activeLogin.confirmed = true; return; }
             activeLogin.failed = true;
             const reason = typeof result?.reason === 'string' && result.reason ? result.reason : 'failed';
-            const detail = typeof result?.detail === 'string' && result.detail ? ': ' + result.detail.slice(0, 180) : '';
-            activeLogin.message = 'Spotify sign-in failed (' + reason + ')' + detail;
+            const detail = typeof result?.detail === 'string' && result.detail ? `: ${result.detail.slice(0, 180)}` : '';
+            activeLogin.message = `Spotify sign-in failed (${reason})${detail}`;
         }).catch(error => {
             if (activeLogin?.key !== key) return;
             activeLogin.failed = true;
@@ -210,12 +439,14 @@ const handlers = {
         });
         return { key, expiresInMs: 3 * 60 * 1000 };
     },
-    async login_open() {
-        // 原生在 login_start 里已经打开了浏览器。
-        return true;
-    },
+    async login_open() { return true; },
     async login_check(params) {
-        return loginState(String(params.key ?? ''));
+        if (!activeLogin || activeLogin.key !== params.key) return { state: 'expired' };
+        if (activeLogin.confirmed) return { state: 'confirmed' };
+        const status = await authStatus();
+        if (status.signedIn) { activeLogin.confirmed = true; return { state: 'confirmed' }; }
+        if (activeLogin.failed) return { state: 'error', message: activeLogin.message || 'Spotify sign-in failed' };
+        return { state: 'waiting' };
     },
     async login_cancel(params) {
         if (activeLogin?.key === params.key) activeLogin = null;
@@ -223,130 +454,106 @@ const handlers = {
         if (native && typeof native.spotifyCancelLogin === 'function') await native.spotifyCancelLogin();
         return true;
     },
-    // 诊断用：pathfinder 被 403 时，看看公开 Web API 对这张令牌是否可用（可用就换数据源）。
-    // 每个会话只探一次，失败也只记一条，不打扰使用。
-    async _probePublicApi() {
-        if (publicApiProbed) return;
-        publicApiProbed = true;
-        try {
-            const token = await accessToken();
-            const response = await fetch('https://api.spotify.com/v1/me', { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
-            let said = '';
-            try { said = (await response.text()).slice(0, 140); } catch { said = ''; }
-            noteLibraryStep('spotify', 'public-api:probe', { status: response.status, said });
-        } catch (error) {
-            noteLibraryStep('spotify', 'public-api:probe', { error: error instanceof Error ? error.message : String(error) });
-        }
-    },
     async login_status() {
-        void handlers._probePublicApi();
         const status = await authStatus();
         if (!status.signedIn) return null;
-        const user = status.user ?? {};
-        let id = typeof user.id === 'string' && user.id ? user.id : (typeof status.id === 'string' ? status.id : '');
-        let nickname = typeof user.displayName === 'string' && user.displayName ? user.displayName : '';
-        let avatarUrl = typeof user.avatarUrl === 'string' ? user.avatarUrl : '';
-        let premium = user.product === 'premium';
-        // 资料优先走 pathfinder：这是应用自己用的接口，公共 Web API 会对这个 client 回 429。
-        if (!id || id === 'spotify' || !nickname) {
-            try {
-                const profile = await query('profileAttributes', {});
-                const me = profile?.me?.profile;
-                if (typeof me?.username === 'string' && me.username) id = me.username;
-                if (typeof me?.name === 'string' && me.name) nickname = me.name;
-                const pictures = Array.isArray(me?.avatar?.sources) ? me.avatar.sources : [];
-                const largest = pictures.reduce((best, picture) => ((picture?.width ?? 0) > (best?.width ?? -1) ? picture : best), null);
-                if (typeof largest?.url === 'string' && largest.url) avatarUrl = largest.url;
-            } catch (error) {
-                console.warn('[Spotify] profile unavailable', error);
-            }
+        try {
+            const account = await me();
+            return {
+                id: account.id,
+                nickname: account.display_name || account.id || 'Spotify',
+                avatarUrl: imageSources(account.images)[0]?.url ?? '',
+                vipType: account.product === 'premium' ? 1 : 0,
+            };
+        } catch (error) {
+            noteLibraryStep('spotify', 'profile:error', { message: error instanceof Error ? error.message : String(error) });
+            const user = status.user ?? {};
+            return {
+                id: typeof user.id === 'string' && user.id ? user.id : (typeof status.id === 'string' ? status.id : 'spotify'),
+                nickname: typeof user.displayName === 'string' && user.displayName ? user.displayName : 'Spotify',
+                avatarUrl: typeof user.avatarUrl === 'string' ? user.avatarUrl : '',
+                vipType: user.product === 'premium' ? 1 : 0,
+            };
         }
-        return {
-            id: id || 'spotify',
-            nickname: nickname || 'Spotify',
-            avatarUrl,
-            vipType: premium ? 1 : 0,
-        };
     },
     async logout() {
         activeLogin = null;
+        meCache = null;
         await plugin().spotifyLogout();
         return true;
     },
+
     async query(params) {
-        if (!RENDERER_QUERIES.includes(params.name)) fail('unsupported', 'Unsupported Spotify query');
-        const variables = params.variables ?? {};
-        if (typeof variables !== 'object' || Array.isArray(variables) || JSON.stringify(variables).length > MAX_VARIABLES_LENGTH) {
-            fail('invalid-response', 'Invalid Spotify query');
-        }
-        return query(params.name, variables);
+        const name = String(params.name ?? '');
+        const handler = catalogHandlers[name];
+        if (!handler) fail('unsupported', `Unsupported Spotify query: ${name}`);
+        const variables = params.variables && typeof params.variables === 'object' ? params.variables : {};
+        return handler(variables);
     },
+
     async radio(params) {
-        if (typeof params.id !== 'string' || !TRACK_ID.test(params.id)) fail('invalid-response', 'Invalid Spotify track');
-        const answer = await call(`${SPCLIENT_URL}/inspiredby-mix/v2/seed_to_playlist/spotify:track:${params.id}?response-format=json`, { absent: null });
-        const uri = answer?.mediaItems?.[0]?.uri;
-        return typeof uri === 'string' && uri.startsWith('spotify:playlist:') ? { uri } : null;
+        const id = String(params.id ?? '');
+        if (!/^[0-9A-Za-z]{22}$/.test(id)) fail('invalid-response', 'Invalid Spotify track');
+        return { uri: syntheticRadioUri(id) };
     },
-    async lyrics(params) {
-        if (typeof params.id !== 'string' || !TRACK_ID.test(params.id)) fail('invalid-response', 'Invalid Spotify track');
-        const answer = await call(`${SPCLIENT_URL}/color-lyrics/v2/track/${params.id}?format=json&vocalRemoval=false&market=from_token`,
-            { absent: null, headers: { 'app-platform': 'WebPlayer' } });
-        const lines = Array.isArray(answer?.lyrics?.lines) ? answer.lyrics.lines : [];
-        if (lines.length === 0) return null;
-        return {
-            timed: answer.lyrics.syncType === 'LINE_SYNCED',
-            lines: lines.map(line => ({ startMs: Number(line?.startTimeMs) || 0, words: String(line?.words ?? '') })),
-        };
-    },
-    async audio() {
-        fail('unsupported', 'Spotify playback is not available on Android yet');
-    },
+
+    // Spotify 不在官方接口里给歌词；交给渲染层的跨源匹配。
+    async lyrics() { return null; },
+
+    // 安卓不能放 Spotify 音频（没有 librespot；官方接口也不给音频流）。
+    async audio() { fail('unsupported', 'Spotify playback is not available on Android yet'); },
     async audio_kept() { return false; },
     async audio_keep() { return false; },
+
     async library(params) {
-        const kind = typeof params.uri === 'string' ? LIBRARY_URI.exec(params.uri)?.[1] : undefined;
-        if (!kind || typeof params.saved !== 'boolean') fail('invalid-response', 'Invalid Spotify library change');
-        if (kind === 'playlist') {
-            const list = (await query('fetchPlaylist', { uri: params.uri, offset: 0, limit: 1, enableWatchFeedEntrypoint: false })).playlistV2;
-            const owner = list?.ownerV2?.data?.username;
-            if (typeof owner !== 'string' || !owner) fail('unsupported', 'Spotify did not say whose the playlist is');
-            if (list.currentUserCapabilities?.canAdministratePermissions === true) fail('unsupported', "The playlist is the account's own");
-            await change(params.saved ? 'addItemsToRootlist' : 'removeItemsFromRootlist', { uris: [params.uri] });
+        const uri = String(params.uri ?? '');
+        const match = /^spotify:(track|album|playlist):([0-9A-Za-z]{22})$/.exec(uri);
+        if (!match || typeof params.saved !== 'boolean') fail('invalid-response', 'Invalid Spotify library change');
+        const [, kind, id] = match;
+        if (kind === 'track') {
+            await web('/me/tracks', { method: params.saved ? 'PUT' : 'DELETE', body: { ids: [id] } });
+        } else if (kind === 'album') {
+            await web('/me/albums', { method: params.saved ? 'PUT' : 'DELETE', body: { ids: [id] } });
+        } else if (params.saved) {
+            const account = await me();
+            const playlist = await web(`/playlists/${encodeURIComponent(id)}`);
+            if (playlist?.owner?.id === account.id) fail('unsupported', "The playlist is the account's own");
+            await web(`/playlists/${encodeURIComponent(id)}/followers`, { method: 'PUT', body: { public: false } });
         } else {
-            await change(params.saved ? 'addToLibrary' : 'removeFromLibrary', { libraryItemUris: [params.uri] });
+            await web(`/playlists/${encodeURIComponent(id)}/followers`, { method: 'DELETE' });
         }
         return true;
     },
+
     async playlist_edit(params) {
-        const uri = `spotify:playlist:${params.id}`;
-        const ids = Array.isArray(params.tracks) ? [...new Set(params.tracks)] : [];
-        if (!PLAYLIST_URI.test(uri) || !['add', 'remove'].includes(params.action) || ids.length === 0 || ids.length > MAX_SONGS_A_CHANGE
-            || !ids.every(id => typeof id === 'string' && TRACK_ID.test(id))) {
+        const id = String(params.id ?? '');
+        const ids = Array.isArray(params.tracks) ? [...new Set(params.tracks.map(String))] : [];
+        if (!/^[0-9A-Za-z]{22}$/.test(id) || !['add', 'remove'].includes(params.action) || ids.length === 0) {
             fail('invalid-response', 'Invalid Spotify playlist change');
         }
-        const rows = await playlistRows(uri);
-        const songs = ids.map(id => `spotify:track:${id}`);
         if (params.action === 'add') {
-            const fresh = songs.filter(song => !rows.has(song));
-            if (fresh.length > 0) {
-                await change('addToPlaylist', { playlistItemUris: fresh, playlistUri: uri, newPosition: { moveType: 'BOTTOM_OF_PLAYLIST', fromUid: null } });
-            }
+            await web(`/playlists/${encodeURIComponent(id)}/tracks`, {
+                method: 'POST',
+                body: { uris: ids.map(trackId => `spotify:track:${trackId}`) },
+            });
         } else {
-            const uids = songs.flatMap(song => rows.get(song) ?? []);
-            if (uids.length > 0) await change('removeFromPlaylist', { playlistUri: uri, uids });
+            await web(`/playlists/${encodeURIComponent(id)}/tracks`, {
+                method: 'DELETE',
+                body: { tracks: ids.map(trackId => ({ uri: `spotify:track:${trackId}` })) },
+            });
         }
         return true;
     },
+
     async playlist_create(params) {
         const name = typeof params.name === 'string' ? params.name.trim() : '';
-        if (!name || name.length > MAX_NAME_LENGTH) fail('invalid-response', 'Invalid Spotify playlist name');
-        const made = await call(`${SPCLIENT_URL}/playlist/v2/playlist?format=json`, {
+        if (!name || name.length > 100) fail('invalid-response', 'Invalid Spotify playlist name');
+        const account = await me();
+        const made = await web(`/users/${encodeURIComponent(account.id)}/playlists`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ops: [{ kind: 'UPDATE_LIST_ATTRIBUTES', updateListAttributes: { newAttributes: { values: { name } } } }] }),
+            body: { name, public: false },
         });
-        if (typeof made?.uri !== 'string' || !PLAYLIST_URI.test(made.uri)) fail('invalid-response', 'Spotify did not name the new playlist');
-        await change('addItemsToRootlist', { uris: [made.uri] });
+        if (!made?.uri) fail('invalid-response', 'Spotify did not name the new playlist');
         return { uri: made.uri };
     },
 };
@@ -373,5 +580,3 @@ export async function handleSpotifyRequest(operation, params = {}) {
         fail('network', error instanceof Error ? error.message : String(error));
     }
 }
-
-export { QUERIES, CHANGES };
