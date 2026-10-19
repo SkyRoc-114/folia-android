@@ -176,6 +176,7 @@ import { errorFields } from './utils/errorText';
 import { runsOnWindows } from './utils/platform';
 import { useNativeBackButton } from './hooks/useNativeBackButton';
 import { useNativeMediaActions } from './hooks/useNativeMediaActions';
+import { useColorOsLyricFeed } from './hooks/useColorOsLyricFeed';
 
 const LOCAL_MUSIC_UPDATED_EVENT = 'folia-local-music-updated';
 const DEV_DEBUG_SHORTCUT_LABEL = 'Alt+Shift+D';
@@ -1573,6 +1574,13 @@ export default function App() {
 
     useElectronWindowChrome();
     // Android：物理返回键 / 返回手势交给页面层级处理（桌面端是空操作）。
+    // Android + ColorOS 16+：把当前歌词时间线写进系统 MediaSession 元数据，
+    // 原生锁屏/AOD 歌词页就能跟着渲染（其它系统上这个钩子是空操作）。
+    useColorOsLyricFeed({
+        lyrics,
+        song: displaySong,
+        duration,
+    });
     useNativeBackButton();
     // Android：通知栏 / 耳机键的播放控制（桌面端没有原生通知媒体按钮，是空操作）。
     useNativeMediaActions({
