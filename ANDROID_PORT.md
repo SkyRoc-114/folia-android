@@ -211,3 +211,22 @@ Android 改动贴到新结构上。
 修复：transport 的可用性判定认 `IS_ANDROID_WEBVIEW`，请求走内置原生桥
 （`requestFoliaExtension({ provider: 'bodian' })` → `nativeBridge/api/bodian.js`，与 .196 一致）。
 新增回归测试：安卓壳里可用性必须是 `configured`。
+
+### 0.7.21-android.200：功能自检与补齐（用户截图「封面灰蒙蒙」）
+
+**封面灰蒙蒙的根因**：.196 的「性能优先」墙模式没被移植。0.7.21 上游没有这个模式，
+于是墙面的 `.lattice-root::after` 噪点混合层、暗角、海报叠层与悬停滤镜一直挂着，
+所有封面看起来像盖了一层灰白纱。
+
+补齐清单（本轮）：
+- 性能优先模式：store 字段（默认开）+ `wall.css` 整段 `.is-performance` + BravaisStage/Lattice 挂类
+  + 设置 → 播放 → 墙面 的新开关（三份语言）
+- P0 缺失模块 14 个恢复并接线：ColorOS 系统歌词、沉浸模式（收起/唤回/自动隐藏）、播放心跳、
+  原生媒体动作、底部命令面板按钮、ChunkLoadBoundary、封面预热、网易云会话丢失、lumiere/tempera 手机默认值
+- 诊断报告：复制 + 导出（FoliaNative.shareTextFile / Web Share / 下载回退）
+- Android 设置改用 0.7.21 新控件（安卓外壳分组：自适应分辨率/全沉浸/屏幕常亮/手机适配/横竖屏/命令面板按钮）
+- 安卓底部偏移一次性迁移；波点音乐接回内置桥
+- 回归测试：两批共 27 个文件搬回，全量 871 文件 / 9971 用例通过
+
+**待真机验证**：墙面封面颜色是否恢复正常（性能优先默认开时不该再有灰白纱）、ColorOS 锁屏歌词、
+通知栏/耳机键控制、沉浸模式、诊断复制与导出。
