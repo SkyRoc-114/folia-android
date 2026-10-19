@@ -1,3 +1,4 @@
+import { noteLibraryStep } from '../../nativeBridge/api/libraryTrace.js';
 import type { SongResult, UnifiedSong } from '../../types';
 import { noteOnlineMutationFailure } from '../../utils/onlineMutationDiagnostics';
 import { proxyNativeRemoteAudioUrl } from '../nativeRemoteAudio';
@@ -771,6 +772,13 @@ export const omni = {
                 ...errorFields(failure.reason),
             }));
             const valueOf = <T>(result: PromiseSettledResult<T[]>): T[] => (result.status === 'fulfilled' ? result.value : []);
+            // 首页推荐三块各自的结果都记下来：电台页「暂无内容」时报告里能直接看出哪一块空。
+            noteLibraryStep(provider.id, 'home-feed:section', {
+                personalFm: valueOf(personalFm).length,
+                daily: valueOf(dailySongs).length,
+                collections: valueOf(recommendedCollections).length,
+                failed: failures.map(failure => (failure.reason as { message?: string } | null)?.message ?? 'failed').join(' | ').slice(0, 120),
+            });
             return {
                 personalFm: valueOf(personalFm),
                 dailySongs: valueOf(dailySongs),

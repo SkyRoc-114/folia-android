@@ -169,6 +169,7 @@ const profileOf = profile => {
 
 // 登录是「原生阻塞浏览器流程 + 这里轮询状态」：start 立刻返回 key，check 在看原生结果。
 let activeLogin = null;
+let publicApiProbed = false;
 
 const loginState = async key => {
     if (!activeLogin || activeLogin.key !== key) return { state: 'expired' };
@@ -222,7 +223,23 @@ const handlers = {
         if (native && typeof native.spotifyCancelLogin === 'function') await native.spotifyCancelLogin();
         return true;
     },
+    // 诊断用：pathfinder 被 403 时，看看公开 Web API 对这张令牌是否可用（可用就换数据源）。
+    // 每个会话只探一次，失败也只记一条，不打扰使用。
+    async _probePublicApi() {
+        if (publicApiProbed) return;
+        publicApiProbed = true;
+        try {
+            const token = await accessToken();
+            const response = await fetch('https://api.spotify.com/v1/me', { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
+            let said = '';
+            try { said = (await response.text()).slice(0, 140); } catch { said = ''; }
+            noteLibraryStep('spotify', 'public-api:probe', { status: response.status, said });
+        } catch (error) {
+            noteLibraryStep('spotify', 'public-api:probe', { error: error instanceof Error ? error.message : String(error) });
+        }
+    },
     async login_status() {
+        void handlers._probePublicApi();
         const status = await authStatus();
         if (!status.signedIn) return null;
         const user = status.user ?? {};

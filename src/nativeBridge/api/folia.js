@@ -1374,8 +1374,11 @@ export async function handleFoliaApiRequest(input) {
   const cookie = await getNeteaseCookie();
   const path = url.pathname;
   const params = url.searchParams;
-  // 网易云的请求都留一条（电台/日推这类页面坏了时，报告里要能看到请求有没有发出去）。
-  noteLibraryStep('netease', 'request', { path, mode: params.get('mode') || '' });
+  // 电台/推荐相关请求才留痕（全量留痕会把诊断窗口挤满，电台那几行反而被裁掉）。
+  if (path === '/personal_fm' || path === '/personal/fm/mode' || path === '/recommend/songs'
+    || path === '/personalized' || path === '/fm_trash') {
+    noteLibraryStep('netease', 'radio:request', { path, mode: params.get('mode') || '', submode: params.get('submode') || '' });
+  }
 
   if (path === '/register/anonimous') {
     return { code: 200, cookie: '', anonymous: true };
