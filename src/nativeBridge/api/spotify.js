@@ -8,6 +8,8 @@
 // 桌面版能放 Spotify 音频（librespot）；安卓没有这条通道，`audio`/`audio_kept`/`audio_keep` 明确
 // 报 unsupported，播放侧按 capability 关掉，不假装能放。
 
+import { noteLibraryStep } from './libraryTrace.js';
+
 const QUERIES = Object.freeze({
     home: '3357ffed7961629ba92b4e0a41514e4d5004a14355c964c23ce442205c9e44a1',
     homeSection: 'd62af2714f2623c923cc9eeca4b9545b4363abaa9188a9e94e2b63b823419a2c',
@@ -89,7 +91,12 @@ const call = async (url, { method = 'GET', body, headers = {}, absent, token } =
         ...(body === undefined ? {} : { body }),
     });
     if (response.status === 404 && absent !== undefined) return absent;
-    if (!response.ok) fail(response.status === 401 ? 'auth-required' : 'unavailable', 'Spotify refused the request');
+    if (!response.ok) {
+        let said = '';
+        try { said = (await response.text()).slice(0, 160); } catch { said = ''; }
+        noteLibraryStep('spotify', 'http:refused', { status: response.status, url: url.split('?')[0], said });
+        fail(response.status === 401 ? 'auth-required' : 'unavailable', 'Spotify refused the request');
+    }
     return response.json();
 };
 
@@ -322,11 +329,20 @@ export async function handleSpotifyRequest(operation, params = {}) {
     if (typeof operation !== 'string' || !Object.prototype.hasOwnProperty.call(handlers, operation)) {
         fail('unsupported', 'Unsupported Spotify operation');
     }
+    const name = operation === 'query' ? `query:${String(params?.name ?? '?')}` : operation;
+    const startedAt = Date.now();
+    noteLibraryStep('spotify', 'bridge:request', { operation: name });
     try {
-        return await handlers[operation](params && typeof params === 'object' ? params : {});
+        const data = await handlers[operation](params && typeof params === 'object' ? params : {});
+        noteLibraryStep('spotify', 'bridge:result', { operation: name, ms: Date.now() - startedAt });
+        return data;
     } catch (error) {
-        if (error instanceof SpotifyBridgeError) throw error;
+        if (error instanceof SpotifyBridgeError) {
+            noteLibraryStep('spotify', 'bridge:error', { operation: name, ms: Date.now() - startedAt, code: error.code, message: error.message });
+            throw error;
+        }
         console.warn('[Spotify] request failed', error);
+        noteLibraryStep('spotify', 'bridge:error', { operation: name, ms: Date.now() - startedAt, message: error instanceof Error ? error.message : String(error) });
         fail('network', error instanceof Error ? error.message : String(error));
     }
 }
