@@ -33,7 +33,8 @@ import {
     requestKugou,
     requestKugouLegacyPlayInfo,
 } from './kugouTransport';
-import { describeKugouLoginFailure, kugouCheckFailure } from './kugouLoginFailure';
+import { describeKugouLoginFailure } from './kugouLoginFailure';
+import { mapKugouQrLoginState } from './kugouLoginState';
 import { describeKugouFailure, isKugouTimeout, kugouNoUrlError } from './kugouFailure';
 import { errorFields } from '../../../utils/errorText';
 
@@ -1297,15 +1298,8 @@ export const kugouProvider: OnlineMusicProvider = {
             return String(valueOf(data, 'base64', 'qrimg', 'qrcode', 'url') || '');
         },
         async checkLogin(key) {
-            const response = await requestKugou('login_qr_check', { key, qrcode: key });
-            const data = dataOf(response);
-            const status = Number(valueOf(data, 'status', 'code') ?? valueOf(response, 'status', 'code'));
-            if (status === 0) return { state: 'expired' };
-            if (status === 1) return { state: 'waiting' };
-            if (status === 2 || status === 3) return { state: 'scanned' };
-            if (status === 4 || data?.token) return { state: 'confirmed' };
-            const message = String(valueOf(data, 'message', 'msg', 'error') || '');
-            return { state: 'error', message, failure: kugouCheckFailure(status, message) };
+            // 状态映射在 kugouLoginState.ts（两版共用、有单测）。
+            return mapKugouQrLoginState(await requestKugou('login_qr_check', { key, qrcode: key }));
         },
         describeLoginFailure: describeKugouLoginFailure,
     },
