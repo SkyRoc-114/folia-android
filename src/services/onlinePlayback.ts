@@ -65,8 +65,19 @@ const readProxiedAudioBlob = async (url: string): Promise<Blob> => {
     }
 };
 
+const isLocalStreamUrl = (url: string): boolean => {
+    try {
+        const host = new URL(url).hostname;
+        return host === '127.0.0.1' || host === 'localhost';
+    } catch {
+        return false;
+    }
+};
+
 const androidProxiedAudioUrl = async (url: string, provider: string | undefined): Promise<string> => {
     if (!IS_ANDROID_WEBVIEW || !provider || !omni.requiresSameOriginAudio(provider)) return url;
+    // omni 已把它挂到原生本地流服务（Range + ACAO:*）上时，不要再整文件拉一遍 blob。
+    if (isLocalStreamUrl(url)) return url;
     const cached = proxiedAudioObjectUrls.get(url);
     if (cached) return cached;
     const startedAt = Date.now();
