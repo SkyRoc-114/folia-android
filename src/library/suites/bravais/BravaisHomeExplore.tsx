@@ -117,7 +117,20 @@ const BravaisHomeExplore: React.FC<{
             account: accountSeam,
         },
     }), [accountSeam, chrome.onSelectTab, chrome.scan, chrome.search, chrome.tabs, chrome.title, online.providerLabel, status, t, tools]);
-    const wallRules = useMemo(() => ({ filterKey: 'explore', loading: isOn && items.length === 0 && (!feed || feed.status === 'loading') }), [feed, isOn, items.length]);
+    // 诊断：探索墙到底拿到了多少条目（墙空 = 白框、点了没反应，这份留痕能直接看出来）。
+    useEffect(() => {
+        noteLibraryStep('explore', 'b:layer', {
+            isOn,
+            accountView: online.accountView,
+            canUseExplore: online.canUseExplore,
+            feedStatus: feed ? feed.status : 'none',
+            feedSections: feed ? feed.sections.length : 0,
+            tiles: wall.tiles.length,
+            items: items.length,
+            wallSections: wall.sections.length,
+            emptyText: wall.emptyText ?? '',
+        });
+    }, [isOn, online.accountView, online.canUseExplore, feed, wall.tiles.length, wall.sections.length, items.length, wall.emptyText]);    const wallRules = useMemo(() => ({ filterKey: 'explore', loading: isOn && items.length === 0 && (!feed || feed.status === 'loading') }), [feed, isOn, items.length]);
     const home = useMemo(() => ({ cycleTab: chrome.cycleTab }), [chrome.cycleTab]);
 
     const layer = useMemo<BravaisLayer>(() => ({
