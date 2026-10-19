@@ -35,19 +35,64 @@ const COPY_CHECK_CEILING_MS = 300;
 // 拉成同源 blob 再交给音频元素：blob 同源，crossOrigin 与 WebAudio 分析都不再受 CDN 限制。
 // 哪些平台需要这样做由平台自己声明（OnlineMusicProvider.requiresSameOriginAudio）。
 const proxiedAudioObjectUrls = new Map<string, string>();
+// 拉整首音频比普通 API 慢：给原生桥 30 秒，前端最多等 25 秒；等太久就退回平台地址，
+// 不让「一直在拉流」把播放卡成永远不开始。
+const PROXIED_AUDIO_TIMEOUT_MS = 25_000;
+
+const describeAudioHost = (url: string): string => {
+    try { return new URL(url).hostname.slice(0, 60); } catch { return 'invalid-url'; }
+};
+
+const readProxiedAudioBlob = async (url: string): Promise<Blob> => {
+    const attempt = async () => {
+        const response = await fetch(url, { foliaTimeoutMs: PROXIED_AUDIO_TIMEOUT_MS + 5_000 } as RequestInit);
+        if (!response.ok) throw new Error(`upstream answered ${response.status}`);
+        const blob = await response.blob();
+        if (!blob.size) throw new Error('upstream answered an empty file');
+        return blob;
+    };
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    try {
+        return await Promise.race([
+            attempt(),
+            new Promise<Blob>((_resolve, reject) => {
+                timeout = setTimeout(() => reject(new Error(`timed out after ${PROXIED_AUDIO_TIMEOUT_MS}ms`)), PROXIED_AUDIO_TIMEOUT_MS);
+            }),
+        ]);
+    } finally {
+        if (timeout) clearTimeout(timeout);
+    }
+};
 
 const androidProxiedAudioUrl = async (url: string, provider: string | undefined): Promise<string> => {
     if (!IS_ANDROID_WEBVIEW || !provider || !omni.requiresSameOriginAudio(provider)) return url;
     const cached = proxiedAudioObjectUrls.get(url);
     if (cached) return cached;
+    const startedAt = Date.now();
+    let blob: Blob | null = null;
     try {
-        const startedAt = Date.now();
-        const response = await fetch(url);
-        if (!response.ok) return url;
-        const blob = await response.blob();
-        if (!blob.size) return url;
+        blob = await readProxiedAudioBlob(url);
+    } catch (firstError) {
+        // 一次重试：CDN 偶尔对首个请求回 5xx / 空响应，重试后通常就好。
+        console.warn('[Playback] proxying the audio file failed once; retrying', errorFields(firstError));
+        try {
+            blob = await readProxiedAudioBlob(url);
+        } catch (retryError) {
+            console.warn('[Playback] proxying the audio file failed; playing the platform address directly', errorFields(retryError));
+            noteOnlinePlaybackOutcome({
+                stage: 'media', outcome: 'error', providerId: provider ?? 'unknown', kind: 'proxy-source',
+                detail: `${describeAudioHost(url)} failed: ${String(errorFields(retryError).message ?? 'unknown')}`.slice(0, 160),
+            });
+            return url;
+        }
+    }
+    try {
         const objectUrl = URL.createObjectURL(blob);
         console.info('[Playback] proxied audio for same-origin playback', { host: new URL(url).hostname, bytes: blob.size, ms: Date.now() - startedAt });
+        noteOnlinePlaybackOutcome({
+            stage: 'media', outcome: 'ok', providerId: provider ?? 'unknown', kind: 'proxy-source',
+            detail: `${describeAudioHost(url)} ${blob.size}B ${Date.now() - startedAt}ms`.slice(0, 160),
+        });
         proxiedAudioObjectUrls.set(url, objectUrl);
         while (proxiedAudioObjectUrls.size > 24) {
             const oldest = proxiedAudioObjectUrls.keys().next().value;
@@ -58,7 +103,7 @@ const androidProxiedAudioUrl = async (url: string, provider: string | undefined)
         }
         return objectUrl;
     } catch (error) {
-        console.warn('[Playback] proxying the audio file failed; playing the platform address directly', error);
+        console.warn('[Playback] could not hand the proxied audio to the player', errorFields(error));
         return url;
     }
 };
