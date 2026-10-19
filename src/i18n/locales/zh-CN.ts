@@ -1656,7 +1656,12 @@ export default {
       "exportDiagnosticsShared": "已打开系统分享",
       "exportDiagnosticsDownloaded": "已保存为文件",
       "exportDiagnosticsFailed": "导出失败",      "copyDiagnosticsCopied": "诊断数据已复制",
-      "copyDiagnosticsFailed": "复制失败，请稍后重试",
+
+      "deleteDiagnostics": "清除诊断报告",
+      "deleteDiagnosticsDescription": "删除之前导出到本机的诊断文件",
+      "deleteDiagnosticsDone": "已删除 {{count}} 个诊断文件",
+      "deleteDiagnosticsEmpty": "没有可删除的诊断文件",
+      "deleteDiagnosticsFailed": "清除失败",      "copyDiagnosticsFailed": "复制失败，请稍后重试",
     "releaseNotes": "版本更新",
     "releaseNotesDescription": "查看这个版本带来的变化",
     "majorUpdateLabel": "{{codename}} Update · 重大更新",

@@ -1656,7 +1656,12 @@ export default {
       "exportDiagnosticsShared": "Panel berbagi dibuka",
       "exportDiagnosticsDownloaded": "Disimpan sebagai berkas",
       "exportDiagnosticsFailed": "Ekspor gagal",      "copyDiagnosticsCopied": "Diagnostik disalin",
-      "copyDiagnosticsFailed": "Gagal menyalin, coba lagi nanti",
+
+      "deleteDiagnostics": "Hapus laporan diagnostik",
+      "deleteDiagnosticsDescription": "Hapus file diagnostik yang diekspor sebelumnya",
+      "deleteDiagnosticsDone": "{{count}} file diagnostik dihapus",
+      "deleteDiagnosticsEmpty": "Tidak ada file diagnostik untuk dihapus",
+      "deleteDiagnosticsFailed": "Gagal menghapus",      "copyDiagnosticsFailed": "Gagal menyalin, coba lagi nanti",
     "releaseNotes": "Yang baru",
     "releaseNotesDescription": "Lihat perubahan pada versi ini",
     "majorUpdateLabel": "{{codename}} Update · Pembaruan besar",

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Check, ChevronRight, CircleHelp, ExternalLink, FileDown, FileText, Lightbulb, Loader2, MessageCircle, Sparkles, Users, type LucideIcon } from 'lucide-react';
+import { Check, ChevronRight, CircleHelp, ExternalLink, FileDown, FileText, Lightbulb, Loader2, MessageCircle, Sparkles, Trash2, Users, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { openPonderNavigation } from '../../../../services/ponder/pagePonderTarget';
 import { BUILD_KIND_TAGS, getBuildKind } from '../../../../utils/buildProvenance';
@@ -12,7 +12,7 @@ import { openOutsideLink } from '../../../../utils/system/outsideLink';
 import { FoundUpdateRow } from './FoundUpdateRow';
 import { iconLabel } from './iconLabel';
 import { buildDiagnosticReport } from '../../../../utils/buildDiagnosticReport';
-import { exportDiagnosticReport } from '../../../../services/exportDiagnosticReport';
+import { canDeleteExportedDiagnostics, deleteExportedDiagnostics, exportDiagnosticReport } from '../../../../services/exportDiagnosticReport';
 import { copyText } from '../../../../utils/system/clipboard';
 
 // src/components/modal/settings/pages/HelpPage.tsx
@@ -125,6 +125,21 @@ const HelpPage: React.FC<HelpPageProps> = ({ onOpenReleaseNotes, onOpenAiHelp, o
             setDiagnosticsExport('failed');
         }
     };
+    // 清除本机导出的诊断文件：安卓每次导出都会在缓存目录留一份 txt，这里配套清理。
+    const [canDeleteDiagnostics] = React.useState(() => canDeleteExportedDiagnostics());
+    const [diagnosticsDelete, setDiagnosticsDelete] = React.useState<'idle' | 'working' | 'done' | 'empty' | 'failed'>('idle');
+    const [deletedDiagnostics, setDeletedDiagnostics] = React.useState(0);
+    const deleteDiagnostics = async () => {
+        setDiagnosticsDelete('working');
+        try {
+            const count = await deleteExportedDiagnostics();
+            setDeletedDiagnostics(count);
+            setDiagnosticsDelete(count > 0 ? 'done' : 'empty');
+        } catch (error) {
+            console.warn('[Settings] diagnostics:delete-failed', error);
+            setDiagnosticsDelete('failed');
+        }
+    };
 
     return (
         <>
@@ -192,6 +207,18 @@ const HelpPage: React.FC<HelpPageProps> = ({ onOpenReleaseNotes, onOpenAiHelp, o
                     hint={t('help.exportDiagnosticsDescription')}
                     onClick={() => void exportDiagnostics()}
                 />
+                {canDeleteDiagnostics && (
+                    <Row
+                        label={iconLabel(
+                            diagnosticsDelete === 'working' ? Loader2 : diagnosticsDelete === 'done' ? Check : Trash2,
+                            diagnosticsDelete === 'done' ? t('help.deleteDiagnosticsDone', { count: deletedDiagnostics })
+                                : diagnosticsDelete === 'empty' ? t('help.deleteDiagnosticsEmpty')
+                                    : diagnosticsDelete === 'failed' ? t('help.deleteDiagnosticsFailed')
+                                        : t('help.deleteDiagnostics'))}
+                        hint={t('help.deleteDiagnosticsDescription')}
+                        onClick={() => void deleteDiagnostics()}
+                    />
+                )}
                 {/* A QQ group has no link that opens it: the row gives its number to copy. */}
                 <Row label={iconLabel(Users, t('help.communityQq'))}>
                     <CopyValue value={QQ_COMMUNITY_GROUP_NUMBER} />

@@ -1656,7 +1656,12 @@ export default {
       "exportDiagnosticsShared": "Share sheet opened",
       "exportDiagnosticsDownloaded": "Saved as a file",
       "exportDiagnosticsFailed": "Export failed",      "copyDiagnosticsCopied": "Diagnostics copied",
-      "copyDiagnosticsFailed": "Copy failed, try again later",
+
+      "deleteDiagnostics": "Clear diagnostic reports",
+      "deleteDiagnosticsDescription": "Remove the diagnostic files exported earlier",
+      "deleteDiagnosticsDone": "Deleted {{count}} diagnostic file(s)",
+      "deleteDiagnosticsEmpty": "No diagnostic files to delete",
+      "deleteDiagnosticsFailed": "Delete failed",      "copyDiagnosticsFailed": "Copy failed, try again later",
     "releaseNotes": "What's new",
     "releaseNotesDescription": "Review the changes in this version",
     "majorUpdateLabel": "{{codename}} Update · Major update",
