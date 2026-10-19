@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronRight, CircleHelp, ExternalLink, FileText, Lightbulb, MessageCircle, Sparkles, Users, type LucideIcon } from 'lucide-react';
+import { Check, ChevronRight, CircleHelp, ExternalLink, FileDown, FileText, Lightbulb, Loader2, MessageCircle, Sparkles, Users, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { openPonderNavigation } from '../../../../services/ponder/pagePonderTarget';
 import { BUILD_KIND_TAGS, getBuildKind } from '../../../../utils/buildProvenance';
@@ -12,6 +12,7 @@ import { openOutsideLink } from '../../../../utils/system/outsideLink';
 import { FoundUpdateRow } from './FoundUpdateRow';
 import { iconLabel } from './iconLabel';
 import { buildDiagnosticReport } from '../../../../utils/buildDiagnosticReport';
+import { exportDiagnosticReport } from '../../../../services/exportDiagnosticReport';
 import { copyText } from '../../../../utils/system/clipboard';
 
 // src/components/modal/settings/pages/HelpPage.tsx
@@ -111,6 +112,19 @@ const HelpPage: React.FC<HelpPageProps> = ({ onOpenReleaseNotes, onOpenAiHelp, o
         }
         window.setTimeout(() => setDiagnosticsCopied('idle'), 2400);
     };
+    // 导出：生成 txt 交给系统分享（安卓走 FoliaNative.shareTextFile，桌面浏览器走 Web Share / 下载）。
+    const [diagnosticsExport, setDiagnosticsExport] = React.useState<'idle' | 'working' | 'shared' | 'downloaded' | 'failed'>('idle');
+    const exportDiagnostics = async () => {
+        setDiagnosticsExport('working');
+        try {
+            const report = await buildDiagnosticReport();
+            const result = await exportDiagnosticReport(report, t('help.exportDiagnostics'));
+            setDiagnosticsExport(result === 'cancelled' ? 'idle' : result);
+        } catch (error) {
+            console.warn('[Settings] diagnostics:export-failed', error);
+            setDiagnosticsExport('failed');
+        }
+    };
 
     return (
         <>
@@ -158,6 +172,26 @@ const HelpPage: React.FC<HelpPageProps> = ({ onOpenReleaseNotes, onOpenAiHelp, o
             <Group def={SUPPORT} bare>
                 <Row label={iconLabel(CircleHelp, t('aiHelp.openButton'))} onClick={onOpenAiHelp} />
                 <Row label={iconLabel(MessageCircle, t('help.joinDiscord'))} onClick={openDiscordInvite} />
+                {/* 诊断反馈：复制整段报告，或导出成 txt 交给系统分享。 */}
+                <Row
+                    label={iconLabel(FileText, diagnosticsCopied === 'copied'
+                        ? t('help.copyDiagnosticsCopied')
+                        : diagnosticsCopied === 'failed'
+                            ? t('help.copyDiagnosticsFailed')
+                            : t('help.copyDiagnostics'))}
+                    hint={t('help.copyDiagnosticsDescription')}
+                    onClick={() => void copyDiagnostics()}
+                />
+                <Row
+                    label={iconLabel(
+                        diagnosticsExport === 'working' ? Loader2 : (diagnosticsExport === 'shared' || diagnosticsExport === 'downloaded') ? Check : FileDown,
+                        diagnosticsExport === 'shared' ? t('help.exportDiagnosticsShared')
+                            : diagnosticsExport === 'downloaded' ? t('help.exportDiagnosticsDownloaded')
+                                : diagnosticsExport === 'failed' ? t('help.exportDiagnosticsFailed')
+                                    : t('help.exportDiagnostics'))}
+                    hint={t('help.exportDiagnosticsDescription')}
+                    onClick={() => void exportDiagnostics()}
+                />
                 {/* A QQ group has no link that opens it: the row gives its number to copy. */}
                 <Row label={iconLabel(Users, t('help.communityQq'))}>
                     <CopyValue value={QQ_COMMUNITY_GROUP_NUMBER} />
