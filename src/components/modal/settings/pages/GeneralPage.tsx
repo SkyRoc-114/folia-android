@@ -40,6 +40,7 @@ const O = {
     androidKeepScreenOn: option(ANDROID_SHELL, 'keepScreenOn', 'options.keepScreenOn'),
     androidPhoneFit: option(ANDROID_SHELL, 'phoneFit', 'options.phoneFit'),
     androidOrientation: option(ANDROID_SHELL, 'orientationFit', 'options.orientationFit'),
+    androidCommandPaletteAutoHide: option(ANDROID_SHELL, 'autoHideCommandPaletteButton', 'options.autoHideCommandPaletteButton'),
 };
 
 export const OPTIONS: SettingsOptionDef[] = Object.values(O);
@@ -60,6 +61,8 @@ const GeneralPage: React.FC = () => {
     const setPhoneFitEnabled = useAndroidLayoutSettingsStore(state => state.setPhoneFitEnabled);
     const phoneFitOrientation = useAndroidLayoutSettingsStore(state => state.phoneFitOrientation);
     const setPhoneFitOrientation = useAndroidLayoutSettingsStore(state => state.setPhoneFitOrientation);
+    const autoHideCommandPaletteButton = usePlayerChromeSettingsStore(state => state.autoHideCommandPaletteButton);
+    const handleToggleAutoHideCommandPaletteButton = usePlayerChromeSettingsStore(state => state.handleToggleAutoHideCommandPaletteButton);
     const [adaptiveDisplayEnabled, setAdaptiveDisplayEnabled] = React.useState(false);
     React.useEffect(() => {
         if (!IS_ANDROID_WEBVIEW) return;
@@ -146,7 +149,12 @@ const GeneralPage: React.FC = () => {
                     <Row option={O.androidPhoneFit} hint={t('options.phoneFitDesc')}>
                         <Toggle checked={phoneFitEnabled} onChange={setPhoneFitEnabled} />
                     </Row>
-                    {phoneFitEnabled && (
+                    <Row option={O.androidCommandPaletteAutoHide} hint={t('options.autoHideCommandPaletteButtonDesc')}>
+                        <Toggle
+                            checked={autoHideCommandPaletteButton}
+                            onChange={handleToggleAutoHideCommandPaletteButton}
+                        />
+                    </Row>                    {phoneFitEnabled && (
                         <Row option={O.androidOrientation} hint={t('options.orientationFitDesc')}>
                             <Segmented
                                 value={phoneFitOrientation}

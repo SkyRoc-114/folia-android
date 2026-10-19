@@ -2972,7 +2972,9 @@ export default {
       "orientationPortrait": "Current: portrait fit",
       "phoneFit": "Phone layout fit",
       "phoneFitDesc": "Forces the compact phone layout so tabs, settings, and audio effects stay inside the screen on landscape or high-resolution phones. Off by default and does not alter the upstream desktop layout.",
-  },
+
+      "autoHideCommandPaletteButton": "Auto-hide command palette button",
+      "autoHideCommandPaletteButtonDesc": "The bottom command palette button hides when idle and comes back on touch.",  },
   "releaseNotes": {
     "v0_7_0": {
       "intro": "Here are the new features and improvements in version 0.7.0.",

@@ -2972,7 +2972,9 @@ export default {
       "keepScreenOnDesc": "Saat aktif layar tidak otomatis mati, jadi lirik tetap terlihat saat menyalin atau meletakkan ponsel; matikan untuk kembali ke pengaturan mati otomatis sistem.",
       "phoneFit": "Tata letak ponsel",
       "phoneFitDesc": "Memaksa tata letak ponsel yang ringkas agar tab, pengaturan, dan efek audio tetap muat di layar ponsel lanskap atau beresolusi tinggi. Nonaktif secara bawaan dan tidak mengubah tata letak desktop upstream.",
-  },
+
+      "autoHideCommandPaletteButton": "Sembunyikan otomatis tombol palette perintah",
+      "autoHideCommandPaletteButtonDesc": "Tombol palette perintah di bawah tersembunyi saat diam dan kembali saat disentuh.",  },
   "releaseNotes": {
     "v0_7_0": {
       "intro": "Berikut fitur baru dan peningkatan di versi 0.7.0.",

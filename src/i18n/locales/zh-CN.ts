@@ -2972,7 +2972,9 @@ export default {
       "orientationPortrait": "当前：竖屏兼容",
       "phoneFit": "手机适配",
       "phoneFitDesc": "强制使用紧凑的手机布局，避免横屏或高分辨率手机上选项卡、设置和音频效果器超出屏幕。默认关闭，不影响上游原有桌面布局。",
-  },
+
+      "autoHideCommandPaletteButton": "自动隐藏命令面板按钮",
+      "autoHideCommandPaletteButtonDesc": "底部命令面板按钮在无操作时自动收起，触摸屏幕后重新出现。",  },
   "releaseNotes": {
     "v0_7_0": {
       "intro": "以下是 0.7.0 的新功能与改进",
