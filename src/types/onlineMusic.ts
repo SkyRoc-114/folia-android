@@ -488,6 +488,12 @@ export interface OnlineAuthProvider {
      */
     signInRanOut?(): void | Promise<void>;
     /**
+     * 一次 getLoginStatus 没拿到人不足以判定掉登录（EAPI 抖动、空 data、请求没带凭据都会如此），
+     * 而清会话不可逆。有这一步的平台在这里隔一会儿再确认一次，只有第二次也确认没登录才返回 null。
+     * 省略表示按一次结果处理。见 account/accountRead.ts。
+     */
+    confirmSessionLoss?(): Promise<ProviderUser | null>;
+    /**
      * True where the sign-in goes with what this page keeps of the account: the account kept on
      * disk is shown at once at app start, while the platform is asked who is signed in, and while
      * nobody is shown the account shows as being found out. Without it nothing kept is shown

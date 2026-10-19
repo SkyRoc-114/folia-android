@@ -12,6 +12,7 @@ import type {
     ProviderArtistSummary,
     ProviderUser,
 } from '../../../types/onlineMusic';
+import { confirmNeteaseSessionLoss } from './neteaseSessionLoss';
 import { getPersonalFmRequestOptions } from '../../../stores/usePersonalFmModeStore';
 import { parseNeteaseChorusRanges, processNeteaseLyrics } from '../../../utils/lyrics/neteaseProcessing';
 import { getPlaybackSourceRef } from '../../../utils/appPlaybackGuards';
@@ -290,6 +291,33 @@ const getLyrics = async (
     };
 };
 
+// 读登录态的函数单独抽出来：掉登录确认（confirmSessionLoss）也要用同一套判断。
+async function readNeteaseLoginStatus(): Promise<ProviderUser | null> {
+            const loginResponse = await neteaseApi.getLoginStatus();
+            const loginProfile = loginResponse?.data?.profile;
+            const loginCode = Number(loginResponse?.code ?? loginResponse?.data?.code);
+            if (!loginProfile || [301, 401, 403].includes(loginCode)) {
+                noteLoginStatusCheck(diagnosticLine`login/status code=${loginCode} profile=${yesNo(Boolean(loginProfile))}`);
+                return null;
+            }
+
+            const accountResponse = await neteaseApi.getUserAccount();
+            const accountCode = Number(accountResponse?.code ?? accountResponse?.data?.code);
+            const accountProfile = accountResponse?.profile;
+            const accountId = accountResponse?.account?.id ?? accountProfile?.userId;
+            const loginId = loginProfile?.userId ?? loginProfile?.id;
+            if (!accountProfile || [301, 401, 403].includes(accountCode) || !accountId || !loginId || String(accountId) !== String(loginId)) {
+                noteLoginStatusCheck(diagnosticLine`user/account code=${accountCode} profile=${yesNo(Boolean(accountProfile))} same-user=${yesNo(Boolean(accountId && loginId && String(accountId) === String(loginId)))}`);
+                return null;
+            }
+
+            if (typeof loginResponse?.cookie === 'string' && loginResponse.cookie) {
+                writeProviderSessionValue('netease', 'cookie', loginResponse.cookie);
+            }
+            noteLoginStatusCheck(diagnosticLine`signed in (login/status code=${loginCode}, user/account code=${accountCode})`);
+            return normalizeUser({ ...loginProfile, ...accountProfile });
+}
+
 export const neteaseProvider: OnlineMusicProvider = {
     id: 'netease',
     displayName: 'NetEase Cloud Music',
@@ -430,31 +458,8 @@ export const neteaseProvider: OnlineMusicProvider = {
     auth: {
         getLoginTexts: () => ({ title: 'home.loginTitle', note: 'home.loginNote' }),
         localService: neteaseLocalService,
-        async getLoginStatus() {
-            const loginResponse = await neteaseApi.getLoginStatus();
-            const loginProfile = loginResponse?.data?.profile;
-            const loginCode = Number(loginResponse?.code ?? loginResponse?.data?.code);
-            if (!loginProfile || [301, 401, 403].includes(loginCode)) {
-                noteLoginStatusCheck(diagnosticLine`login/status code=${loginCode} profile=${yesNo(Boolean(loginProfile))}`);
-                return null;
-            }
-
-            const accountResponse = await neteaseApi.getUserAccount();
-            const accountCode = Number(accountResponse?.code ?? accountResponse?.data?.code);
-            const accountProfile = accountResponse?.profile;
-            const accountId = accountResponse?.account?.id ?? accountProfile?.userId;
-            const loginId = loginProfile?.userId ?? loginProfile?.id;
-            if (!accountProfile || [301, 401, 403].includes(accountCode) || !accountId || !loginId || String(accountId) !== String(loginId)) {
-                noteLoginStatusCheck(diagnosticLine`user/account code=${accountCode} profile=${yesNo(Boolean(accountProfile))} same-user=${yesNo(Boolean(accountId && loginId && String(accountId) === String(loginId)))}`);
-                return null;
-            }
-
-            if (typeof loginResponse?.cookie === 'string' && loginResponse.cookie) {
-                writeProviderSessionValue('netease', 'cookie', loginResponse.cookie);
-            }
-            noteLoginStatusCheck(diagnosticLine`signed in (login/status code=${loginCode}, user/account code=${accountCode})`);
-            return normalizeUser({ ...loginProfile, ...accountProfile });
-        },
+        getLoginStatus: readNeteaseLoginStatus,
+        confirmSessionLoss: () => confirmNeteaseSessionLoss(readNeteaseLoginStatus),
         // The request to NetEase takes the cookie as it is when it is made (`neteaseApi.logout`),
         // and the cookie goes at once, before the first wait and whatever NetEase answers: what
         // asks whether an account is signed in (the explore page) finds none from then on.

@@ -7,7 +7,6 @@ import type {
     ProviderLikedSongIds,
     ProviderUser,
 } from '../../../types/onlineMusic';
-import { confirmNeteaseSessionLoss } from '../netease/neteaseSessionLoss';
 import { useOnlineProviderAccountStore } from '../../../stores/useOnlineProviderAccountStore';
 import { getOnlineMusicProvider } from '../providerRegistry';
 import {
@@ -243,10 +242,9 @@ export const createAccountReads = <R>(deps: AccountReadsDeps<R>) => {
         }
         if (reads.generation !== generation) return 'unknown';
         if (user) return user;
-        // 网易云：一次 login_status 没拿到 profile 不足以判定掉登录（EAPI 抖动/空 data/请求没带凭据），
-        // 清会话不可逆，先隔一会儿再问一次，第二次也确认没登录才允许清。
-        if (provider.id === 'netease' && had && provider.auth) {
-            const confirmed = await confirmNeteaseSessionLoss(() => provider.auth!.getLoginStatus());
+        // 一次读不到人可能是抖动；会给「再确认一次」能力的平台先确认，确认不了才清会话。
+        if (had && provider.auth?.confirmSessionLoss) {
+            const confirmed = await provider.auth.confirmSessionLoss();
             if (reads.generation !== generation) return 'unknown';
             if (confirmed) return confirmed;
         }
