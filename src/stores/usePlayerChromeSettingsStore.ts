@@ -60,6 +60,8 @@ export type PlayerChromeSettingsState = {
     transparentPlayerBackground: boolean;
     enablePlayerPageNativeBlur: boolean;
     autoHidePlayerChrome: boolean;
+    /** Android 沉浸模式：命令面板按钮的自动隐藏开关。 */
+    autoHideCommandPaletteButton: boolean;
     autoHideCursorWithPlayerChrome: boolean;
     hideCursorWhenIdle: boolean;
     showOpenPanelCloseButton: boolean;
@@ -77,6 +79,7 @@ export type PlayerChromeSettingsState = {
     handleToggleTransparentPlayerBackground: (enable: boolean) => void;
     handleWallpaperTransparentRefused: () => void;
     handleToggleAutoHidePlayerChrome: (enable: boolean) => void;
+    handleToggleAutoHideCommandPaletteButton: (enable: boolean) => void;
     handleToggleAutoHideCursorWithPlayerChrome: (enable: boolean) => void;
     handleToggleHideCursorWhenIdle: (enable: boolean) => void;
     handleToggleOpenPanelCloseButton: (enable: boolean) => void;
@@ -102,6 +105,7 @@ export const usePlayerChromeSettingsStore = create<PlayerChromeSettingsState>((s
     transparentPlayerBackground: getStoredBoolean('transparent_player_background', false),
     enablePlayerPageNativeBlur: getStoredBoolean('enable_player_page_native_blur', false),
     autoHidePlayerChrome: getStoredBoolean('auto_hide_player_chrome', false),
+    autoHideCommandPaletteButton: getStoredBoolean('auto_hide_command_palette_button', false),
     // Rides the chrome auto-hide clock rather than owning one: the cursor goes away with the
     // controls it would have clicked. Opt-out, so auto-hide can keep the pointer if wanted.
     autoHideCursorWithPlayerChrome: getStoredBoolean('auto_hide_cursor_with_player_chrome', true),
@@ -121,6 +125,10 @@ export const usePlayerChromeSettingsStore = create<PlayerChromeSettingsState>((s
     handleToggleAutoHidePlayerChrome: (enabled: boolean) => {
         localStorage.setItem('auto_hide_player_chrome', enabled ? 'true' : 'false');
         set({ autoHidePlayerChrome: enabled });
+    },
+    handleToggleAutoHideCommandPaletteButton: (enabled: boolean) => {
+        localStorage.setItem('auto_hide_command_palette_button', enabled ? 'true' : 'false');
+        set({ autoHideCommandPaletteButton: enabled });
     },
     handleToggleAutoHideCursorWithPlayerChrome: (enable) => {
         setStoredBoolean('auto_hide_cursor_with_player_chrome', enable);
@@ -253,6 +261,7 @@ export const selectPlayerChromeSettingsSnapshot = (state: PlayerChromeSettingsSt
     transparentPlayerBackground: state.transparentPlayerBackground,
     enablePlayerPageNativeBlur: state.enablePlayerPageNativeBlur,
     autoHidePlayerChrome: state.autoHidePlayerChrome,
+    autoHideCommandPaletteButton: state.autoHideCommandPaletteButton,
     autoHideCursorWithPlayerChrome: state.autoHideCursorWithPlayerChrome,
     hideCursorWhenIdle: state.hideCursorWhenIdle,
     showOpenPanelCloseButton: state.showOpenPanelCloseButton,
@@ -269,6 +278,7 @@ export const selectPlayerChromeSettingsSnapshot = (state: PlayerChromeSettingsSt
     setTransparentPlayerBackgroundFromSystem: state.setTransparentPlayerBackgroundFromSystem,
     handleTogglePlayerPageNativeBlur: state.handleTogglePlayerPageNativeBlur,
     handleToggleAutoHidePlayerChrome: state.handleToggleAutoHidePlayerChrome,
+    handleToggleAutoHideCommandPaletteButton: state.handleToggleAutoHideCommandPaletteButton,
     handleToggleAutoHideCursorWithPlayerChrome: state.handleToggleAutoHideCursorWithPlayerChrome,
     handleToggleHideCursorWhenIdle: state.handleToggleHideCursorWhenIdle,
     handleToggleOpenPanelCloseButton: state.handleToggleOpenPanelCloseButton,
