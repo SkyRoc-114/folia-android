@@ -1539,9 +1539,17 @@ export async function handleFoliaApiRequest(input) {
   }
   if (path === '/recommend/resource') {
     noteLibraryStep('netease', 'explore:route', { path });
-    // 每日推荐歌单：weapi 答不出时换 eapi 试一次（两套签名在不同账号/版本上成功率不同）。
+    // 每日推荐歌单：weapi 的账号类接口要求 csrf_token 与 cookie 里的 __csrf 一致，空串会被答 301
+    //（报告里表现为 playlistsCode=301、歌单数 0）；答不出时再换 eapi 试一次。
+    const csrf = (() => {
+      try {
+        return parseCookieString(cookie).__csrf || '';
+      } catch (_) {
+        return '';
+      }
+    })();
     try {
-      return await weapiJson('/api/v1/discovery/recommend/resource', { csrf_token: '' }, cookie);
+      return await weapiJson('/api/v1/discovery/recommend/resource', { csrf_token: csrf }, cookie);
     } catch (error) {
       noteLibraryStep('netease', 'explore:daily-playlists:fallback', {
         message: error instanceof Error ? error.message.slice(0, 120) : String(error).slice(0, 120),
