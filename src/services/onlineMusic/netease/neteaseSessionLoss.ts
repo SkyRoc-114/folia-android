@@ -1,4 +1,4 @@
-import type { ProviderUser } from '../../types/onlineMusic';
+import type { ProviderUser } from '../../../types/onlineMusic';
 
 // src/services/onlineMusic/neteaseSessionLoss.ts
 //

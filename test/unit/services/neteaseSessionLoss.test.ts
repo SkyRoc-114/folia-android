@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { confirmNeteaseSessionLoss } from '@/services/onlineMusic/neteaseSessionLoss';
+import { confirmNeteaseSessionLoss } from '@/services/onlineMusic/netease/neteaseSessionLoss';
 import type { ProviderUser } from '@/types/onlineMusic';
 
 // test/unit/services/neteaseSessionLoss.test.ts
