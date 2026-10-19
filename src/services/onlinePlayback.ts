@@ -41,11 +41,13 @@ const androidProxiedAudioUrl = async (url: string, provider: string | undefined)
     const cached = proxiedAudioObjectUrls.get(url);
     if (cached) return cached;
     try {
+        const startedAt = Date.now();
         const response = await fetch(url);
         if (!response.ok) return url;
         const blob = await response.blob();
         if (!blob.size) return url;
         const objectUrl = URL.createObjectURL(blob);
+        console.info('[Playback] proxied audio for same-origin playback', { host: new URL(url).hostname, bytes: blob.size, ms: Date.now() - startedAt });
         proxiedAudioObjectUrls.set(url, objectUrl);
         while (proxiedAudioObjectUrls.size > 24) {
             const oldest = proxiedAudioObjectUrls.keys().next().value;
@@ -188,12 +190,13 @@ export async function loadOnlineSongAudioSource(
             thrown = error ?? new Error('The audio source request failed');
         }
         // 安卓上声明了 requiresSameOriginAudio 的平台：先经原生桥拉成同源 blob（失败就照用平台地址）。
+        // 预取/记录用平台给的原始地址（blob 只活在这一个会话），播放才用 blob。
         const playableUrl = thrown === undefined ? toPlayableAudioUrl(source?.url) : null;
-        const url = playableUrl ? await androidProxiedAudioUrl(playableUrl, providerId) : null;
-        if (url) {
+        const playUrl = playableUrl ? await androidProxiedAudioUrl(playableUrl, providerId) : null;
+        if (playUrl && playableUrl) {
             const replayGain = applyOnlineAudioSourceMetadata(song, source?.replayGain).replayGain;
-            updatePrefetchedAudioUrl(song, url, audioQuality, replayGain);
-            return { kind: 'ok', audioSrc: url, replayGain, preview: omni.isPreviewAudioSource(url) };
+            updatePrefetchedAudioUrl(song, playableUrl, audioQuality, replayGain);
+            return { kind: 'ok', audioSrc: playUrl, replayGain, preview: omni.isPreviewAudioSource(playableUrl) };
         }
         const failure = thrown === undefined
             // A provider (a mod's) that answers null, or an address that may not be played.

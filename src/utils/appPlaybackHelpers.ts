@@ -203,3 +203,21 @@ export const toDebugLineSnapshot = (line: LyricData['lines'][number] | null) => 
         wordRevealMode: renderHints?.wordRevealMode ?? null,
     };
 };
+
+/**
+ * 播放器拿到的地址是什么：`blob`（经原生桥拉成同源 blob）还是远端，远端带上主机名。
+ * 播放失败时写进诊断，区分「地址本身失效」与「跨源/代理拉流失败」。
+ */
+export const describePlaybackSource = (src: string | null | undefined): { kind: 'none' | 'blob' | 'local' | 'remote' | 'other'; host: string } => {
+    const value = String(src || '');
+    if (!value) return { kind: 'none', host: '' };
+    if (value.startsWith('blob:')) return { kind: 'blob', host: '' };
+    if (value.startsWith('file:') || value.startsWith('data:')) return { kind: 'local', host: '' };
+    try {
+        const parsed = new URL(value);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return { kind: 'remote', host: parsed.hostname };
+    } catch {
+        return { kind: 'other', host: '' };
+    }
+    return { kind: 'other', host: '' };
+};

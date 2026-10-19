@@ -124,7 +124,8 @@ import { useOnlineSongMetadataHydration } from './hooks/useOnlineSongMetadataHyd
 import { resolveCommandPaletteSearchSource, resolveSearchSource, useSearchNavigationStore } from './stores/useSearchNavigationStore';
 import { useOnlineProviderAccountStore } from './stores/useOnlineProviderAccountStore';
 import { useShallow } from 'zustand/react/shallow';
-import { clampMediaVolume, toSafeRemoteUrl } from './utils/appPlaybackHelpers';
+import { clampMediaVolume, describePlaybackSource, toSafeRemoteUrl } from './utils/appPlaybackHelpers';
+import { noteOnlinePlaybackOutcome } from './utils/onlinePlaybackDiagnostics';
 import { hasLoopedToStart } from './services/playedTrackCache';
 import { getOnlineProviderIdForSong, isLocalPlaybackSong, isNavidromePlaybackSong, isStagePlaybackSong } from './utils/appPlaybackGuards';
 import { writeLyricOffset } from './utils/lyrics/lyricOffsetMemory';
@@ -2616,6 +2617,20 @@ export default function App() {
             onError={(e) => {
                 const audioElement = e.currentTarget;
                 const isActiveDeck = automix.isActiveDeck(audioElement);
+                // 诊断：播放失败时记下媒体错误码和地址种类（blob/远端+主机），
+                // 「取到链但播不出」与「地址本身失效」在报告里就能分开。
+                if (isActiveDeck) {
+                    const source = audioElement.currentSrc || audioElement.getAttribute('src') || '';
+                    const described = describePlaybackSource(source);
+                    noteOnlinePlaybackOutcome({
+                        stage: 'media', outcome: 'error',
+                        providerId: currentSong?.sourceRef?.kind === 'online' ? currentSong.sourceRef.providerId : 'local',
+                        mediaId: currentSong?.id,
+                        kind: `media-error-${audioElement.error?.code ?? 'none'}`,
+                        code: audioElement.networkState,
+                        detail: `${described.kind}${described.host ? ':' + described.host : ''} srcLen=${source.length}`,
+                    });
+                }
                 const reportedDuration = Number.isFinite(audioElement.duration) && audioElement.duration > 0
                     ? audioElement.duration
                     : duration;
