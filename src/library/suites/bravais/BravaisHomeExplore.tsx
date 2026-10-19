@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import { noteLibraryStep } from '../../../nativeBridge/api/libraryTrace.js';
 import { useTranslation } from 'react-i18next';
 import type { SongResult } from '../../../types';
 import type { OnlineProviderId } from '../../../types/onlineMusic';
@@ -58,7 +59,19 @@ const BravaisHomeExplore: React.FC<{
     const onOpenItem = useCallback((itemKey: string) => {
         const { tiles, onOpenGridView: open, providerId: provider } = latest.current;
         const tile = tiles.find(candidate => candidate.id === itemKey);
-        if (tile?.kind === 'collection') open(createOnlineGridViewCollection(tile.collection, provider));
+        // 探索墙打开集合的入口：先记「找到了没有」，再记交给宿主的集合类型。
+        noteLibraryStep('explore', 'b:open-item', {
+            itemKey: String(itemKey).slice(0, 80),
+            found: Boolean(tile),
+            tileKind: tile ? String(tile.kind) : '',
+        });
+        if (tile?.kind === 'collection') {
+            noteLibraryStep('explore', 'b:open-grid', {
+                type: String(tile.collection.type),
+                id: String(tile.collection.id).slice(0, 40),
+            });
+            open(createOnlineGridViewCollection(tile.collection, provider));
+        }
     }, []);
     const onPlayItem = useCallback((itemKey: string) => {
         const { tiles, onPlaySong: play } = latest.current;

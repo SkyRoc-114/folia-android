@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, type MutableRefObject, type RefObject } from 'react';
+import { noteLibraryStep } from '../../../nativeBridge/api/libraryTrace.js';
 import { getViewWorldBounds, type WallViewCenter } from '../../../components/wall/wallView';
 import type { WallDirection } from '../../../components/wall/wallNavigation';
 import { overlaps } from '../../../components/wall/layout';
@@ -110,6 +111,14 @@ export const useBravaisInteractions = ({
             const slot = bravaisSlotFromKey(slotKey, displayRef.current?.shape);
             const item = itemAt(slotKey);
             const layer = displayRef.current?.layer;
+            // 点击墙上的卡片时留痕：报告里能看出点击有没有到达、命中的是什么条目。
+            noteLibraryStep('explore', 'b:activate', {
+                slot: String(slotKey).slice(0, 40),
+                hasSlot: Boolean(slot),
+                hasItem: Boolean(item),
+                kind: item ? String((item as any).kind || '') : '',
+                layer: layer ? String(layer.key) : '',
+            });
             if (!slot || !item || !layer) {
                 // 窗不是墙面：点它没有反应（聚焦卡仍展开）。
                 if (slot && resolveSlotFace(displayRef.current, slot).kind === 'window') return;
