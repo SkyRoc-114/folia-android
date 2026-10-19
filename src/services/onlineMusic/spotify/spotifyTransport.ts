@@ -1,5 +1,7 @@
 import { OnlineProviderError } from '../../../types/onlineMusic';
 import type { ProviderErrorCode } from '../../../types/onlineMusic';
+import { isFoliaExtensionBridgeConfigured, requestFoliaExtension } from '../../foliaExtensionBridge';
+import { IS_ANDROID_WEBVIEW } from '../../../utils/platform';
 
 // src/services/onlineMusic/spotify/spotifyTransport.ts
 // The IPC boundary to electron/spotify/spotifyApiBridge.cjs. The Spotify token stays in the main
@@ -27,8 +29,12 @@ export interface SpotifyWireAudio { url: string; format: string }
 export interface SpotifyWireMadePlaylist { uri: string }
 export interface SpotifyWireLyrics { timed: boolean; lines: Array<{ startMs: number; words: string }> }
 
+// 桌面走 Electron 主进程桥；Android 走内置原生桥（SpotifyAuth 负责登录与令牌，
+// nativeBridge/api/spotify.js 负责查询与写入）。
 export const getSpotifyTransportAvailability = () => (
-    typeof window !== 'undefined' && typeof window.electron?.spotifyRequest === 'function'
+    typeof window !== 'undefined'
+    && (typeof window.electron?.spotifyRequest === 'function'
+        || (IS_ANDROID_WEBVIEW && isFoliaExtensionBridgeConfigured('extension')))
         ? { configured: true } as const
         : { configured: false, reason: 'runtime-unavailable' } as const
 );

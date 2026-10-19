@@ -83,6 +83,7 @@ import {
   handleKGUserCloud,
 } from './kugou.js';
 import { handleBodianRequest } from './bodian.js';
+import { handleSpotifyRequest } from './spotify.js';
 
 function firstValue(...values) {
   for (const value of values) {
@@ -1332,6 +1333,9 @@ async function handleFoliaKugouRequest(input, url) {
 
 export async function handleFoliaApiRequest(input) {
   const { url, body, method } = parseInput(input);
+  if (input?.provider === 'spotify') {
+    return await handleSpotifyRequest(String(input.operation || ''), input.params || body || {});
+  }
   if (input?.provider === 'bodian') {
     return await handleBodianRequest(String(input.operation || ''), input.params || body || {});
   }

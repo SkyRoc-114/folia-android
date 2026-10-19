@@ -1177,6 +1177,21 @@ public class FoliaNativePlugin extends Plugin {
         call.resolve(result);
     }
 
+    /** 当前可用的访问令牌（过期前自动刷新）；没有登录时为 null。 */
+    @PluginMethod
+    public void spotifyAccessToken(PluginCall call) {
+        new Thread(() -> {
+            try {
+                String token = SpotifyAuth.accessToken(getContext());
+                JSObject result = new JSObject();
+                result.put("token", token == null ? "" : token);
+                call.resolve(result);
+            } catch (IOException error) {
+                call.reject("Spotify token could not be read: " + error.getMessage(), error);
+            }
+        }, "folia-spotify-token").start();
+    }
+
     @PluginMethod
     public void spotifyLogout(PluginCall call) {
         SpotifyAuth.signOut(getContext());

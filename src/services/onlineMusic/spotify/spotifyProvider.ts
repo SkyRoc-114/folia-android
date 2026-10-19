@@ -1,5 +1,6 @@
 import type { UnifiedSong } from '../../../types';
 import type { OnlineMusicProvider, ProviderUser, LoginState } from '../../../types/onlineMusic';
+import { IS_ANDROID_WEBVIEW } from '../../../utils/platform';
 import { createProviderSongMetadata } from '../../../utils/songMetadata';
 import { parseLyricsByFormat } from '../../../utils/lyrics/parserCore';
 import { formatLrcTimestamp } from '../../../utils/lyrics/lrcTimestamp';
@@ -70,7 +71,7 @@ export const spotifyProvider: OnlineMusicProvider = {
     // what Spotify has for the account (spotifyRecommendations.ts). `personalFmModes` stays off:
     // the FM here has no modes. Spotify's recommendation page is the explore tab.
     capabilities: {
-        search: true, playback: true, lyrics: true, wordByWordLyrics: false, auth: true,
+        search: true, playback: !IS_ANDROID_WEBVIEW, lyrics: true, wordByWordLyrics: false, auth: true,
         userLibrary: true, playlists: true, albums: true, artists: true, userAlbums: true,
         // `playlistSubscription` is albums and other people's playlists (`mutations.canSubscribe`).
         recommendations: true, explore: true, mutations: true, likes: true, playlistTrackMutations: true,
