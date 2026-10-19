@@ -83,6 +83,16 @@ const accessToken = async () => {
 };
 
 /** 带令牌的一次请求：Spotify 的 pathfinder / spclient 都从这里发。 */
+// Spotify 的 partner/pathfinder 服务会按「像不像 Web Player」检查请求：真实的 open.spotify.com
+// 发 Accept/Origin/Referer/Spotify-App/Spotify-App-Version/App-Platform，缺了会被回
+// 403 Client/request not allowed（当前 OAuth 令牌直接发就是这一条）。这里补上同一组头。
+const WEB_PLAYER_HEADERS = Object.freeze({
+    'App-Platform': 'WebPlayer',
+    'Spotify-App': 'web_player',
+    'Spotify-App-Version': '1.2.80.454',
+    Origin: 'https://open.spotify.com',
+    Referer: 'https://open.spotify.com/',
+});
 const call = async (url, { method = 'GET', body, headers = {}, absent, token } = {}) => {
     const bearer = token ?? await accessToken();
     const response = await fetch(url, {
