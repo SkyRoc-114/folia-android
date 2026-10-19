@@ -788,7 +788,7 @@ function mapKGUserCenterVipType(vipTypeRaw) {
  * 概念版会员探测（/v1/get_union_vip，busi_type=concept）的答复里读出会员档位。
  * 标准版看 vip_token/vip_type，概念版的畅听 VIP 只在这里能认出来；认不出来就按免费账号取链。
  */
-function kgConceptVipTypeOf(body) {
+export function kgConceptVipTypeOf(body) {
   const data = (body && body.data) || body || {};
   const direct = Number(data.vip_type || data.vipType || 0) || 0;
   if (direct > 0) return mapKGUserCenterVipType(direct);
