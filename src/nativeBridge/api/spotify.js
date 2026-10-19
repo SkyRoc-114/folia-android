@@ -61,13 +61,14 @@ const web = async (path, { method = 'GET', body, query } = {}) => {
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
-    if (response.status === 401) fail('auth-required', 'Spotify sign-in is required');
-    if (response.status === 403) fail('unavailable', 'Spotify refused the request (403)');
-    if (response.status === 429) fail('unavailable', 'Spotify rate limited the request (429)');
     if (response.status === 404) return null;
     if (!response.ok) {
         let said = '';
-        try { said = (await response.text()).slice(0, 160); } catch { said = ''; }
+        try { said = (await response.text()).slice(0, 200); } catch { said = ''; }
+        noteLibraryStep('spotify', 'http:refused', { status: response.status, path: url.pathname, said });
+        if (response.status === 401) fail('auth-required', 'Spotify sign-in is required');
+        if (response.status === 403) fail('unavailable', `Spotify refused the request (403)${said ? `: ${said}` : ''}`);
+        if (response.status === 429) fail('unavailable', `Spotify rate limited the request (429)${said ? `: ${said}` : ''}`);
         fail(response.status >= 500 ? 'network' : 'unavailable', `Spotify refused the request (HTTP ${response.status})${said ? `: ${said}` : ''}`);
     }
     if (response.status === 204) return null;
