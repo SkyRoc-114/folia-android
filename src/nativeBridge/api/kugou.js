@@ -2238,7 +2238,7 @@ const KG_QUALITY_OPTIONS = [
   { level: 'standard', label: '标准', br: 128000 },
 ];
 
-function normalizeQualityPreference(value) {
+export function normalizeQualityPreference(value) {
   const raw = String(value || '').toLowerCase().trim();
   if (['jymaster', 'master', 'studio', 'svip', 'highest'].includes(raw)) return 'jymaster';
   if (['hires', 'hi-res', 'highres', 'zhenyin', 'spatial'].includes(raw)) return 'hires';
@@ -2248,7 +2248,7 @@ function normalizeQualityPreference(value) {
   return 'hires';
 }
 
-function qualityCandidatesFrom(target, candidates) {
+export function qualityCandidatesFrom(target, candidates) {
   target = normalizeQualityPreference(target);
   let start = candidates.findIndex((item) => item.level === target);
   if (start < 0) start = 0;
@@ -2264,7 +2264,7 @@ function extractKGQualityMap(extra, baseHash) {
   };
 }
 
-function pickKGHashForQuality(extra, baseHash, qualityPreference) {
+export function pickKGHashForQuality(extra, baseHash, qualityPreference) {
   const map = extractKGQualityMap(extra, baseHash);
   const order = qualityCandidatesFrom(normalizeQualityPreference(qualityPreference), KG_QUALITY_OPTIONS);
   for (const item of order) {
