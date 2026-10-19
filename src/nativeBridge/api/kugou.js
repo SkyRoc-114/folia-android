@@ -177,6 +177,10 @@ const KG_AUTH_REFRESH_TTL_MS = 50 * 60 * 1000;
 // 缺 vip_token 时的重试间隔：取不到就每 5 分钟再试一次，而不是每一首都打一次登录接口。
 const KG_VIP_TOKEN_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 let kgVipTokenRefreshAt = 0;
+// 会员详情（/user/vip/detail）探测的限流：它比单次 login_by_token 更全，能同时认出标准版与概念版会员，
+// 但不能每首歌都打一次。
+const KG_USER_VIP_PROBE_INTERVAL_MS = 5 * 60 * 1000;
+let kgUserVipProbeAt = 0;
 // 单个登录网关的上限：一条不响应的线路不能把换取 vip_token 这件事整体拖住。
 const KG_AUTH_REFRESH_BASE_DEADLINE_MS = 8000;
 const KG_LOGIN_AES_KEY = 'c24f74ca2820225badc01946dba4fdf7';
@@ -3041,6 +3045,24 @@ export async function handleKGSongUrl(hash, albumId, albumAudioId, quality, cook
       reason: 'vip-recognised-without-token',
       vipType: Number(vipCacheBefore.vipType) || 0,
     });
+  }
+  // 缓存里完全没有会员线索时，探一次 /user/vip/detail：它合并标准版/概念版/移动端的会员信息，
+  // 比只问概念版 union VIP 更全（概念版换字段时也能命中），并按 5 分钟限流。
+  if (loginBeforeVip.loggedIn && !vipTokenBefore && !vipRecognizedBefore
+    && (Date.now() - kgUserVipProbeAt) > KG_USER_VIP_PROBE_INTERVAL_MS) {
+    kgUserVipProbeAt = Date.now();
+    try {
+      const detail = await getKGUserVipDetail(cookieHeader);
+      noteLibraryStep('kugou', 'auth:user-vip:probe', {
+        isVip: !!(detail && detail.isVip),
+        vipType: Number(detail && detail.vipType) || 0,
+        error: (detail && detail.error) || '',
+      });
+    } catch (error) {
+      noteLibraryStep('kugou', 'auth:user-vip:probe:error', {
+        message: error instanceof Error ? error.message.slice(0, 120) : String(error).slice(0, 120),
+      });
+    }
   }
   const auth = await ensureKGAndroidAuth(cookieHeader, { requireAppToken: true, force: shouldFetchVipToken });
   cookieHeader = auth.cookieHeader || await enrichKGCookieHeader(cookieHeader, { preferAppToken: true });
