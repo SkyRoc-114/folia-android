@@ -17,6 +17,13 @@ import {
 // src/services/repositories/cacheRepository.ts
 // Centralizes cache routing, legacy user-cache migration, prefix operations, cleanup, and usage metrics.
 
+/**
+ * 视频层选中的本地视频整份存在缓存表里（见 `services/videoLayerFile.ts`）。
+ *
+ * 它是用户显式选的资源，不是可以随手重建的缓存，所以 `clearCacheTables` 要跳过它 ——
+ * 否则「清除缓存」会把用户刚设好的视频背景一起删掉。
+ */
+export const VIDEO_LAYER_FILE_BLOB_KEY = 'video_layer_local_file';
 export type CacheCategory = 'playlist' | 'lyrics' | 'cover' | 'media' | 'analysis';
 export type CacheTableName = 'api_cache' | 'user_cache' | 'media_cache' | 'metadata_cache';
 
@@ -151,6 +158,7 @@ export const clearCacheTables = async (preserveKeys: string[] = []): Promise<voi
     ...preserveKeys,
     LOCAL_LIBRARY_BOOTSTRAP_MARKER_KEY,
     LOCAL_LIBRARY_ARTIST_SPLIT_MARKER_KEY,
+    VIDEO_LAYER_FILE_BLOB_KEY,
   ]);
   await appDatabase.transaction('rw', CACHE_TABLE_NAMES, async () => {
     await Promise.all(CACHE_TABLE_NAMES.map(async name => {

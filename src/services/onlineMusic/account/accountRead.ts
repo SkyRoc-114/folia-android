@@ -7,6 +7,7 @@ import type {
     ProviderLikedSongIds,
     ProviderUser,
 } from '../../../types/onlineMusic';
+import { confirmNeteaseSessionLoss } from '../netease/neteaseSessionLoss';
 import { useOnlineProviderAccountStore } from '../../../stores/useOnlineProviderAccountStore';
 import { getOnlineMusicProvider } from '../providerRegistry';
 import {
@@ -242,6 +243,13 @@ export const createAccountReads = <R>(deps: AccountReadsDeps<R>) => {
         }
         if (reads.generation !== generation) return 'unknown';
         if (user) return user;
+        // 网易云：一次 login_status 没拿到 profile 不足以判定掉登录（EAPI 抖动/空 data/请求没带凭据），
+        // 清会话不可逆，先隔一会儿再问一次，第二次也确认没登录才允许清。
+        if (provider.id === 'netease' && had && provider.auth) {
+            const confirmed = await confirmNeteaseSessionLoss(() => provider.auth!.getLoginStatus());
+            if (reads.generation !== generation) return 'unknown';
+            if (confirmed) return confirmed;
+        }
         // The platform names nobody, or refuses the sign-in: the account leaves.
         await drop(provider.id, reads, had ? 'auth-required' : undefined, () => provider.auth?.signInRanOut?.());
         console.log(`[Account] ${said}: ${had ? 'the sign-in is no longer valid, the account left' : 'nobody is signed in'}`);
