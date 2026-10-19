@@ -5,7 +5,6 @@ import { useAppChromeStore } from '../../../stores/useAppChromeStore';
 import { useSearchNavigationStore } from '../../../stores/useSearchNavigationStore';
 import { useThemeSettingsStore } from '../../../stores/useThemeSettingsStore';
 import { useStageSettingsStore } from '../../../stores/useStageSettingsStore';
-import { usePlayerChromeSettingsStore } from '../../../stores/usePlayerChromeSettingsStore';
 import { useTranslation } from 'react-i18next';
 import {
     selectDisplayCoverUrl,
