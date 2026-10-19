@@ -65,3 +65,23 @@ describe('Bodian transport failures', () => {
         await expect(requestBodian('user_albums')).rejects.toMatchObject({ code: 'auth-required', message: 'Bodian sign-in is required' });
     });
 });
+
+describe('Android shell', () => {
+    // 0.7.21 上游把波点改成桌面专用（只认 window.electron），安卓因此整块消失。这条用例钉住
+    // 「安卓壳里也必须算可用」，否则 transport 的可用性判定一改回去，波点又会在界面上不见。
+    it('reports configured when running inside the Android native shell', async () => {
+        vi.resetModules();
+        vi.stubGlobal('window', {
+            Capacitor: { getPlatform: () => 'android', isNativePlatform: () => true },
+        });
+        vi.doMock('@/utils/platform', () => ({ IS_ANDROID_WEBVIEW: true, isAndroidNativeRuntime: () => true }));
+        try {
+            const transport = await import('@/services/onlineMusic/bodian/bodianTransport');
+            expect(transport.getBodianTransportAvailability()).toEqual({ configured: true });
+        } finally {
+            vi.doUnmock('@/utils/platform');
+            vi.unstubAllGlobals();
+            vi.resetModules();
+        }
+    });
+});

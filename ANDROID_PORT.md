@@ -201,3 +201,13 @@ Android 改动贴到新结构上。
   原生音频流代理、物理返回键、Android 设置四件套、本地音乐（MediaStore 扫描/导入 + 原生回环播放）、
   渲染优化（安卓关 MSAA、暂停切 demand、30FPS 档、Latent 暂停停帧）
 - 真机待验证项：QQ 扫码登录、红心/收藏写入、VIP 歌曲播放、本地音乐扫描与播放、诊断报告复制
+
+### 0.7.21-android.198：波点音乐在安卓上消失的修复
+
+上游 0.7.21 把波点（Bodian）改成**桌面专用**：`bodian/bodianTransport.ts` 只认
+`window.electron.bodianRequest`，安卓没有 Electron，可用性变成 `runtime-unavailable`，
+而登录/平台列表把这类平台整行隐藏 —— 于是「波点音乐」在界面上不见了。
+
+修复：transport 的可用性判定认 `IS_ANDROID_WEBVIEW`，请求走内置原生桥
+（`requestFoliaExtension({ provider: 'bodian' })` → `nativeBridge/api/bodian.js`，与 .196 一致）。
+新增回归测试：安卓壳里可用性必须是 `configured`。
