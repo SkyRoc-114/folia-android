@@ -748,6 +748,11 @@ export interface OnlineMusicProvider {
     normalizeCollection?(raw: unknown, type?: string): ProviderCollection;
     songMetadata?: OnlineSongMetadataProvider;
     getSongPageUrl?(song: SongResult): string | null;
+    /**
+     * 安卓上要把播放地址经原生 HTTP 桥拉成同源 blob 再播：这个平台的音频 CDN 不回 CORS 头，
+     * 而播放器的 <audio> 带 crossOrigin=anonymous 又接 WebAudio 分析，直接用平台地址会「取到链但播不出声」。
+     */
+    requiresSameOriginAudio?: boolean;
     search?: OnlineSearchProvider;
     playback?: OnlinePlaybackProvider;
     playbackReports?: OnlinePlaybackReportProvider;

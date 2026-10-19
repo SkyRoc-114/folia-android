@@ -502,6 +502,11 @@ export const omni = {
         return typeof requireOnlineMusicProvider(providerId).recommendations?.getDailySongs === 'function';
     },
 
+    // 安卓上这个平台的音频是否要经原生桥拉成同源 blob（平台自己声明，见 OnlineMusicProvider）。
+    requiresSameOriginAudio(providerId: OmniProviderId): boolean {
+        return getOnlineMusicProvider(providerId)?.requiresSameOriginAudio === true;
+    },
+
     getProviderLabel(providerId: OmniProviderId): string {
         const provider = getOnlineMusicProvider(providerId);
         return provider?.shortName || provider?.displayName || providerId;

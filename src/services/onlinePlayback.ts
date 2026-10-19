@@ -16,6 +16,7 @@ import { deleteCachedSongAudio, getCachedSongAudioBlob, getCachedSongReplayGain,
 import { measureSongAudio, notTheSongWhy } from './wholeSongCheck';
 import { isCachedSongAudioDistrusted } from './playbackRecovery/mediaCacheGuard';
 import { toPlayableAudioUrl } from '../utils/appPlaybackHelpers';
+import { IS_ANDROID_WEBVIEW } from '../utils/platform';
 import { getOnlineProviderIdForSong, getPlaybackSongKey } from '../utils/appPlaybackGuards';
 import { getProviderSongMetadata } from './onlineMusic/songMetadata';
 import { useLyricSettingsStore } from '../stores/useLyricSettingsStore';
@@ -27,6 +28,38 @@ import { errorFields } from '../utils/errorText';
 // How long playback waits for a stored copy's header to give its play length (`wholeCopy`). Past
 // it the copy plays untested: the check must not hold up a song that starts from the cache.
 const COPY_CHECK_CEILING_MS = 300;
+// ── 安卓：跨源媒体的 CORS 缺口 ────────────────────────────────────────────
+// 播放器的 <audio> 带 crossOrigin="anonymous"，又接 WebAudio 分析：CDN 不回 CORS 头时，
+// 地址拿到了却一个音频事件都没有（表现为「取链成功但无声」）。
+// 这里经原生 HTTP 桥（nativeAndroidBridge 的 fetch 代理，已白名单各平台 CDN 域名）把文件
+// 拉成同源 blob 再交给音频元素：blob 同源，crossOrigin 与 WebAudio 分析都不再受 CDN 限制。
+// 哪些平台需要这样做由平台自己声明（OnlineMusicProvider.requiresSameOriginAudio）。
+const proxiedAudioObjectUrls = new Map<string, string>();
+
+const androidProxiedAudioUrl = async (url: string, provider: string | undefined): Promise<string> => {
+    if (!IS_ANDROID_WEBVIEW || !provider || !omni.requiresSameOriginAudio(provider)) return url;
+    const cached = proxiedAudioObjectUrls.get(url);
+    if (cached) return cached;
+    try {
+        const response = await fetch(url);
+        if (!response.ok) return url;
+        const blob = await response.blob();
+        if (!blob.size) return url;
+        const objectUrl = URL.createObjectURL(blob);
+        proxiedAudioObjectUrls.set(url, objectUrl);
+        while (proxiedAudioObjectUrls.size > 24) {
+            const oldest = proxiedAudioObjectUrls.keys().next().value;
+            if (!oldest) break;
+            const old = proxiedAudioObjectUrls.get(oldest);
+            proxiedAudioObjectUrls.delete(oldest);
+            if (old) URL.revokeObjectURL(old);
+        }
+        return objectUrl;
+    } catch (error) {
+        console.warn('[Playback] proxying the audio file failed; playing the platform address directly', error);
+        return url;
+    }
+};
 
 export type OnlineAudioSourceResult =
     // `preview`: the URL plays a preview clip of the song, as its provider said (omni notes it).
@@ -154,7 +187,9 @@ export async function loadOnlineSongAudioSource(
         } catch (error) {
             thrown = error ?? new Error('The audio source request failed');
         }
-        const url = thrown === undefined ? toPlayableAudioUrl(source?.url) : null;
+        // 安卓上声明了 requiresSameOriginAudio 的平台：先经原生桥拉成同源 blob（失败就照用平台地址）。
+        const playableUrl = thrown === undefined ? toPlayableAudioUrl(source?.url) : null;
+        const url = playableUrl ? await androidProxiedAudioUrl(playableUrl, providerId) : null;
         if (url) {
             const replayGain = applyOnlineAudioSourceMetadata(song, source?.replayGain).replayGain;
             updatePrefetchedAudioUrl(song, url, audioQuality, replayGain);

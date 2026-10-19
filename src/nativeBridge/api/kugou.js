@@ -642,6 +642,14 @@ async function refreshKGLoginByToken(cookieHeader) {
       const nextToken = String(data.token || data.t || '').trim();
       const vipToken = String(data.vip_token || data.vipToken || '').trim();
       const vipType = Number(data.vip_type || data.vipType || 0) || 0;
+      // 概念版会员不一定下发 vip_token / vip_type：同一份 data 里的 is_vip、svip_level、到期时间
+      // 同样能说明是不是会员；认不出来就会把概念版会员当免费账号，高音质和 VIP 曲目取不到链。
+      const isVipFlag = data.is_vip === true || Number(data.is_vip) === 1
+        || Number(data.svip_level) > 0
+        || Number(data.su_vip_end_time) > Date.now()
+        || (Number(data.vip_begin_time) > 0
+          && Number(data.m_end_time || data.vip_end_time || data.su_vip_end_time || 0) > Date.now());
+      const effectiveVipType = vipType || (vipToken ? 6 : (isVipFlag ? 6 : 0));
       if (!nextToken && !vipToken) continue;
       // Never overwrite browser web token with android token — only persist vip fields.
       try {
@@ -655,15 +663,16 @@ async function refreshKGLoginByToken(cookieHeader) {
         appToken: nextToken || '',
         sourceToken: token,
         vipToken,
-        vipType: vipType || (vipToken ? 6 : 0),
-        isVip: !!(vipType > 0 || vipToken || data.is_vip),
-        vipLabel: vipType === 33 || vipType === 4 ? '超级VIP' : (vipType || vipToken ? 'VIP' : ''),
+        vipType: effectiveVipType,
+        isVip: !!(effectiveVipType > 0 || vipToken || isVipFlag),
+        vipLabel: effectiveVipType === 33 || effectiveVipType === 4 ? '超级VIP' : (effectiveVipType ? 'VIP' : ''),
         authAt: Date.now(),
       });
       noteLibraryStep('kugou', 'auth:refresh:ok', {
         host: refreshHost,
         hasVipToken: !!vipToken,
-        vipType: vipType || (vipToken ? 6 : 0),
+        vipType: effectiveVipType,
+        vipFlag: isVipFlag,
         dataKeys: Object.keys(data || {}).slice(0, 20).join(','),
       });
       return {

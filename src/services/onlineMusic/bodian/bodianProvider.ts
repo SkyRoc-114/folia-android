@@ -50,6 +50,8 @@ async function getBodianDiscoverCollections(): Promise<ProviderCollection[]> {
 export const bodianProvider: OnlineMusicProvider = {
     id: 'bodian', displayName: '波点音乐', shortName: '波点',
     mark: { letter: '波', color: '#0d9488' },
+    // 这个平台的音频 CDN 不回 CORS，安卓上经原生桥拉成同源 blob 再播。
+    requiresSameOriginAudio: true,
     getAvailability: getBodianTransportAvailability,
     describeFailure: describeBodianFailure,
     capabilities: {

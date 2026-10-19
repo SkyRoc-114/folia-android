@@ -1021,6 +1021,8 @@ export const kugouProvider: OnlineMusicProvider = {
     displayName: 'KuGou Music',
     shortName: '酷狗',
     mark: { letter: 'K', color: '#2563eb' },
+    // 这个平台的音频 CDN 不回 CORS，安卓上经原生桥拉成同源 blob 再播。
+    requiresSameOriginAudio: true,
     getAvailability: getKugouTransportAvailability,
     describeFailure: describeKugouFailure,
     capabilities: {
