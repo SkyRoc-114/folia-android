@@ -849,6 +849,20 @@ export const omni = {
         return audioQualityFor(providerId, preference);
     },
 
+    // 安卓诊断：取到的播放地址最终是「原生本地流服务」还是「远端 CDN」，或没取到。
+    // 报告里据此区分「omni 代理成功」与「退回直连」，不含平台名。
+    describeResolvedAudioUrl(url: string | null | undefined): string {
+        const value = String(url || '');
+        if (!value) return '';
+        if (value.startsWith('blob:')) return 'blob';
+        try {
+            const parsed = new URL(value);
+            if (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') return `native-stream:${parsed.port}`;
+            return `${parsed.protocol}//${parsed.hostname}`.slice(0, 80);
+        } catch {
+            return 'invalid-url';
+        }
+    },
     async getAudioSource(song: SongResult, quality: AudioQualityPreference): Promise<OmniAudioSource | null> {
         const provider = providerForSong(song);
         const level = audioQualityFor(provider.id, quality);
@@ -902,7 +916,7 @@ export const omni = {
             providerId: provider.id,
             quality: level,
             kind: resolved?.url ? '' : 'empty-url',
-            detail: resolved?.url ? '' : 'provider returned no playable url',
+            detail: resolved?.url ? this.describeResolvedAudioUrl(resolved.url) : 'provider returned no playable url',
             elapsedMs: Date.now() - resolveStartedAt,
         });
         return resolved;
