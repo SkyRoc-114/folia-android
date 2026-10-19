@@ -660,6 +660,13 @@ async function refreshKGLoginByToken(cookieHeader) {
         }
       }
       const resolvedVipType = effectiveVipType || conceptVipType;
+      if (!resolvedVipType && !vipToken) {
+        noteLibraryStep('kugou', 'auth:refresh:concept-vip:miss', {
+          hasVipToken: !!vipToken,
+          vipFlag: isVipFlag,
+          conceptVipType,
+        });
+      }
       if (!nextToken && !vipToken) continue;
       // Never overwrite browser web token with android token — only persist vip fields.
       try {
@@ -1028,9 +1035,13 @@ export async function getKGYouthUnionVip(cookieHeader) {
     },
     {},
   );
+  const unionData = (body && body.data) || {};
   noteLibraryStep('kugou', 'youth:union:done', {
     status: body && body.status,
     errorCode: body && body.error_code,
+    // 只记字段名不记值：概念版会员字段在不同版本里换过名字，报告要能看出实际下发的是哪些。
+    dataKeys: Object.keys(unionData).slice(0, 20).join(','),
+    busiVip: Array.isArray(unionData.busi_vip) ? unionData.busi_vip.length : 0,
   });
   return body || { status: 0, error_code: 401, data: {} };
 }
