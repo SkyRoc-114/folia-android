@@ -1297,6 +1297,25 @@ export const kugouProvider: OnlineMusicProvider = {
         },
         describeLoginFailure: describeKugouLoginFailure,
     },
+    // 概念版每天领的畅听 VIP 只有一天。App 一直开着时，隔一段时间重新确认/领取一次，
+    // 否则第二天开始会员歌曲和高音质会静默失效；标准版账号走同一条检查，已经是会员就跳过。
+    watch() {
+        const intervalMs = 6 * 60 * 60 * 1000;
+        let stopped = false;
+        const tick = () => {
+            if (stopped) return;
+            const userId = readProviderSessionValue('kugou', 'userid');
+            if (!userId) return;
+            void ensureKugouYouthVip(String(userId)).catch(error => {
+                console.warn('[KugouProvider] vip-watch:failed', error);
+            });
+        };
+        const timer = setInterval(tick, intervalMs);
+        return () => {
+            stopped = true;
+            clearInterval(timer);
+        };
+    },
     library: {
         async getUserPlaylists(userId, limit, offset) {
             const requestLimit = Math.min(Math.max(1, limit), KUGOU_MAX_PAGE_SIZE);
