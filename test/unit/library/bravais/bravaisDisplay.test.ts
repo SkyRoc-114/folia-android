@@ -8,11 +8,13 @@ import {
     findItemSlotNear,
     findNearestSlot,
     pointOrigin,
+    resolveHeadingEntryKey,
     resolveSlotItem,
     resolveFocusReflow,
     resolveTileTransition,
     toFlipSteps,
 } from '@/library/suites/bravais/bravaisDisplay';
+import { createExploreShape } from '@/library/suites/bravais/bravaisWallShape';
 
 // test/unit/library/bravais/bravaisDisplay.test.ts
 // 墙上每个 slot 显示哪一项（无限拼贴 + 起点磁贴）、换层前后的翻牌比较、单张磁贴的翻牌状态机（纯部分）、
@@ -138,5 +140,32 @@ describe('focus card reflow', () => {
         expect(card.width).toBe(6 * 136 - 8);
         expect(card.height).toBe(6 * 136 - 8);
         expect(resolveFocusReflow(null).size).toBe(0);
+    });
+});
+describe('explore wall section headings', () => {
+    it('resolves a section heading to the first entry of its section, and other seats to null', () => {
+        const sections = [
+            { key: 'charts', heading: '排行榜', entries: [{ index: 0, kind: 'playlist' as const }, { index: 1, kind: 'playlist' as const }] },
+            { key: 'songs', heading: '热歌榜', entries: [{ index: 2, kind: 'song' as const }] },
+        ];
+        const headings: BravaisItem[] = sections.map(section => ({
+            key: `heading:${section.key}`, kind: 'feed', title: section.heading, subtitle: '', badge: '',
+        }));
+        const entries: BravaisItem[] = [
+            { key: 'chart-a', kind: 'playlist', title: '榜单 A', subtitle: '', badge: '' },
+            { key: 'chart-b', kind: 'playlist', title: '榜单 B', subtitle: '', badge: '' },
+            { key: 'song-a', kind: 'track', title: '歌 A', subtitle: '', badge: '' },
+        ];
+        const shape = createExploreShape(sections, { column: 0, row: 0 });
+        const display = createBravaisDisplay({
+            ...layer('explore', entries),
+            shape: { kind: 'explore', sections, headings },
+        }, null);
+        // 一块地的最后一个 slot 是标题：点它打开这一栏的第一项。
+        const heading = shape.blockSlots(0, 0).at(-1)!;
+        expect(resolveHeadingEntryKey(display, heading)).toBe('chart-a');
+        // 座位不是标题。
+        expect(resolveHeadingEntryKey(display, shape.blockSlots(0, 0)[0])).toBeNull();
+        expect(resolveHeadingEntryKey(null, heading)).toBeNull();
     });
 });

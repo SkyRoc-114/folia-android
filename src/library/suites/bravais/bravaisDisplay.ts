@@ -141,6 +141,22 @@ export const resolveSlotItem = (display: BravaisDisplay | null, slot: Pick<WallS
 };
 
 export const resolveSlotItemKey = (display: BravaisDisplay | null, slot: WallSlot) => resolveSlotItem(display, slot)?.key ?? null;
+/**
+ * 探索形状里，点 section 标题（一张大标题磁贴）时该打开的东西：这一栏的第一项。
+ * 标题自己不是条目；把它当「打开这一栏」的入口，点标题就不再是「没反应」。
+ * 标题没有条目、或所在 slot 不是标题，返回 null。
+ */
+export const resolveHeadingEntryKey = (
+    display: BravaisDisplay | null,
+    slot: Pick<WallSlot, 'column' | 'row' | 'slotIndex'>,
+): string | null => {
+    if (!display) return null;
+    const section = display.shape.headingAt(slot);
+    if (section === null) return null;
+    const first = display.layer.shape?.sections?.[section]?.entries?.[0]?.index;
+    if (first === undefined) return null;
+    return display.layer.items[first]?.key ?? null;
+};
 
 /** 一个 slot 的内容与种类（透光：没有内容的 slot 是窗还是空画框）。 */
 export const resolveSlotFace = (

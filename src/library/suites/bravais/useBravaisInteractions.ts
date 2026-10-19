@@ -5,7 +5,7 @@ import type { WallDirection } from '../../../components/wall/wallNavigation';
 import { overlaps } from '../../../components/wall/layout';
 import type { WallSlot } from '../../../components/wall/wallSlots';
 import { BRAVAIS_BLOCK_SHAPE, shapeSlotFromKey, type BravaisWallShape } from './bravaisWallShape';
-import { findNearestSlot, resolveSlotFace, resolveSlotItem, type BravaisDisplay } from './bravaisDisplay';
+import { findNearestSlot, resolveHeadingEntryKey, resolveSlotFace, resolveSlotItem, type BravaisDisplay } from './bravaisDisplay';
 import { findDisplayItemSlot } from './bravaisItemSlots';
 import type { BravaisHomeShortcut } from './bravaisHomeModels';
 import { resolveEscapeStep, type BravaisKeyAction } from './bravaisKeyboardModel';
@@ -126,6 +126,29 @@ export const useBravaisInteractions = ({
                 items: layer ? layer.items.length : -1,
                 wallSections: display?.layer.shape ? display.layer.shape.headings.length : -1,
             });
+            // 探索墙的 section 标题是一张大标题磁贴：点它 = 打开这一栏的第一项
+            // （收藏、专辑进下一层，歌曲直接播并带上这一栏的队列）。
+            if (!item && slot && layer) {
+                const firstKey = resolveHeadingEntryKey(displayRef.current, slot);
+                const first = firstKey ? layer.items.find(entry => entry.key === firstKey) : undefined;
+                if (first) {
+                    noteLibraryStep('explore', 'b:heading-open', {
+                        heading: displayRef.current?.shape.headingAt(slot) ?? -1,
+                        key: first.key.slice(0, 40),
+                        kind: String(first.kind),
+                    });
+                    collapse();
+                    openFrom(slotKey, () => {
+                        if (first.kind === 'track') {
+                            armBravaisPlayingCard(layer.key, first.key);
+                            layer.onPlayItem?.(first.key);
+                        } else {
+                            layer.onOpenItem?.(first.key);
+                        }
+                    });
+                    return;
+                }
+            }
             if (!slot || !item || !layer) {
                 // 窗不是墙面：点它没有反应（聚焦卡仍展开）。
                 if (slot && resolveSlotFace(displayRef.current, slot).kind === 'window') return;
