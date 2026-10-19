@@ -650,6 +650,16 @@ async function refreshKGLoginByToken(cookieHeader) {
         || (Number(data.vip_begin_time) > 0
           && Number(data.m_end_time || data.vip_end_time || data.su_vip_end_time || 0) > Date.now());
       const effectiveVipType = vipType || (vipToken ? 6 : (isVipFlag ? 6 : 0));
+      // 标准版刷新拿不到会员字段时，再问一次概念版的畅听 VIP：概念版会员只在这里能认出来。
+      let conceptVipType = 0;
+      if (!vipToken && effectiveVipType === 0) {
+        try {
+          conceptVipType = kgConceptVipTypeOf(await getKGYouthUnionVip(cookieHeader));
+        } catch (error) {
+          noteLibraryStep('kugou', 'auth:refresh:concept-vip:error', { message: error instanceof Error ? error.message : String(error) });
+        }
+      }
+      const resolvedVipType = effectiveVipType || conceptVipType;
       if (!nextToken && !vipToken) continue;
       // Never overwrite browser web token with android token — only persist vip fields.
       try {
@@ -663,16 +673,17 @@ async function refreshKGLoginByToken(cookieHeader) {
         appToken: nextToken || '',
         sourceToken: token,
         vipToken,
-        vipType: effectiveVipType,
-        isVip: !!(effectiveVipType > 0 || vipToken || isVipFlag),
-        vipLabel: effectiveVipType === 33 || effectiveVipType === 4 ? '超级VIP' : (effectiveVipType ? 'VIP' : ''),
+        vipType: resolvedVipType,
+        isVip: !!(resolvedVipType > 0 || vipToken || isVipFlag),
+        vipLabel: resolvedVipType === 33 || resolvedVipType === 4 ? '超级VIP' : (resolvedVipType ? 'VIP' : ''),
         authAt: Date.now(),
       });
       noteLibraryStep('kugou', 'auth:refresh:ok', {
         host: refreshHost,
         hasVipToken: !!vipToken,
-        vipType: effectiveVipType,
+        vipType: resolvedVipType,
         vipFlag: isVipFlag,
+        conceptVipType,
         dataKeys: Object.keys(data || {}).slice(0, 20).join(','),
       });
       return {
@@ -761,6 +772,18 @@ function mapKGUserCenterVipType(vipTypeRaw) {
   if (t === 7) return 3;
   if (t === 2) return 6;
   return t;
+}
+/**
+ * 概念版会员探测（/v1/get_union_vip，busi_type=concept）的答复里读出会员档位。
+ * 标准版看 vip_token/vip_type，概念版的畅听 VIP 只在这里能认出来；认不出来就按免费账号取链。
+ */
+function kgConceptVipTypeOf(body) {
+  const data = (body && body.data) || body || {};
+  const direct = Number(data.vip_type || data.vipType || 0) || 0;
+  if (direct > 0) return mapKGUserCenterVipType(direct);
+  if (data.is_vip === true || Number(data.is_vip) === 1) return 6;
+  const business = Array.isArray(data.busi_vip) ? data.busi_vip : [];
+  return business.some((entry) => Number(entry && (entry.is_vip || entry.vip_type)) > 0) ? 6 : 0;
 }
 
 function kgApiBodyOk(body) {
