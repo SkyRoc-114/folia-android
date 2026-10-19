@@ -1911,6 +1911,7 @@ export default {
     "daylightModeDark": "Gelap",
     "daylightModeSystem": "Sistem",
     "stageTrackPillReposition": "Atur posisi kartu lagu",
+    "stageTrackPillResetPosition": "Setel ulang posisi",
     "stageTrackPillPositioningHint": "Seret kartu untuk memindahkannya. Tombol panah untuk menyesuaikan.",
     "stageTrackPillMode": "Cara tampil",
     "visualSettingsCardDesc": "Tema, mode rendering lirik, titik masuk gaya, dan opasitas latar belakang.",
