@@ -86,6 +86,8 @@ const newRead = (number: number, memory: ReturnType<typeof newMemory>, signedIn:
     onShelf: new Set<string>(),
     /** 排行榜清单，一次读取只要一次。 */
     toplists: undefined as Promise<any[]> | undefined,
+    /** 每日 30 首：第一页的「每日推荐」栏与相似歌曲的种子共用同一次请求。 */
+    dailySongs: undefined as Promise<UnifiedSong[]> | undefined,
 });
 type Read = ReturnType<typeof newRead>;
 
@@ -230,7 +232,7 @@ export const createQqExplore = (): OnlineExploreProvider => {
         add(listened.filter(song => song.sourceRef?.kind !== 'online' || song.sourceRef.providerId === 'qq'));
         if (seeds.length < SIMILAR_A_READ) {
             try {
-                add(songsIn(await orEmpty(requestQq<any>('user_daily_songs'), null)));
+                add(await dailySongsOf(read));
             } catch (error) {
                 console.warn(`[QQ] Explore page: the daily songs to ask with could not be read (${errorMessage(error)})`);
             }
@@ -278,6 +280,15 @@ export const createQqExplore = (): OnlineExploreProvider => {
             read.toplists.catch(() => { read.toplists = undefined; });
         }
         return read.toplists;
+    };
+
+    /** 每日 30 首：一次读取只要一次，第一页的「每日推荐」栏与相似歌曲的种子共用。 */
+    const dailySongsOf = (read: Read): Promise<UnifiedSong[]> => {
+        if (!read.dailySongs) {
+            read.dailySongs = orEmpty(requestQq<any>('user_daily_songs'), null).then(answer => songsIn(answer));
+            read.dailySongs.catch(() => { read.dailySongs = undefined; });
+        }
+        return read.dailySongs;
     };
 
     const newPart = async (read: Read): Promise<ProviderExploreSection[]> => (await arrivedOf('the new songs and albums', [
@@ -359,24 +370,31 @@ export const createQqExplore = (): OnlineExploreProvider => {
         hadAccount = signedIn;
         const read = newRead(++reads, memory, signedIn);
         const failures: unknown[] = [];
-        const [radar, similar] = await Promise.allSettled([
+        const [radar, daily, similar] = await Promise.allSettled([
             pagedShelf(read, RADAR, i18n.t('home.qqRadar')),
+            // 每日推荐：登录后把每日 30 首单独做成一栏（上游探索页没有这栏，这里补上与其它平台同名的「每日推荐」；
+            // 同一次读取里由 dailySongsOf 合并请求）。
+            signedIn
+                ? dailySongsOf(read).then(songs => listShelf(read, 'qq-daily-songs', i18n.t('home.dailyRecommendations'), songs.map(songItem)))
+                : Promise.resolve(null),
             signedIn
                 ? seedsOf(read, listened).then(async seeds => (await Promise.all(seeds.map(seed => similarShelf(read, seed)))).filter(present))
                 : Promise.resolve([]),
         ]);
-        for (const answer of [radar, similar]) {
+        for (const answer of [radar, daily, similar]) {
             if (answer.status !== 'rejected') continue;
             failures.push(answer.reason);
             console.warn(`[QQ] Explore page: part of the first page could not be read (${errorMessage(answer.reason)}); the page goes on without it`);
         }
         const sections = [
+            daily.status === 'fulfilled' ? daily.value : null,
             radar.status === 'fulfilled' ? radar.value : null,
             ...(similar.status === 'fulfilled' ? similar.value : []),
         ].filter(present);
         page = read;
         // 第一页各栏的数量：报告里能看出「每日推荐」这类栏是不是上游给了空。
         noteLibraryStep('qq', 'explore:first', {
+            daily: daily.status === 'fulfilled' && daily.value ? daily.value.items.length : 0,
             radar: radar.status === 'fulfilled' && radar.value ? radar.value.items.length : 0,
             similar: similar.status === 'fulfilled' ? similar.value.length : 0,
             shelves: sections.length,

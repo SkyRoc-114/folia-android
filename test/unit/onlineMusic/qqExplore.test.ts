@@ -94,15 +94,16 @@ describe('QQ explore page', () => {
 
         expect(first.refreshReadsAnew).toBe(true);
         expect(first.nextCursor).toBeTruthy();
-        expect(first.sections[0]).toMatchObject({ id: 'qq-radar', title: i18n.t('home.qqRadar') });
-        expect(first.sections[0].items).toHaveLength(10);
+        expect(first.sections[0]).toMatchObject({ id: 'qq-daily-songs', title: i18n.t('home.dailyRecommendations') });
+        expect(first.sections[1]).toMatchObject({ id: 'qq-radar', title: i18n.t('home.qqRadar') });
+        expect(first.sections[1].items).toHaveLength(10);
         // 听过的两首各做一栏，不够三首再用每日 30 首补一首。
-        expect(titles(first.sections.slice(1))).toEqual([
+        expect(titles(first.sections.slice(2))).toEqual([
             i18n.t('home.exploreSimilar', { name: '歌 heard-a' }),
             i18n.t('home.exploreSimilar', { name: '歌 heard-b' }),
             i18n.t('home.exploreSimilar', { name: '歌 daily-500' }),
         ]);
-        expect(first.sections.slice(1).every(section => section.changesWithRead)).toBe(true);
+        expect(first.sections.slice(2).every(section => section.changesWithRead)).toBe(true);
         expect(requestMock).toHaveBeenCalledWith('song_similar', { id: 11 });
     });
 
@@ -110,17 +111,17 @@ describe('QQ explore page', () => {
         answerAs();
         const { sections } = await readWhole(createQqExplore());
 
-        expect(ids(sections).slice(0, 4)).toEqual(['qq-radar', 'qq-similar-1', 'qq-similar-2', 'qq-similar-3']);
-        expect(ids(sections).slice(4, 8)).toEqual(['qq-new-songs', 'qq-new-albums', 'qq-charts', 'qq-chart-26']);
-        expect(titles(sections).slice(4, 8)).toEqual([i18n.t('home.qqNewSongs'), i18n.t('home.qqNewAlbums'), i18n.t('home.qqCharts'), '热歌榜']);
+        expect(ids(sections).slice(0, 5)).toEqual(['qq-daily-songs', 'qq-radar', 'qq-similar-1', 'qq-similar-2', 'qq-similar-3']);
+        expect(ids(sections).slice(5, 9)).toEqual(['qq-new-songs', 'qq-new-albums', 'qq-charts', 'qq-chart-26']);
+        expect(titles(sections).slice(5, 9)).toEqual([i18n.t('home.qqNewSongs'), i18n.t('home.qqNewAlbums'), i18n.t('home.qqCharts'), '热歌榜']);
         // 热门那一组的分类，一次三个。
-        expect(titles(sections).slice(8, 11)).toEqual(['分类 1', '分类 2', '分类 3']);
+        expect(titles(sections).slice(9, 12)).toEqual(['分类 1', '分类 2', '分类 3']);
         // 电台：「最近」与空组不出，「猜你喜欢」（电台 99）不放，一次两组。
-        const radio = sections.slice(11);
+        const radio = sections.slice(12);
         expect(titles(radio)).toEqual(['热门', '心情']);
         expect(radio[0].items.map(item => item.kind === 'collection' && item.collection.name)).toEqual(['示例电台 A']);
         expect(radio[0].items.every(item => item.kind === 'collection' && item.isMix)).toBe(true);
-        expect(sections).toHaveLength(13);
+        expect(sections).toHaveLength(14);
     });
 
     it('makes chart cards that open the chart, and hands out one batch of a long list with a "more"', async () => {
@@ -144,7 +145,7 @@ describe('QQ explore page', () => {
         const explore = createQqExplore();
         const { first, sections } = await readWhole(explore);
         const newSongs = sections.find(section => section.id === 'qq-new-songs')!;
-        const radar = first.sections[0];
+        const radar = first.sections[1];
 
         const moreSongs = await explore.getSectionItems!(newSongs.moreCursor!);
         expect(moreSongs.items).toHaveLength(12);
@@ -168,7 +169,7 @@ describe('QQ explore page', () => {
         const one = (await readWhole(explore, [])).sections;
         const two = (await readWhole(explore, [])).sections;
 
-        const radarMids = (sections: ProviderExploreSection[]) => sections[0].items.map(item => item.kind === 'song' && item.song.qqMid);
+        const radarMids = (sections: ProviderExploreSection[]) => sections.find(section => section.id === 'qq-radar')!.items.map(item => item.kind === 'song' && item.song.qqMid);
         expect(radarMids(one)[0]).toBe('radar1-100');
         expect(radarMids(two)[0]).toBe('radar2-200');
         expect(titles(one).filter(title => title.startsWith('分类'))).toEqual(['分类 1', '分类 2', '分类 3']);
@@ -178,7 +179,7 @@ describe('QQ explore page', () => {
             .map(item => item.kind === 'song' && item.song.qqMid);
         expect(songsOf(two).filter(mid => songsOf(one).includes(mid))).toEqual([]);
         // 每次重读，相似歌曲、分类、电台的栏都是新的栏。
-        expect(ids(two).filter(id => ids(one).includes(id))).toEqual(['qq-radar', 'qq-new-songs', 'qq-new-albums', 'qq-charts', 'qq-chart-26']);
+        expect(ids(two).filter(id => ids(one).includes(id))).toEqual(['qq-daily-songs', 'qq-radar', 'qq-new-songs', 'qq-new-albums', 'qq-charts', 'qq-chart-26']);
     });
 
     it('gives a guest the public shelves only', async () => {

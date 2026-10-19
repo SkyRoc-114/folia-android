@@ -2893,8 +2893,15 @@ export async function handleQQRecommendRadar(page, cookieHeader) {
     );
     if (!result.ok) return { code: 0, songs: [], more: false };
     const entries = Array.isArray(result.data?.VecSongs) ? result.data.VecSongs : [];
-    const songs = entries.map(entry => entry && entry.Track)
-        .filter(track => track && typeof track.mid === 'string' && track.mid);
+    // 上游把曲目放在 `Track` 里，但不同版本字段名换过（track / TrackInfo / 平铺）；
+    // 只认 `Track.mid` 会在上游换名时把整页刷歌模式缩成 1 首（报告里 songs=1）。
+    const songs = entries.map((entry) => {
+        const track = entry && (entry.Track || entry.track || entry.TrackInfo || entry.track_info || entry);
+        if (!track || typeof track !== 'object') return null;
+        const mid = track.mid || track.songmid || track.songMid || track.songMid;
+        return typeof mid === 'string' && mid ? { ...track, mid } : null;
+    }).filter(Boolean);
+    noteLibraryStep('qq', 'radar:decode', { entries: entries.length, songs: songs.length });
     return { code: 0, songs, more: result.data?.HasMore === true };
 }
 

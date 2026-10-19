@@ -160,7 +160,7 @@ export const PLATFORM_NAME_PLACES: Record<string, PlatformNamePlace> = {
     "src/nativeBridge/api/qq-mqtt.js": { n: { qq: 8 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质' },
     "src/nativeBridge/api/qq-native-login.js": { n: { qq: 23 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质' },
     "src/nativeBridge/api/qq-wechat-login.js": { n: { qq: 44 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质' },
-    "src/nativeBridge/api/qq.js": { n: { qq: 658 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质' },
+    "src/nativeBridge/api/qq.js": { n: { qq: 659 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质' },
     "src/nativeBridge/api/qrImage.js": { n: { netease: 1 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质' },
     "src/nativeBridge/api/router.js": { n: { kugou: 6, netease: 33, qq: 86 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质' },
     "src/nativeBridge/api/weapi.js": { n: { netease: 2 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质' },
