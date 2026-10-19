@@ -43,7 +43,7 @@ afterEach(() => {
 describe('QQ account display fields', () => {
     it('keeps the cached nickname and avatar when the profile page returns none', async () => {
         const auth = await loadQqProvider();
-        fetchMock.mockResolvedValue(loginStatusResponse({
+        fetchMock.mockImplementation(async () => loginStatusResponse({
             uin: '2774749',
             str_musicid: '2774749',
             nickname: '测试账号',
@@ -55,7 +55,7 @@ describe('QQ account display fields', () => {
         expect(first?.avatarUrl).toBe('https://q1.qlogo.cn/g?b=qq&nk=2774749&s=100');
 
         // 资料页这次什么都没给（上游偶发失败 / 只回了账号 id）。
-        fetchMock.mockResolvedValue(loginStatusResponse({ uin: '2774749', str_musicid: '2774749' }));
+        fetchMock.mockImplementation(async () => loginStatusResponse({ uin: '2774749', str_musicid: '2774749' }));
         const second = await auth.getLoginStatus();
 
         expect(second?.id).toBe('2774749');
@@ -65,7 +65,7 @@ describe('QQ account display fields', () => {
 
     it('never reuses another account cached display fields', async () => {
         const auth = await loadQqProvider();
-        fetchMock.mockResolvedValue(loginStatusResponse({
+        fetchMock.mockImplementation(async () => loginStatusResponse({
             uin: '2774749',
             str_musicid: '2774749',
             nickname: '测试账号',
@@ -74,7 +74,7 @@ describe('QQ account display fields', () => {
         await auth.getLoginStatus();
 
         // 换了账号，且资料页没给展示字段：只能拿到的就是空，不能把上一个账号的名字/头像搬过来。
-        fetchMock.mockResolvedValue(loginStatusResponse({ uin: '10001', str_musicid: '10001' }));
+        fetchMock.mockImplementation(async () => loginStatusResponse({ uin: '10001', str_musicid: '10001' }));
         const other = await auth.getLoginStatus();
 
         expect(other?.id).toBe('10001');
