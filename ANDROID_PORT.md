@@ -271,3 +271,22 @@ Android 改动贴到新结构上。
 - `SettingsHelpActions` 的「删除诊断」按钮没搬（复制/导出已有）
 
 全量测试：871 文件 + 新增测试，9975+ 用例通过；tsc 0 错。
+
+### 0.7.21-android.203：Spotify 接入（继续做） + YouTube Music 入口
+
+**YouTube Music：只做入口**
+- Android 上平台可见、可进登录窗口，说明文案写明「仅入口，功能未实现」；任何请求报 unsupported
+
+**Spotify：登录 + 读取/写入链路（本轮完成）**
+- 原生 `SpotifyAuth.java`：OAuth 授权码 + PKCE，固定回环 `127.0.0.1:5588/login`（与桌面同一个
+  client id），系统浏览器登录、回环接回调、令牌自动刷新、存应用私有 SharedPreferences
+- `FoliaNativePlugin`：spotifyStartLogin / spotifyCancelLogin / spotifyLoginStatus / spotifyLogout /
+  spotifyAccessToken / spotifyRequest
+- `nativeBridge/api/spotify.js`：移植桌面桥的 pathfinder 查询与 CHANGES 写入（喜欢、歌单增删、
+  新建歌单），读歌单整表再精确增删；radio/lyrics 走 spclient；音频三操作明确 unsupported
+- `folia.js` 路由 + fetch 白名单（spotify.com / spotifycdn.com / scdn.co）
+- `spotifyTransport` Android 走内置桥；`spotifyProvider` Android 上关闭 playback 能力
+
+**待办**
+- 真机验证登录（系统浏览器 → 回调 → 回到 App 后平台显示已登录、歌单/喜欢可读）
+- Android 播放：暂关闭完整播放（无 librespot）；计划用 30 秒 preview_url 试听
