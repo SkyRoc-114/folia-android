@@ -1,4 +1,5 @@
 import i18n from '../../../i18n/config';
+import { noteLibraryStep } from '../../../nativeBridge/api/libraryTrace.js';
 import type { UnifiedSong } from '../../../types';
 import type {
     OnlineExploreProvider,
@@ -483,6 +484,15 @@ export const createNeteaseExplore = (normalize: NeteaseExploreNormalizers): Onli
         const blocks = shelves.map(shelf => ({ ...shelf, ...handOut(read, shelf.id, shelf.items) }));
         read.homeCursor = cursorIn(home);
         const dailySongs = rowsOf(daily?.songs).map(songItem);
+        // 探索页的「每日推荐」一栏：报告里要能看出上游给了几首/几张。
+        noteLibraryStep('netease', 'explore:daily', {
+            signedIn,
+            songs: dailySongs.length,
+            playlists: rowsOf(lists?.recommend).length,
+            homeBlocks: blocksIn(home).length,
+            songsCode: daily?.code ?? 'none',
+            playlistsCode: lists?.code ?? 'none',
+        });
         const sections = [
             listShelf(read, DAILY_SONGS_ID, i18n.t('home.dailyRecommendations'), dailySongs),
             ...blocks,

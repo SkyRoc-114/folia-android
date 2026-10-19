@@ -544,17 +544,31 @@ async function handleLikeCheck(url, cookie) {
 
 async function handleDailyRecommend(url, cookie) {
   const afresh = String(firstValue(url.searchParams.get('afresh'), 'false')) === 'true';
-  const paths = afresh
-    ? ['/api/v3/discovery/recommend/songs', '/api/recommend/songs']
-    : ['/api/v3/discovery/recommend/songs'];
+  const params = { limit: 30, offset: 0, total: true, n: 1000, ...(afresh ? { afresh: true } : {}) };
+  // 每日推荐试两条上游路径、两种签名：不同客户端版本上 v3 eapi 可能被拒（code 400/301），
+  // 旧接口或 weapi 仍能回同一批歌。全部失败才报错，并留痕说明试过哪些。
+  const attempts = [
+    { name: 'eapi-v3', run: () => eapiJson('/api/v3/discovery/recommend/songs', {}, cookie) },
+    { name: 'weapi-v3', run: () => weapiJson('/api/v3/discovery/recommend/songs', params, cookie) },
+    { name: 'eapi-legacy', run: () => eapiJson('/api/recommend/songs', {}, cookie) },
+    { name: 'weapi-legacy', run: () => weapiJson('/api/recommend/songs', params, cookie) },
+  ];
+  const tried = [];
   let lastError = null;
-  for (const path of paths) {
+  for (const attempt of attempts) {
     try {
-      return await eapiJson(path, {}, cookie);
+      const body = await attempt.run();
+      const songs = Array.isArray(body?.data?.dailySongs) ? body.data.dailySongs
+        : Array.isArray(body?.dailySongs) ? body.dailySongs
+          : Array.isArray(body?.songs) ? body.songs : [];
+      noteLibraryStep('netease', 'explore:daily:source', { via: attempt.name, songs: songs.length, code: body?.code });
+      return body;
     } catch (error) {
+      tried.push(attempt.name);
       lastError = error;
     }
   }
+  noteLibraryStep('netease', 'explore:daily:failed', { tried: tried.join(',') });
   throw lastError || new Error('Daily recommendation request failed');
 }
 
@@ -1525,7 +1539,15 @@ export async function handleFoliaApiRequest(input) {
   }
   if (path === '/recommend/resource') {
     noteLibraryStep('netease', 'explore:route', { path });
-    return await weapiJson('/api/v1/discovery/recommend/resource', { csrf_token: '' }, cookie);
+    // 每日推荐歌单：weapi 答不出时换 eapi 试一次（两套签名在不同账号/版本上成功率不同）。
+    try {
+      return await weapiJson('/api/v1/discovery/recommend/resource', { csrf_token: '' }, cookie);
+    } catch (error) {
+      noteLibraryStep('netease', 'explore:daily-playlists:fallback', {
+        message: error instanceof Error ? error.message.slice(0, 120) : String(error).slice(0, 120),
+      });
+      return await eapiJson('/api/v1/discovery/recommend/resource', {}, cookie);
+    }
   }
   if (path === '/simi/song') {
     noteLibraryStep('netease', 'explore:route', { path });

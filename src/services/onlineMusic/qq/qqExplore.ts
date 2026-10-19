@@ -1,4 +1,5 @@
 import i18n from '../../../i18n/config';
+import { noteLibraryStep } from '../../../nativeBridge/api/libraryTrace.js';
 import type { UnifiedSong } from '../../../types';
 import type {
     OnlineExploreProvider,
@@ -374,6 +375,7 @@ export const createQqExplore = (): OnlineExploreProvider => {
             ...(similar.status === 'fulfilled' ? similar.value : []),
         ].filter(present);
         page = read;
+        // 第一页各栏的数量：报告里能看出「每日推荐」这类栏是不是上游给了空。         noteLibraryStep('qq', 'explore:first', {             radar: radar.status === 'fulfilled' && radar.value ? radar.value.items.length : 0,             similar: similar.status === 'fulfilled' ? similar.value.length : 0,             shelves: sections.length,             entries: countOf(sections),         });
         console.log(`[QQ] Explore page: ${sections.length} shelves, ${countOf(sections)} entries; ${signedIn ? 'signed in' : 'a guest: no similar songs and no radio'}`);
         if (sections.length === 0) {
             // 第一页什么都没有：直接给后面第一个有栏的部分。整页都读不到才算失败（EXPLORE_ADAPTER.md 规则 6）。

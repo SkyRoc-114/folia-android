@@ -6,6 +6,7 @@ import type { CollectionLoadError, CollectionResource, CollectionResourceContext
 import { getPlaybackSongKey } from '../../../../utils/appPlaybackGuards';
 import { errorMessage } from '../../../../utils/errorText';
 import { logOnlineFailure, onlineFailureOf } from '../../../../services/onlineMusic/failure/onlineFailureCase';
+import { noteLibraryStep } from '../../../../nativeBridge/api/libraryTrace.js';
 import type { LikedListRead } from '../../../../services/onlineMusic/omni';
 import { collectionRevision } from '../collectionIdentity';
 import { createCollectionResourceState } from './collectionResourceState.service';
@@ -209,6 +210,8 @@ export const createOnlineCollectionResource = (key: string, deps: OnlineCollecti
                 responseTracks = await deps.getPersonalFm();
             } else if (isDailyRecommendations(collection)) {
                 responseTracks = await deps.getDailySongs();
+                // 每日推荐读不到内容时，报告里要能看出是这里返回了 0 首（而不是界面没画）。
+                noteLibraryStep(collection.providerId ?? 'daily', 'daily:read', { songs: responseTracks.length });
             } else {
                 const page = await deps.getCollectionTracks(collection, { limit: ONLINE_COLLECTION_FIRST_PAGE_SIZE, offset: 0 });
                 responseTracks = page.items;
