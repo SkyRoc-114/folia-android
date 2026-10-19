@@ -111,13 +111,20 @@ export const useBravaisInteractions = ({
             const slot = bravaisSlotFromKey(slotKey, displayRef.current?.shape);
             const item = itemAt(slotKey);
             const layer = displayRef.current?.layer;
-            // 点击墙上的卡片时留痕：报告里能看出点击有没有到达、命中的是什么条目。
+            // 点击墙上的卡片时留痕：报告里能看出点击有没有到达、命中的是条目/标题/墙，以及条目的下标。
+            const display = displayRef.current;
             noteLibraryStep('explore', 'b:activate', {
                 slot: String(slotKey).slice(0, 40),
                 hasSlot: Boolean(slot),
                 hasItem: Boolean(item),
                 kind: item ? String((item as any).kind || '') : '',
                 layer: layer ? String(layer.key) : '',
+                shapeKind: display ? String(display.shape.kind) : '',
+                face: slot && display ? String(resolveSlotFace(display, slot).kind) : '',
+                heading: slot && display ? (display.shape.headingAt(slot) ?? -1) : -1,
+                shadow: slot && display ? (display.shape.entryAt ? (display.shape.entryAt(slot) ?? -1) : -2) : -2,
+                items: layer ? layer.items.length : -1,
+                wallSections: display?.layer.shape ? display.layer.shape.headings.length : -1,
             });
             if (!slot || !item || !layer) {
                 // 窗不是墙面：点它没有反应（聚焦卡仍展开）。
