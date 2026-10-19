@@ -362,7 +362,15 @@ export const useExploreFeedStore = create<ExploreFeedStore>((set, get) => {
                 set({ feed: { ...blank('ready', read), ...first, nextCursor: page.nextCursor, pages: 1, ...(page.refreshReadsAnew ? { refreshReadsAnew: true } : {}) } });
                 console.log(`[Explore] Page ${read}: ${first.sections.length} sections`);
                 // 探索页读成功时报告里也留一条：能区分「没打开探索页」和「打开了但内容空」。
-                noteLibraryStep(String(key).split(':')[0] || 'unknown', 'explore:page', { sections: first.sections.length });
+                // 探索页每栏的标题与条数：报告里能直接看出用户说的「每日推荐」是哪个平台、哪一栏、是不是 0 条。
+                const sectionSummary = first.sections
+                    .map(section => `${section.title || '(no-title)'}:${section.items.length}`)
+                    .join(' | ')
+                    .slice(0, 200);
+                noteLibraryStep(String(key).split(':')[0] || 'unknown', 'explore:page', {
+                    sections: first.sections.length,
+                    titles: sectionSummary,
+                });
                 return;
             }
             const next = await exchanged(key, shown, () => read === reads, listened);
