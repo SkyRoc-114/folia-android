@@ -181,6 +181,9 @@ let kgVipTokenRefreshAt = 0;
 // 但不能每首歌都打一次。
 const KG_USER_VIP_PROBE_INTERVAL_MS = 5 * 60 * 1000;
 let kgUserVipProbeAt = 0;
+// 取链失败时现场补领概念版每日 VIP 的限流：失败/被拒的日子不要每首歌都打一次领取接口。
+const KG_CONCEPT_CLAIM_INTERVAL_MS = 10 * 60 * 1000;
+let kgConceptClaimAt = 0;
 // 单个登录网关的上限：一条不响应的线路不能把换取 vip_token 这件事整体拖住。
 const KG_AUTH_REFRESH_BASE_DEADLINE_MS = 8000;
 const KG_LOGIN_AES_KEY = 'c24f74ca2820225badc01946dba4fdf7';
@@ -3012,6 +3015,18 @@ function normalizePlayUrl(url) {
   return 'http://fs.open.kugou.com/' + url.replace(/^\/+/, '');
 }
 
+/**
+ * 取链失败时要不要现场补领概念版每日 VIP：歌曲被拦、已登录、没有任何 VIP 凭证、
+ * 且距离上次尝试超过限流间隔才试。抽成纯函数以便单测（两版共用这段判断）。
+ */
+export function shouldClaimConceptVipOnFailure(input) {
+  const { blocked, loggedIn, hasVipToken, isVip } = input || {};
+  if (!blocked || !loggedIn || hasVipToken || isVip) return false;
+  const now = Number(input.now) || Date.now();
+  const lastAttemptAt = Number(input.lastAttemptAt) || 0;
+  const intervalMs = Number(input.intervalMs) > 0 ? Number(input.intervalMs) : KG_CONCEPT_CLAIM_INTERVAL_MS;
+  return (now - lastAttemptAt) > intervalMs;
+}
 // 概念版每日领取用的日期按中国日历算（官方客户端同款），不跟随设备时区。
 function chinaCalendarDate(date = new Date()) {
   try {
@@ -3211,8 +3226,17 @@ export async function handleKGSongUrl(hash, albumId, albumAudioId, quality, cook
     // 已领过的那天服务端会拒绝，不会重复领取；标准版账号没领过时也可能受益，行为与官方客户端一致。
     const stillBlocked = trackerResult.blocked || trackerResult.status === 2;
     const cacheAfterRetry = await loadKGVipSessionCache(login.userId);
-    const stillNoVip = !resolveKGEffectiveVipToken(cookieHeader, cacheAfterRetry) && !login.isVip;
-    if (stillBlocked && login.loggedIn && stillNoVip) {
+    const hasVipTokenAfterRetry = !!resolveKGEffectiveVipToken(cookieHeader, cacheAfterRetry);
+    const shouldClaim = shouldClaimConceptVipOnFailure({
+      blocked: stillBlocked,
+      loggedIn: login.loggedIn,
+      hasVipToken: hasVipTokenAfterRetry,
+      isVip: !!login.isVip,
+      lastAttemptAt: kgConceptClaimAt,
+      intervalMs: KG_CONCEPT_CLAIM_INTERVAL_MS,
+    });
+    if (shouldClaim) {
+      kgConceptClaimAt = Date.now();
       try {
         const claimDay = chinaCalendarDate();
         noteLibraryStep('kugou', 'vip:claim-on-fail:start', { day: claimDay });
