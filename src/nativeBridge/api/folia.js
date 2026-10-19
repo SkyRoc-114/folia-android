@@ -1449,6 +1449,61 @@ export async function handleFoliaApiRequest(input) {
       limit: numberValue(params.get('limit'), 35),
     }, cookie);
   }
+  // ── 探索页用的上游接口 ───────────────────────────────────────────────
+  // 0.7.21 的探索适配器用到的这批路由在 .196 的桥里没有（只有 /personalized/playlist），
+  // 于是每个平台一进探索页就整页失败。这里按 NeteaseCloudMusicApi 的请求语义补齐。
+  if (path === '/toplist') {
+    noteLibraryStep('netease', 'explore:route', { path });
+    return await weapiJson('/api/toplist', {}, cookie);
+  }
+  if (path === '/album/new') {
+    noteLibraryStep('netease', 'explore:route', { path });
+    return await weapiJson('/api/album/new', {
+      area: 'ALL',
+      limit: numberValue(params.get('limit'), 30),
+      offset: numberValue(params.get('offset'), 0),
+      total: true,
+    }, cookie);
+  }
+  if (path === '/top/playlist') {
+    noteLibraryStep('netease', 'explore:route', { path });
+    return await weapiJson('/api/playlist/list', {
+      cat: firstValue(params.get('cat'), '全部'),
+      order: firstValue(params.get('order'), 'hot'),
+      limit: numberValue(params.get('limit'), 30),
+      offset: numberValue(params.get('offset'), 0),
+      total: true,
+    }, cookie);
+  }
+  if (path === '/recommend/resource') {
+    noteLibraryStep('netease', 'explore:route', { path });
+    return await weapiJson('/api/v1/discovery/recommend/resource', { csrf_token: '' }, cookie);
+  }
+  if (path === '/simi/song') {
+    noteLibraryStep('netease', 'explore:route', { path });
+    return await weapiJson('/api/v1/discovery/simiSong', {
+      songid: numberValue(params.get('id'), 0),
+      limit: 50,
+      offset: 0,
+    }, cookie);
+  }
+  if (path === '/top/song') {
+    noteLibraryStep('netease', 'explore:route', { path });
+    return await weapiJson('/api/v1/discovery/new/songs', {
+      areaId: numberValue(params.get('type'), 0),
+      limit: 100,
+      offset: 0,
+      total: true,
+    }, cookie);
+  }
+  if (path === '/homepage/block/page') {
+    noteLibraryStep('netease', 'explore:route', { path });
+    const cursor = params.get('cursor');
+    return await weapiJson('/api/homepage/block/page', {
+      refresh: params.get('refresh') !== 'false',
+      ...(cursor ? { cursor } : {}),
+    }, cookie);
+  }
   if (path === '/fm_trash') {
     const id = firstValue(params.get('id'), body.id);
     return await eapiJson('/api/radio/trash', { id }, cookie);
