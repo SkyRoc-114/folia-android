@@ -467,13 +467,25 @@ const normalizeUser = (raw: any): ProviderUser => {
 };
 
 // Maps the dedicated VIP response, including active product entries used by concept accounts.
+// 会员档位：标准版看 vip_type，概念版的畅听 VIP 可能只给 is_vip / 到期时间。
+// 认出「是会员」但没有档位时按 1（普通 VIP）算，界面和取链只关心 >0。
 const normalizeKugouVipType = (raw: any): number => {
     const data = dataOf(raw);
-    const directVipType = Number(valueOf(data, 'vip_type', 'vipType', 'is_vip') || 0);
+    const directVipType = Number(valueOf(data, 'vip_type', 'vipType') || 0);
     if (directVipType > 0) return directVipType;
 
+    const flag = valueOf(data, 'is_vip', 'isVip', 'concept_vip', 'conceptVip', 'su_vip', 'svip_level');
+    const flagOn = flag === true || Number(flag) > 0 || String(flag) === 'true';
+    const now = Date.now();
+    const expiry = Number(valueOf(data, 'vip_end_time', 'vipEndTime', 'm_end_time', 'su_vip_end_time', 'expire_time') || 0);
+    if (flagOn || (expiry > 0 && expiry > now)) return 1;
+
     const businessVips = Array.isArray(data?.busi_vip) ? data.busi_vip : [];
-    return businessVips.some((entry: any) => Number(valueOf(entry, 'is_vip', 'vip_type') || 0) > 0) ? 1 : 0;
+    return businessVips.some((entry: any) => {
+        const entryFlag = valueOf(entry, 'is_vip', 'isVip', 'vip_type', 'vipType');
+        const entryExpiry = Number(valueOf(entry, 'end_time', 'vip_end_time', 'expire_time') || 0);
+        return entryFlag === true || Number(entryFlag) > 0 || (entryExpiry > 0 && entryExpiry > now);
+    }) ? 1 : 0;
 };
 
 // Formats the claim date in KuGou's China-based calendar instead of the device's local timezone.
