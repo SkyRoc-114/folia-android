@@ -1,4 +1,5 @@
 import type { SongResult, UnifiedSong } from '../../../types';
+import { noteLibraryStep } from '../../../nativeBridge/api/libraryTrace.js';
 import type {
     AudioQualityPreference,
     MediaId,
@@ -177,14 +178,39 @@ const loadRawLikedTracks = async (
     };
 };
 
+// 探索页的排行榜/电台卡片 id 自带类型（toplist-4、radio-101）；有的界面只把 id 交回来，
+// 用 id 还原出 providerData，否则会被当成普通歌单去读、结果空列表（排行榜点进去「没有数据」）。
+const qqListCollectionFromId = (id: MediaId): ProviderCollection | null => {
+    const value = String(id || '');
+    const toplist = /^toplist-(\d+)$/.exec(value);
+    if (toplist) {
+        return { providerId: 'qq', id: value, type: 'playlist', name: '', providerData: { list: 'toplist', listId: Number(toplist[1]) } };
+    }
+    const radio = /^radio-(\d+)$/.exec(value);
+    if (radio) {
+        return { providerId: 'qq', id: value, type: 'playlist', name: '', providerData: { list: 'radio', listId: Number(radio[1]) } };
+    }
+    return null;
+};
+
 const getPlaylistTracks = async (
     id: MediaId,
     limit: number,
     offset: number,
     collection?: ProviderCollection,
 ): Promise<ProviderPage<ReturnType<typeof normalizeQqSong>>> => {
+    if (!collection || !qqListKindOf(collection)) {
+        const fromId = qqListCollectionFromId(id);
+        if (fromId) collection = collection ? { ...collection, providerData: { ...collection.providerData, ...fromId.providerData } } : fromId;
+    }
     // 排行榜和电台的卡片（探索页）不是歌单，改走它们自己的路由。
-    if (collection && qqListKindOf(collection)) return getQqListTracks(collection, limit, offset);
+    if (collection && qqListKindOf(collection)) {
+        const result = await getQqListTracks(collection, limit, offset);
+        noteLibraryStep('qq', 'collection:list-tracks', {
+            id: String(id), kind: qqListKindOf(collection), offset, items: result.items.length,
+        });
+        return result;
+    }
     const safeLimit = Math.max(1, limit);
     const safeOffset = Math.max(0, offset);
     const dirId = Number(collection?.providerData?.dirId);
