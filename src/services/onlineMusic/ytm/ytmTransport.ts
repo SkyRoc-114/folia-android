@@ -79,8 +79,9 @@ export const getYtmTransportAvailability = () => (
 );
 
 export async function requestYtm<T = unknown>(operation: YtmOperation, params: YtmParams = {}): Promise<T> {
-    if (typeof window !== 'undefined' && !window.electron?.ytmRequest) {
-        // Android 版入口：传输层未实现，明确告诉用户是「暂不支持」而不是「没配置」。
+    // 只有安卓版是「入口、传输层未实现」；普通网页构建没有桌面桥时要报「不可用」，
+    // 不能也报成「安卓暂不支持」（否则网页版会指错方向）。
+    if (IS_ANDROID_WEBVIEW) {
         throw new OnlineProviderError('unsupported', 'YouTube Music 在 Android 版暂不支持（仅入口）', 'ytm');
     }
     if (!getYtmTransportAvailability().configured) {
