@@ -310,10 +310,10 @@ const PlayerPage: React.FC = () => {
                 >
                     <Toggle checked={video.enabled} onChange={video.setEnabled} />
                 </Row>
-                <Reveal when={video.enabled || video.localFileStatus !== 'none'}>
-                    <Row
-                        sub
-                        option={O.videoFile}
+                {/* 本地视频的选择/清除不依赖「启用」：没启用也能先选、也能清掉之前选的。 */}
+                <Row
+                    sub
+                    option={O.videoFile}
                         note={t(video.canPersistLocalFile ? 'options.videoLayerLocalFileDesc' : 'options.videoLayerLocalFileSessionDesc')}
                     >
                         {video.localFileStatus !== 'none' && (
@@ -327,7 +327,6 @@ const PlayerPage: React.FC = () => {
                         )}
                         <Button onClick={() => void pickVideo()}>{t('options.videoLayerPickFile')}</Button>
                     </Row>
-                </Reveal>
                 <Reveal when={video.enabled}>
                     <Row sub option={O.videoUrl} hint={t('options.videoLayerUrlDesc')}>
                         <TextField

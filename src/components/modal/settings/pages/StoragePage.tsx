@@ -5,6 +5,8 @@ import ConfirmDialog from '../../../shared/ConfirmDialog';
 import { clearAllData } from '../../../../services/db';
 import { openCommandPaletteCommand } from '../../../../stores/useAppViewStore';
 import { useAudioSettingsStore } from '../../../../stores/useAudioSettingsStore';
+import { useVideoLayerSettingsStore } from '../../../../stores/useVideoLayerSettingsStore';
+import { setStatusMessage } from '../../../../stores/useStatusMessageStore';
 import { closeSettings } from '../../../../stores/useSettingsModalStore';
 import { Button, CopyValue, FoldedGroup, Group, Row, Select, Toggle, Value, useSettingsKitTheme, type SettingsOptionDef } from '../kit';
 import { useSettingsPage } from './settingsPageContext';
@@ -34,6 +36,23 @@ const StoragePage: React.FC = () => {
     const cacheLimitGb = useAudioSettingsStore(state => state.mediaCacheLimitGb);
     const setCacheLimitGb = useAudioSettingsStore(state => state.handleSetMediaCacheLimitGb);
     const [clearingAll, setClearingAll] = useState<'no' | 'asking' | 'running'>('no');
+    // 歌词后方视频层的本地视频：它不算缓存分类里的任何一种，单独给清理入口。
+    const videoLocalFileName = useVideoLayerSettingsStore(state => state.localFileName);
+    const videoLocalFileStatus = useVideoLayerSettingsStore(state => state.localFileStatus);
+    const clearVideoLocalFile = useVideoLayerSettingsStore(state => state.clearLocalFile);
+    const [clearingVideo, setClearingVideo] = useState(false);
+    const clearLocalVideo = async () => {
+        setClearingVideo(true);
+        try {
+            await clearVideoLocalFile();
+            setStatusMessage({ type: 'success', text: t('options.localVideoCacheCleared') });
+        } catch (error) {
+            console.warn('[Settings] local-video:clear-failed', error);
+            setStatusMessage({ type: 'error', text: t('options.localVideoCacheClearFailed') });
+        } finally {
+            setClearingVideo(false);
+        }
+    };
 
     // Everything the app stored goes, so it starts again from an empty state.
     const clearEverything = async () => {
@@ -105,6 +124,15 @@ const StoragePage: React.FC = () => {
                         </Button>
                     </Row>
                 ))}
+                <Row option={O.localVideo} hint={t('options.localVideoCacheDesc')}>
+                    <Value>{videoLocalFileStatus === 'none' ? t('options.localVideoCacheEmpty') : videoLocalFileName}</Value>
+                    <Button
+                        onClick={() => void clearLocalVideo()}
+                        disabled={clearingVideo || videoLocalFileStatus === 'none'}
+                    >
+                        {clearingVideo ? t('options.cacheClearing') : t('ui.clear')}
+                    </Button>
+                </Row>
             </Group>
 
             <FolderWatchGroup />

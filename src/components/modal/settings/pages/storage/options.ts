@@ -24,6 +24,8 @@ export const O = {
     mediaCache: option(MEDIA, 'enableMediaCache', 'options.enableMediaCache'),
     cacheDirectory: option(MEDIA, 'cacheDirectory', 'options.cacheDirectory', { electronOnly: true }),
     cacheLimit: option(MEDIA, 'mediaCacheLimit', 'options.mediaCacheLimit', { electronOnly: true }),
+    // 歌词后方视频层的本地视频也占缓存，单独一行给清理入口（不受「缓存分类」接口管，直接清文件句柄/blob）。
+    localVideo: option(CACHES, 'cacheLocalVideo', 'options.localVideoCache'),
     autoScan: option(WATCH, 'localLibraryAutoScan', 'options.localLibraryAutoScan'),
     exportConfig: option(BACKUP, 'exportConfig', 'options.exportThemeLabel'),
     importConfig: option(BACKUP, 'importConfig', 'options.importBtn'),

@@ -2919,7 +2919,12 @@ export default {
     "videoLayerLocalFileDesc": "优先于 URL 使用。重启后自动恢复所选视频。",
     "videoLayerLocalFileSessionDesc": "优先于 URL 使用。当前浏览器无法记住所选文件，重启后需要重新选择。",
     "videoLayerPickFile": "选择视频",
-    "videoLayerRegrant": "重新授权访问",
+    "videoLayerRegrant": "重新授权访问",      "localVideoCache": "本地视频缓存",
+      "localVideoCacheDesc": "在歌词后方播放的那段本地视频。清除后要重新选择。",
+      "localVideoCacheEmpty": "没有缓存的本地视频",
+      "localVideoCacheCleared": "已清除本地视频缓存",
+      "localVideoCacheClearFailed": "清除本地视频失败",
+
     "videoLayerClearFile": "清除本地视频",
     "videoLayerPickFailed": "无法打开该视频",
     "videoLayerUrl": "视频 URL",

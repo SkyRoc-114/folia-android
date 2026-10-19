@@ -2918,7 +2918,12 @@ export default {
     "videoLayerLocalFileDesc": "Diutamakan daripada URL. Pilihan diingat setelah aplikasi dimulai ulang.",
     "videoLayerLocalFileSessionDesc": "Diutamakan daripada URL. Browser ini tidak dapat mengingat pilihan, jadi pilih lagi setelah dimulai ulang.",
     "videoLayerPickFile": "Pilih video",
-    "videoLayerRegrant": "Izinkan akses lagi",
+    "videoLayerRegrant": "Izinkan akses lagi",      "localVideoCache": "Cache video lokal",
+      "localVideoCacheDesc": "Video lokal yang diputar di belakang lirik. Setelah dihapus harus dipilih lagi.",
+      "localVideoCacheEmpty": "Tidak ada video lokal tersimpan",
+      "localVideoCacheCleared": "Cache video lokal dihapus",
+      "localVideoCacheClearFailed": "Gagal menghapus video lokal",
+
     "videoLayerClearFile": "Hapus video lokal",
     "videoLayerPickFailed": "Tidak dapat membuka video",
     "videoLayerUrl": "URL video",

@@ -2918,7 +2918,12 @@ export default {
     "videoLayerLocalFileDesc": "Takes priority over the URL. The pick is remembered after a restart.",
     "videoLayerLocalFileSessionDesc": "Takes priority over the URL. This browser cannot remember the pick, so choose it again after a restart.",
     "videoLayerPickFile": "Choose video",
-    "videoLayerRegrant": "Allow access again",
+    "videoLayerRegrant": "Allow access again",      "localVideoCache": "Local video cache",
+      "localVideoCacheDesc": "The local video played behind the lyrics. Clearing it means picking it again.",
+      "localVideoCacheEmpty": "No local video cached",
+      "localVideoCacheCleared": "Cleared the local video",
+      "localVideoCacheClearFailed": "Could not clear the local video",
+
     "videoLayerClearFile": "Clear local video",
     "videoLayerPickFailed": "Could not open the video",
     "videoLayerUrl": "Video URL",
