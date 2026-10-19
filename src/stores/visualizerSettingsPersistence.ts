@@ -1,4 +1,10 @@
 import { DEFAULT_SMART_BEAT_SETTINGS, type BeatEffectSetting, type SmartBeatSettings, type VisualizerBackgroundMode, type VisualizerFrameRate, type VisualizerMode } from '../types';
+import {
+    resolveTemperaTuningDefaults,
+    temperaPostProcessCompressionDefault,
+} from '../services/temperaTuningDefaults';
+import { resolveLumiereTuningDefaults } from '../services/lumiereTuningDefaults';
+import { isCapacitorAndroid } from '../platform/runtime';
 // 只做字符串校验，走 types/visualizerModes 而不是 registry：后者的 eager glob 会把 13 个
 // renderer（含 three.js）拉进来，而这里读的只是一个 localStorage 字符串。
 // mod 模式在启动时本来就看不到——bootstrap.tsx 的 restoreStoredModVisualizer 在 mods 注册完

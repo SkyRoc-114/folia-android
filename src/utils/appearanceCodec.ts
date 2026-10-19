@@ -14,6 +14,7 @@ import {
     type Theme,
 } from '../types';
 import { normalizeLumiereTuning } from './lumiereTuning';
+import { temperaPostProcessCompressionDefault } from '../services/temperaTuningDefaults';
 
 // src/utils/appearanceCodec.ts
 // The shareable appearance config codec: theme + visual settings <-> the minified `folia-theme://`
@@ -469,7 +470,7 @@ const decompressTempera = (o: any): any => ({
     postProcessEnabled: o.ppe !== undefined ? o.ppe : DEFAULT_TEMPERA_TUNING.postProcessEnabled,
     postProcessTextureCompression: o.pptc !== undefined
         ? o.pptc
-        : DEFAULT_TEMPERA_TUNING.postProcessTextureCompression,
+        : temperaPostProcessCompressionDefault(),
     postProcessGrain: o.ppg !== undefined ? o.ppg : DEFAULT_TEMPERA_TUNING.postProcessGrain,
     postProcessContrast: o.ppc !== undefined ? o.ppc : DEFAULT_TEMPERA_TUNING.postProcessContrast,
     postProcessRgbShift: o.ppr !== undefined ? o.ppr : DEFAULT_TEMPERA_TUNING.postProcessRgbShift,

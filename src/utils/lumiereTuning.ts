@@ -1,4 +1,5 @@
 import { DEFAULT_LUMIERE_TUNING, type LumiereRenderQuality, type LumiereTuning } from '../types';
+import { lumiereRenderQualityDefault } from '../services/lumiereTuningDefaults';
 
 // src/utils/lumiereTuning.ts
 // 绘光 tuning 的归一化：localStorage、同步、外观短码 / JSON 导入和 store setter 共用同一套钳制规则。
@@ -46,6 +47,6 @@ export const normalizeLumiereTuning = (value: unknown): LumiereTuning => {
         themeColorMix: clampNumber(raw.themeColorMix, d.themeColorMix, 0, 1),
         renderQuality: RENDER_QUALITIES.includes(raw.renderQuality as LumiereRenderQuality)
             ? raw.renderQuality as LumiereRenderQuality
-            : d.renderQuality,
+            : lumiereRenderQualityDefault(),
     };
 };
