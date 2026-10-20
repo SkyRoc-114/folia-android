@@ -1,5 +1,6 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import {
+    noteAudioContext,
     noteAudioElementEvent,
     noteAudioElementProgress,
     noteAudioTimeUpdate,
@@ -137,5 +138,33 @@ describe('mediaDiagnostics playback continuity', () => {
         // 基线不动，报告才能算出「这段时间平均解码了多少 kbps」。
         expect(second.decodeBaseBytes).toBe(1_000_000);
         expect(second.decodeBaseMediaSec).toBe(30);
+    });
+});
+describe('mediaDiagnostics audio context', () => {
+    beforeEach(() => resetMediaDiagnosticsForTests());
+
+    // 安卓壳的 AudioContext 用 playback 延迟提示换稳定；这份诊断就是用来确认它真的生效、
+    // 以及上下文有没有被系统 suspend/interrupt 过。
+    it('records the latency hint and audio context state changes', () => {
+        const listeners: (() => void)[] = [];
+        const context = {
+            state: 'running',
+            sampleRate: 48000,
+            baseLatency: 0.01,
+            outputLatency: 0.02,
+            renderCapacity: 0.5,
+            addEventListener: (_event: string, listener: () => void) => listeners.push(listener),
+        } as unknown as AudioContext;
+
+        noteAudioContext(context, 'playback');
+        const first = readPlaybackContinuitySnapshot();
+        expect(first.audioContextLatencyHint).toBe('playback');
+        expect(first.audioContextSampleRate).toBe(48000);
+        expect(first.audioContextStateChangeCount).toBe(0);
+
+        listeners.forEach(listener => listener());
+        const second = readPlaybackContinuitySnapshot();
+        expect(second.audioContextStateChangeCount).toBe(1);
+        expect(second.audioContextLastStateChangeAt).not.toBeNull();
     });
 });

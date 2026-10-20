@@ -4,6 +4,9 @@ import type { MotionValue } from 'framer-motion';
 import { findLatestActiveLineIndex } from '../../../../utils/appPlaybackHelpers';
 import { PlayerState } from '../../../../types';
 import type { AudioBands, LyricData } from '../../../../types';
+
+// 无声时交给频谱的空缓冲：不必每帧再 new 一个。
+const EMPTY_FREQUENCY_DATA = new Uint8Array(0);
 import { setCurrentLineIndex, setHandoffLineIndex, setPlayerState } from '../../../../stores/usePlaybackStore';
 import { selectDisplayLyrics, usePlaybackStore } from '../../../../stores/usePlaybackStore';
 import {
@@ -93,6 +96,8 @@ export function usePlaybackVisualizerBridge({
     const incomingLyrics = usePlaybackStore(state => state.lyrics);
 
     const currentLineIndexRef = useRef(-1);
+    // 复用同一块频谱缓冲：这段循环每秒跑 60 次，原来每帧 new 一个 1KB 的 Uint8Array，安卓上就是持续的 GC 抖动。
+    const frequencyDataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
     // 智能动感模式: loads the track's beats while it is on; the clock is stepped below. A ref, so
     // switching it does not rebuild the frame loop.
     const beatFxWantedRef = useRef(false);
@@ -152,7 +157,11 @@ export function usePlaybackVisualizerBridge({
 
         if (hasAudibleSignal && analyserRef.current) {
             const bufferLength = analyserRef.current.frequencyBinCount;
-            const dataArray = new Uint8Array(bufferLength);
+            let dataArray: Uint8Array<ArrayBuffer> | null = frequencyDataRef.current;
+            if (!dataArray || dataArray.length !== bufferLength) {
+                dataArray = new Uint8Array(bufferLength);
+                frequencyDataRef.current = dataArray;
+            }
             analyserRef.current.getByteFrequencyData(dataArray);
             audioBands.spectrum?.set(dataArray);
 
@@ -193,7 +202,7 @@ export function usePlaybackVisualizerBridge({
             audioBands.mid.set(breath);
             audioBands.vocal.set(breath);
             audioBands.treble.set(breath);
-            audioBands.spectrum?.set(new Uint8Array(0));
+            audioBands.spectrum?.set(EMPTY_FREQUENCY_DATA);
         }
 
         if (isActuallyPlaying && audioElement) {

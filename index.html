@@ -282,6 +282,24 @@
           // 字体轮盘失败就保持静态词标。
         }
       })();
+
+      // 最后一道启动保险：模块包或 React 根节点一直没挂上时，别让用户对着永远转的加载动画。
+      // 12 秒后把遮罩换成可点按的重试，而不是无声无息的空白页。
+      window.setTimeout(function () {
+        var splash = document.getElementById('app-splash');
+        if (!splash) {
+          return;
+        }
+        splash.innerHTML =
+          '<div style="display:flex;flex-direction:column;align-items:center;gap:14px;' +
+          'color:#fff;font:14px/1.5 system-ui,sans-serif;text-align:center;padding:24px">' +
+          '<div style="font-size:18px;font-weight:600">启动超时</div>' +
+          '<div style="opacity:.7">启动超时，点按重新加载 / Startup timed out, tap to reload.</div></div>';
+        splash.style.cursor = 'pointer';
+        splash.addEventListener('click', function () {
+          window.location.reload();
+        });
+      }, 12000);
     </script>
     <div id="root"></div>
     <script type="module" src="/src/index.tsx"></script>
