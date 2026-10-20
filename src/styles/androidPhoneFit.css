@@ -316,20 +316,16 @@ html[data-folia-phone-fit='true'] [data-folia-track-title-text='true'] span {
   line-height: 1.1 !important;
 }
 
-/* 手机适配不再压播放条：之前几版把竖屏播放条改成两行紧凑版（22rem / 32px 播放键 / 12px 歌名），
-   用户要的是原版那套固定尺寸。现在保留上游在 sm 断点下的桌面布局 —— 手机视口本来就够 sm，
-   宽度 32rem、播放键 48px、歌名与进度行都按原版渲染；下面只额外保留触摸友好的标题/箭头规则。 */
-
-/* 竖屏播放条：固定成「两行大尺寸」而不是桌面三行布局，也不是原来的小胶囊。
-   目标尺寸：几乎铺满屏宽（40rem 上限）、播放键 48px、歌名 15px、槽位图标 20px。 */
+/* 竖屏播放条：固定成原版的两行布局和尺寸，不依赖 Tailwind 断点。
+   宽度上限 32rem（再大不超过视口）、播放键 48px、歌名 14px、槽位图标 20px。 */
 html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-ponder='player-bar'] {
   max-height: none !important;
-  padding: 10px 14px !important;
+  padding: 8px 12px !important;
 }
 
 html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-expanded='true'] {
-  width: calc(100vw - 16px) !important;
-  max-width: min(calc(100vw - 16px), 40rem) !important;
+  width: min(calc(100vw - 40px), 32rem) !important;
+  max-width: min(calc(100vw - 40px), 32rem) !important;
 }
 
 html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-expanded='true'] > div {
@@ -349,8 +345,8 @@ html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data
   padding-inline: 0 !important;
   min-height: 48px;
   min-width: 0;
-  font-size: 15px !important;
-  line-height: 1.25 !important;
+  font-size: 14px !important;
+  line-height: 1.2 !important;
   text-align: center;
 }
 
@@ -400,7 +396,7 @@ html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data
 }
 
 html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-track-title-text='true'] span {
-  font-size: 15px !important;
+  font-size: 14px !important;
 }
 
 /* 新版标题导航没有「静态标题层」，文字层本身就是常显的；手机适配别把它藏起来。 */

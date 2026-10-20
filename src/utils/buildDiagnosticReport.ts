@@ -449,7 +449,12 @@ const readBottomBarGeometry = (): string[] => {
         return [
             `  viewport: ${window.innerWidth}x${window.innerHeight}`,
             `  bar rect: top=${Math.round(rect.top)} bottom=${Math.round(rect.bottom)}`
+                + ` width=${Math.round(rect.width)} left=${Math.round(rect.left)} right=${Math.round(rect.right)}`
                 + ` height=${Math.round(rect.height)} gapToViewportBottom=${Math.round(window.innerHeight - rect.bottom)}`,
+            `  bar phone fit: html=${document.documentElement.getAttribute('data-folia-phone-fit') ?? '(none)'}`
+                + ` orientation=${document.documentElement.getAttribute('data-folia-phone-orientation') ?? '(none)'}`
+                + ` expanded=${bar.getAttribute('data-folia-player-bar-expanded') ?? '(none)'}`
+                + ` computedWidth=${getComputedStyle(bar).width}`,
             `  layer: position=${layerStyle?.position ?? 'n/a'} bottom=${layerStyle?.bottom ?? 'n/a'}`,
             `  containing block: ${containingBlock?.tagName ?? 'none'}`
                 + ` height=${blockRect ? Math.round(blockRect.height) : 'n/a'}`
