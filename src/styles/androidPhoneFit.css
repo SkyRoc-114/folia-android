@@ -326,10 +326,12 @@ html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data
 html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-expanded='true'] {
   width: min(calc(100vw - 40px), 32rem) !important;
   max-width: min(calc(100vw - 40px), 32rem) !important;
+  /* 外层是 max-width:calc(100vw-120px) 的 flex 居中容器，不加这条会被压回 312px。 */
+  flex-shrink: 0 !important;
 }
 
 html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-expanded='true'] > div {
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) !important;
+  grid-template-columns: auto minmax(0, 1fr) auto !important;
   grid-template-rows: auto auto !important;
   column-gap: 10px !important;
   row-gap: 4px !important;
