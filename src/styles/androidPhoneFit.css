@@ -290,12 +290,20 @@ html[data-folia-phone-fit='true'] [data-folia-track-title-text='true'] {
   min-height: 16px;
 }
 
-html[data-folia-phone-fit='true'] [data-folia-track-title-arrow='true'] {
+/* 实际标记写的是方向值（prev / next），按属性名匹配而不是写死 'true'。 */
+html[data-folia-phone-fit='true'] [data-folia-track-title-arrow] {
   width: 20px !important;
   height: 20px !important;
+  /* 触屏没有 hover：手机适配下切歌箭头常显，否则用户永远看不到它。 */
+  opacity: 0.72 !important;
 }
 
-html[data-folia-phone-fit='true'] [data-folia-track-title-arrow='true'] svg {
+html[data-folia-phone-fit='true'] [data-folia-track-title-arrow]:hover,
+html[data-folia-phone-fit='true'] [data-folia-track-title-arrow]:active {
+  opacity: 1 !important;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-track-title-arrow] svg {
   width: 13px;
   height: 13px;
 }
@@ -389,29 +397,10 @@ html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data
   font-size: 12px !important;
 }
 
-html[data-folia-phone-fit='true'] [data-folia-track-title-static='true'] {
-  display: block !important;
-  width: 100%;
-  min-width: 0;
-  padding-inline: 4px;
-  box-sizing: border-box;
-  font-size: 12px !important;
-  line-height: 32px !important;
-}
-
+/* 新版标题导航没有「静态标题层」，文字层本身就是常显的；手机适配别把它藏起来。 */
 html[data-folia-phone-fit='true'] [data-folia-track-title='true'] [data-folia-track-title-text='true'] {
-  display: none !important;
-}
-
-/* Pointer devices keep the upstream hover preview; touch devices keep the static title. */
-@media (hover: hover) and (pointer: fine) {
-  html[data-folia-phone-fit='true'] [data-folia-track-title='true']:hover [data-folia-track-title-static='true'] {
-    display: none !important;
-  }
-
-  html[data-folia-phone-fit='true'] [data-folia-track-title='true']:hover [data-folia-track-title-text='true'] {
-    display: flex !important;
-  }
+  display: flex !important;
+  align-items: center;
 }
 
 /* The right-side panel/gear toggle shares the bar's baseline; on a portrait phone it lands on top
