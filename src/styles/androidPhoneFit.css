@@ -319,14 +319,16 @@ html[data-folia-phone-fit='true'] [data-folia-track-title-text='true'] span {
 /* Portrait phone fit: the default sub-sm layout stacks title, transport and progress into three
    rows (~130px tall), which overlaps the upcoming-track panel. Collapse it to the same two-row
    grid used by desktop while keeping phone-sized controls. */
+/* 竖屏：把播放条锁在「展开」这套固定尺寸上，不跟桌面的响应式断点缩水。
+   宽度跟桌面展开态一致（32rem），小屏再按视口收；高度交给两行内容自己撑开。 */
 html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-ponder='player-bar'] {
-  max-height: 66px;
-  padding: 6px 10px !important;
+  max-height: none !important;
+  padding: 8px 12px !important;
 }
 
 html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-expanded='true'] {
-  width: min(calc(100vw - 40px), 22rem) !important;
-  max-width: min(calc(100vw - 40px), 22rem) !important;
+  width: min(calc(100vw - 24px), 32rem) !important;
+  max-width: min(calc(100vw - 24px), 32rem) !important;
 }
 
 html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-expanded='true'] > div {
@@ -342,23 +344,23 @@ html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data
   display: flex;
   align-items: center;
   padding-inline: 0 !important;
-  min-height: 32px;
+  min-height: 40px;
   min-width: 0;
-  font-size: 12px !important;
-  line-height: 1.15 !important;
+  font-size: 14px !important;
+  line-height: 1.2 !important;
   text-align: center;
 }
 
 html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-play='true'] {
   grid-column: 1 !important;
   grid-row: 1 !important;
-  width: 32px !important;
-  height: 32px !important;
+  width: 42px !important;
+  height: 42px !important;
 }
 
 html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-play='true'] svg {
-  width: 14px;
-  height: 14px;
+  width: 17px;
+  height: 17px;
 }
 
 html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-ponder-slots] {
@@ -372,12 +374,12 @@ html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data
 }
 
 html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-slot='true'] {
-  padding: 3px !important;
+  padding: 5px !important;
 }
 
 html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-slot='true'] svg {
-  width: 15px !important;
-  height: 15px !important;
+  width: 18px !important;
+  height: 18px !important;
 }
 
 html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-progress='true'] {
@@ -390,11 +392,11 @@ html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data
   display: flex;
   align-items: center;
   width: 100%;
-  min-height: 32px;
+  min-height: 40px;
 }
 
 html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-track-title-text='true'] span {
-  font-size: 12px !important;
+  font-size: 14px !important;
 }
 
 /* 新版标题导航没有「静态标题层」，文字层本身就是常显的；手机适配别把它藏起来。 */
