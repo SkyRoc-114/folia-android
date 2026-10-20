@@ -529,3 +529,14 @@ html[data-folia-phone-fit='true'][data-folia-phone-orientation='landscape'] [dat
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* 手机适配：标题文字层是 flex 容器，span 被规则改成 width:auto 后不会自己居中，
+   这里显式居中，否则歌名会贴着播放键左对齐（用户反馈「歌名错位」）。 */
+html[data-folia-phone-fit='true'] [data-folia-track-title='true'] [data-folia-track-title-text='true'] {
+  justify-content: center;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-track-title='true'] [data-folia-track-title-text='true'] span {
+  width: 100%;
+  text-align: center;
+}
