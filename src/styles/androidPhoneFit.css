@@ -330,7 +330,7 @@ html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data
   flex-shrink: 0 !important;
 }
 
-html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-expanded='true'] > div {
+html[data-folia-phone-fit='true'][data-folia-phone-orientation='portrait'] [data-folia-player-bar-grid='true'] {
   grid-template-columns: auto minmax(0, 1fr) auto !important;
   grid-template-rows: auto auto !important;
   column-gap: 10px !important;
