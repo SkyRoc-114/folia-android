@@ -36,7 +36,6 @@ const O = {
     ponderHints: option(PONDER, 'ponderHintVisibility', 'options.ponderHints'),
     ponderTouchButton: option(PONDER, 'ponderTouchButton', 'options.ponderTouchButton'),
     androidAdaptiveDisplay: option(ANDROID_SHELL, 'adaptiveDisplay', 'options.adaptiveDisplay'),
-    androidImmersive: option(ANDROID_SHELL, 'immersiveMode', 'options.immersiveMode'),
     androidKeepScreenOn: option(ANDROID_SHELL, 'keepScreenOn', 'options.keepScreenOn'),
     androidPhoneFit: option(ANDROID_SHELL, 'phoneFit', 'options.phoneFit'),
     androidOrientation: option(ANDROID_SHELL, 'orientationFit', 'options.orientationFit'),
@@ -53,8 +52,7 @@ const GeneralPage: React.FC = () => {
     const { electronSettings, updateStatus } = update;
     // Android 移植：这几个设置只有原生壳里有效，桌面上组件自己返回 null。
     // Android 外壳的设置：store 里的三个开关 + 原生「自适应分辨率」（插件状态）。
-    const immersiveModeEnabled = useAndroidLayoutSettingsStore(state => state.immersiveModeEnabled);
-    const setImmersiveModeEnabled = useAndroidLayoutSettingsStore(state => state.setImmersiveModeEnabled);
+
     const keepScreenOnEnabled = useAndroidLayoutSettingsStore(state => state.keepScreenOnEnabled);
     const setKeepScreenOnEnabled = useAndroidLayoutSettingsStore(state => state.setKeepScreenOnEnabled);
     const phoneFitEnabled = useAndroidLayoutSettingsStore(state => state.phoneFitEnabled);
@@ -140,9 +138,7 @@ const GeneralPage: React.FC = () => {
                     <Row option={O.androidAdaptiveDisplay} hint={t('options.adaptiveDisplayDesc')}>
                         <Toggle checked={adaptiveDisplayEnabled} onChange={next => void toggleAdaptiveDisplay(next)} />
                     </Row>
-                    <Row option={O.androidImmersive} hint={t('options.immersiveModeDesc')}>
-                        <Toggle checked={immersiveModeEnabled} onChange={setImmersiveModeEnabled} />
-                    </Row>
+
                     <Row option={O.androidKeepScreenOn} hint={t('options.keepScreenOnDesc')}>
                         <Toggle checked={keepScreenOnEnabled} onChange={setKeepScreenOnEnabled} />
                     </Row>

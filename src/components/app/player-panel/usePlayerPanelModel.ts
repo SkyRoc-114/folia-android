@@ -10,8 +10,7 @@ import { useThemeSettingsStore } from '../../../stores/useThemeSettingsStore';
 import { useAudioSettingsStore } from '../../../stores/useAudioSettingsStore';
 import { useVisualizerSettingsStore } from '../../../stores/useVisualizerSettingsStore';
 import { usePlayerChromeSettingsStore } from '../../../stores/usePlayerChromeSettingsStore';
-import { useAndroidLayoutSettingsStore } from '../../../stores/useAndroidLayoutSettingsStore';
-import { useImmersiveChromeStore } from '../../../stores/useImmersiveChromeStore';
+
 import { useOnlineProviderAccountStore } from '../../../stores/useOnlineProviderAccountStore';
 import { selectDisplayCoverUrl, selectDisplayLyrics, selectDisplayPlayerState, usePlaybackStore } from '../../../stores/usePlaybackStore';
 import type { LocalSong, SongResult } from '../../../types';
@@ -56,12 +55,7 @@ export const usePlayerPanelModel = ({
     const { t } = useTranslation();
     const isPanelOpen = useAppViewStore(state => state.isPanelOpen);
     const isPlayerChromeHidden = useAppChromeStore(state => state.isPlayerChromeHidden);
-    // 全沉浸模式只在播放视图生效：隐藏右侧齿轮/面板按钮，浏览歌单/歌曲界面不受影响。
-    const immersiveModeEnabled = useAndroidLayoutSettingsStore(state => state.immersiveModeEnabled);
-    const immersiveChromeHidden = useImmersiveChromeStore(state => state.immersiveChromeHidden);
-    const currentView = useAppViewStore(state => state.view);
-    // 触摸唤回时 immersiveChromeHidden 变为 false，播放控件与右侧面板按钮一起回来。
-    const immersivePlayerChromeHidden = immersiveModeEnabled && currentView === 'player' && immersiveChromeHidden;
+
     const isPanelGuideHotspotActive = useAppChromeStore(state => state.isPlayerPanelGuideHotspotActive);
     const starredNavidromeSongIds = useLibraryStore(state => state.starredNavidromeSongIds);
     const isDaylight = useThemeSettingsStore(state => state.isDaylight);
@@ -131,7 +125,7 @@ export const usePlayerPanelModel = ({
         isMuted,
         showOpenPanelCloseButton,
         isPanelGuideHotspotActive,
-        hideToggleButton: isPlayerChromeHidden || shouldHidePlayerRightPanelButton || immersivePlayerChromeHidden,
+        hideToggleButton: isPlayerChromeHidden || shouldHidePlayerRightPanelButton,
         activePlaybackContext,
         audioQuality,
         useCoverColorBg,
@@ -159,7 +153,7 @@ export const usePlayerPanelModel = ({
         showOpenPanelCloseButton,
         isPanelGuideHotspotActive,
         isPlayerChromeHidden,
-        immersivePlayerChromeHidden,
+
         shouldHidePlayerRightPanelButton,
         activePlaybackContext,
         audioQuality,

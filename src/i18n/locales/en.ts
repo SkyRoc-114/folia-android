@@ -2982,8 +2982,6 @@ export default {
       "settingsHeadingAndroid": "Android shell",
       "adaptiveDisplay": "Adaptive screen resolution",
       "adaptiveDisplayDesc": "When on, the system bars are hidden and the interface fills the whole screen; when off, the native layout is kept. If the device forces a fixed aspect ratio, turn off its app compatibility mode in the system settings.",
-      "immersiveMode": "Full immersive mode",
-      "immersiveModeDesc": "Applies to the player view only: it auto-hides the control bar, the up-next card, the command palette button, and the right-side gear/panel button for a cleaner stage. Playlist and song browsing screens are unaffected. Turning it off restores the command palette button; if Auto hide was already on, it keeps hiding automatically.",
       "keepScreenOn": "Keep screen on",
       "keepScreenOnDesc": "Stops the screen from sleeping while the app is open, so lyrics stay readable on a stand or while you copy them. Turn it off to restore the system auto-sleep.",
       "orientationFit": "Portrait / landscape fit",

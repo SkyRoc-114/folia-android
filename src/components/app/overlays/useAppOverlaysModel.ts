@@ -17,9 +17,6 @@ import {
 import { resolveLikeAvailability } from '../../../utils/playerLikeAvailability';
 import { canShuffleQueue } from '../../../utils/playbackNeighbors';
 import { buildAppOverlaysModel, type AppOverlaysDeps, type AppOverlaysModel } from './buildAppOverlaysModel';
-import { useImmersiveChromeReveal } from '../../../hooks/useImmersiveChromeReveal';
-import { useImmersiveChromeStore } from '../../../stores/useImmersiveChromeStore';
-import { useAndroidLayoutSettingsStore } from '../../../stores/useAndroidLayoutSettingsStore';
 import { usePlayerChromeSettingsStore } from '../../../stores/usePlayerChromeSettingsStore';
 
 // src/components/app/overlays/useAppOverlaysModel.ts
@@ -38,18 +35,8 @@ export const useAppOverlaysModel = (deps: AppOverlaysDeps): AppOverlaysModel => 
     const { t } = useTranslation();
     const currentView = useAppViewStore(state => state.view);
     const isPlayerChromeHidden = useAppChromeStore(state => state.isPlayerChromeHidden);
-    // 全沉浸模式：偏好来自 Android 设置，运行时「此刻收起 / 被触摸唤回」来自 immersive store。
-    const immersiveModeEnabled = useAndroidLayoutSettingsStore(state => state.immersiveModeEnabled);
-    const autoHidePlayerChrome = usePlayerChromeSettingsStore(state => state.autoHidePlayerChrome);
-    const immersiveChromeHidden = useImmersiveChromeStore(state => state.immersiveChromeHidden);
-    useImmersiveChromeReveal({
-        immersiveEnabled: immersiveModeEnabled,
-        isPlayerView: currentView === 'player',
-        autoHidePlayerChrome,
-    });
-    // 全沉浸只在播放视图生效：强制收起控制条、命令面板按钮与右侧面板按钮。
-    const effectivePlayerChromeHidden = isPlayerChromeHidden
-        || (immersiveModeEnabled && currentView === 'player' && immersiveChromeHidden);
+    // 联动控制：控制条、命令面板按钮与右侧面板按钮共用原版「自动隐藏播放控制条」的这一刻状态。
+    const effectivePlayerChromeHidden = isPlayerChromeHidden;
     const isDevDebugOverlayVisible = useAppChromeStore(state => state.isDevDebugOverlayVisible);
     const isMemoryMonitorVisible = useAppChromeStore(state => state.isMemoryMonitorVisible);
     const isSearchOpen = useSearchNavigationStore(state => state.isSearchOpen);

@@ -22,7 +22,6 @@ exports[`store contract > keeps every localStorage key the stores read or write 
   "enable_media_cache",
   "folia.aiClientSettings.v1",
   "folia.personalFm.selection",
-  "folia_android_immersive_mode",
   "folia_auto_play_on_launch",
   "folia_auto_skip_unplayable",
   "folia_automix_enabled",

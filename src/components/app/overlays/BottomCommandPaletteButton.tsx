@@ -3,8 +3,7 @@ import { Command } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { openCommandPalette, useAppViewStore } from '../../../stores/useAppViewStore';
 import { usePlayerChromeSettingsStore } from '../../../stores/usePlayerChromeSettingsStore';
-import { useAndroidLayoutSettingsStore } from '../../../stores/useAndroidLayoutSettingsStore';
-import { useImmersiveChromeStore } from '../../../stores/useImmersiveChromeStore';
+import { useAppChromeStore } from '../../../stores/useAppChromeStore';
 
 // src/components/app/overlays/BottomCommandPaletteButton.tsx
 // 触屏设备按不了 Ctrl+K，所以在底部左下角放一个按钮打开同一个命令面板。
@@ -18,21 +17,13 @@ const ACTIVITY_EVENTS = ['pointerdown', 'pointermove', 'touchstart', 'keydown', 
 const BottomCommandPaletteButton: React.FC = () => {
     const { t } = useTranslation();
     const autoHide = usePlayerChromeSettingsStore(state => state.autoHideCommandPaletteButton);
-    // 全沉浸模式：强制隐藏命令面板按钮。关闭后按钮回到 autoHide 决定的状态；
-    // 如果 autoHide 本来就是开的，则保持自动隐藏，不会被强制常显。
-    const immersiveModeEnabled = useAndroidLayoutSettingsStore(state => state.immersiveModeEnabled);
-    const immersiveChromeHidden = useImmersiveChromeStore(state => state.immersiveChromeHidden);
+    // 联动控制：跟随原版「自动隐藏播放控制条」。播放视图里控制条收起时，这颗按钮一起收起；
+    // 触摸唤回时一起回来。浏览歌单、歌曲的界面不受影响。
+    const isPlayerChromeHidden = useAppChromeStore(state => state.isPlayerChromeHidden);
     const currentView = useAppViewStore(state => state.view);
-    // 全沉浸只在播放视图收起这颗按钮；歌单、歌曲浏览界面照旧显示。触摸唤回时
-    // immersiveChromeHidden 变为 false，这颗按钮也一起回来。
-    const immersiveActiveHere = immersiveModeEnabled && currentView === 'player' && immersiveChromeHidden;
+    const linkedHidden = currentView === 'player' && isPlayerChromeHidden;
     const paletteOpen = useAppViewStore(state => state.isCommandFilterOpen);
     const [visible, setVisible] = useState(true);
-
-    // 退出全沉浸时把按钮交还给 autoHide 的节奏重新计时；autoHide 关闭时就常显。
-    useEffect(() => {
-        if (!immersiveActiveHere) setVisible(true);
-    }, [immersiveActiveHere]);
     const hideTimerRef = useRef<number | null>(null);
 
     useEffect(() => {
@@ -72,7 +63,7 @@ const BottomCommandPaletteButton: React.FC = () => {
         };
     }, [autoHide]);
 
-    const shown = !immersiveActiveHere && !paletteOpen && (!autoHide || visible);
+    const shown = !linkedHidden && !paletteOpen && (!autoHide || visible);
 
     return (
         <button

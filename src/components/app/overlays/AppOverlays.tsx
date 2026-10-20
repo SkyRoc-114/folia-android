@@ -27,7 +27,7 @@ const AppOverlays: React.FC<AppOverlaysProps> = ({ model }) => {
 
     return (
         <>
-            {/* Android：底部命令面板按钮（全沉浸模式下由 immersive chrome 统一控制显隐）。 */}
+            {/* Android：底部命令面板按钮（跟随原版「自动隐藏播放控制条」的显隐联动）。 */}
       <BottomCommandPaletteButton />
       {searchOverlay && <SearchWorkspace {...searchOverlay} />}
 

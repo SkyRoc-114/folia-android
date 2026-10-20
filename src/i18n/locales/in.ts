@@ -2982,8 +2982,6 @@ export default {
       "settingsHeadingAndroid": "Shell Android",
       "adaptiveDisplay": "Resolusi layar adaptif",
       "adaptiveDisplayDesc": "Saat aktif, bilah sistem disembunyikan dan antarmuka memenuhi seluruh layar; saat nonaktif, tata letak bawaan sistem dipertahankan. Jika perangkat memaksa rasio tetap, matikan mode kompatibilitas aplikasi di pengaturan sistem.",
-      "immersiveMode": "Mode imersif penuh",
-      "immersiveModeDesc": "Hanya berlaku di tampilan pemutar: bilah kontrol, kartu lagu berikutnya, tombol palette perintah, dan tombol gerigi/panel kanan disembunyikan otomatis agar panggung lebih bersih. Layar jelajah playlist dan lagu tidak terpengaruh. Saat dimatikan, tombol palette perintah tampil kembali; jika Sembunyikan otomatis sudah aktif, tombol tetap tersembunyi otomatis.",
       "orientationFit": "Kompatibilitas potret / lanskap",
       "orientationFitDesc": "Nonaktif mengunci kompatibilitas potret; aktif beralih ke dan mengunci kompatibilitas lanskap. Hanya berlaku saat Tata letak ponsel aktif.",
       "orientationLandscape": "Saat ini: lanskap",
