@@ -12,6 +12,7 @@ import PlayerBottomBarPositioner from './floating-player/PlayerBottomBarPosition
 import { usePlayerBottomBarBottomPx } from '../hooks/usePlayerBottomBarBottomPx';
 import { playerBottomBarLiveOffset } from '../stores/motionSignals';
 import { usePlayerBottomBarLayoutStore } from '../stores/usePlayerBottomBarLayoutStore';
+import { useAndroidLayoutSettingsStore } from '../stores/useAndroidLayoutSettingsStore';
 import { usePlayerChromeSettingsStore } from '../stores/usePlayerChromeSettingsStore';
 import { PLAYER_BOTTOM_BAR_BASE_OFFSET_PX, clampPlayerBottomBarOffset, resolvePlayerBottomBarMaxOffset } from '../utils/playerBottomBarLayout';
 import type { PlayerControlSlotActionId, PlayerControlSlotContext } from './floating-player/playerControlSlotActions';
@@ -155,8 +156,15 @@ const FloatingPlayerControls: React.FC<FloatingPlayerControlsProps> = ({
     ));
 
     const canAutoExpand = canTogglePlay && duration > 0;
+    // 手机适配竖屏：原版胶囊在触摸设备上会收起成只露播放按钮的小胶囊（诊断：expanded=false
+    // 时 width≈250、height≈50，用户看到的就是「这么小」）。这里固定成展开态，尺寸由
+    // androidPhoneFit.css 的竖屏规则决定，不再随触摸/悬挂计时器收起。
+    const phoneFitEnabled = useAndroidLayoutSettingsStore(state => state.phoneFitEnabled);
+    const phoneFitOrientation = useAndroidLayoutSettingsStore(state => state.phoneFitOrientation);
+    const phoneFitFixedExpanded = phoneFitEnabled && phoneFitOrientation === 'portrait';
     // 定位模式强制展开：用户要看到的是最终形态的胶囊，而不是一条细进度条。
-    const showExpanded = isPositioning
+    const showExpanded = phoneFitFixedExpanded
+        || isPositioning
         || isHovered
         || isTouchExpanded
         || (canAutoExpand && playerState !== PlayerState.PLAYING && currentView !== 'home');
