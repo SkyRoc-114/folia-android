@@ -7,6 +7,8 @@
 // 原生实现。只在页面可见时计时 —— 后台时 rAF 本来就不触发，恢复后的第一条间隔会被丢弃，
 // 避免把后台时间算成卡顿。
 
+import { isAndroidNativeRuntime } from './platform';
+
 export type FrameRenderHealth = 'smooth' | 'mild' | 'heavy' | 'unknown';
 
 /** 单帧超过这些阈值分别算「掉帧」「卡顿」「冻结」。32ms ≈ 60Hz 下漏掉一帧。 */
@@ -402,6 +404,24 @@ export const runCpuProbe = (budgetMs = 250): CpuProbeResult => {
     if (accumulator === 0x7fffffff) ops += 0;
     const opsPerSecond = ops / (durationMs / 1000);
     return { ops, durationMs, opsPerSecond, index: describeCpuIndex(opsPerSecond) };
+};
+
+/** 诊断导出用：手机上一次 250ms 的同步探针本身就是一次可感的卡顿，按设备收窄预算并复用结果。 */
+const CPU_PROBE_CACHE_MS = 15 * 60 * 1000;
+let cachedCpuProbe: { at: number; result: CpuProbeResult } | null = null;
+
+export const readCpuProbeForDiagnostics = (): CpuProbeResult => {
+    const at = Date.now();
+    if (cachedCpuProbe && at - cachedCpuProbe.at < CPU_PROBE_CACHE_MS) return cachedCpuProbe.result;
+    // 安卓壳处理器弱一档，100ms 足够分出 fast/moderate/slow。
+    const result = runCpuProbe(isAndroidNativeRuntime() ? 100 : 250);
+    cachedCpuProbe = { at, result };
+    return result;
+};
+
+/** 测试用：清掉探针缓存，下一次重新测。 */
+export const resetCpuProbeCache = () => {
+    cachedCpuProbe = null;
 };
 
 const insideProbeWindow = (timestamp: number): boolean => (

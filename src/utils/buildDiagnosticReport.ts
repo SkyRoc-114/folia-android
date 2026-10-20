@@ -4,7 +4,7 @@ import { useAudioSettingsStore } from '../stores/useAudioSettingsStore';
 import { usePlaybackStore } from '../stores/usePlaybackStore';
 import { readCrashDiagnostics, readDiagnosticsHeartbeats } from './crashDiagnostics';
 import { readPlaybackContinuitySnapshot } from './mediaDiagnostics';
-import { readFrameTimingSnapshot, runCpuProbe } from './frameTimingDiagnostics';
+import { readCpuProbeForDiagnostics, readFrameTimingSnapshot } from './frameTimingDiagnostics';
 import { readLastAiThemeAttempt, readAiThemeAttempts, readFailedAiThemeAttempts } from './aiThemeDiagnostics';
 import { isNeutralAudioEffects } from './audioEffects';
 import { getCollectionOrderDiagnosticLines } from './collectionOrderDiagnostics';
@@ -223,7 +223,7 @@ const readFrameTimingLines = (): string[] => {
     const stats = frames.stats;
     const playback = usePlaybackStore.getState();
     // 探针自己会阻塞主线程，放在读取快照之后：跳过窗口已经在采样侧设好，不会污染上面的数字。
-    const cpu = runCpuProbe();
+    const cpu = readCpuProbeForDiagnostics();
     const percent = (value: number | null) => (value === null ? 'n/a' : `${value.toFixed(1)}ms`);
     const fps = (value: number | null) => (value === null ? 'n/a' : value.toFixed(1));
     const ratio = (count: number) => (
@@ -522,6 +522,23 @@ const formatByteSize = (value: number): string => {
     if (value >= 1024) return `${(value / 1024).toFixed(1)}KB`;
     return `${Math.round(value)}B`;
 };
+/**
+ * 等待一项采集，但最多等 ms 毫秒。设备存储或原生桥偶尔很慢（源存储上
+ * navigator.storage.persisted() 会阻塞两百多毫秒），诊断导出不该因此把界面卡住或卡死。
+ */
+const withDeadline = async <T>(promise: Promise<T>, ms: number, fallback: T): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        return await Promise.race([
+            promise,
+            new Promise<T>(resolve => {
+                timer = setTimeout(() => resolve(fallback), ms);
+            }),
+        ]);
+    } finally {
+        if (timer !== undefined) clearTimeout(timer);
+    }
+};
 
 /**
  * 视频层的本地视频在安卓上靠 IndexedDB 里的整份 Blob 持久化（桌面端存的是文件句柄）。
@@ -540,7 +557,7 @@ const readVideoLayerLines = async (): Promise<string[]> => {
     ];
 
     try {
-        const handle = await loadVideoLayerFileHandle();
+        const handle = await withDeadline(loadVideoLayerFileHandle(), 600, null);
         lines.push(`  stored: handle=${handle ? 'yes' : 'no'}`);
     } catch (error) {
         lines.push(`  stored: read-error ${error instanceof Error ? error.message : 'unknown'}`);
@@ -548,9 +565,9 @@ const readVideoLayerLines = async (): Promise<string[]> => {
 
     try {
         const storage = (navigator as Navigator & { storage?: StorageManager }).storage;
-        const estimate = await storage?.estimate?.();
+        const estimate = await withDeadline(Promise.resolve(storage?.estimate?.()), 600, undefined);
         if (estimate) {
-            const persisted = typeof storage?.persisted === 'function' ? await storage.persisted() : false;
+            const persisted = typeof storage?.persisted === 'function' ? await withDeadline(storage.persisted(), 400, false) : false;
             lines.push(
                 `  origin storage: persisted=${persisted ? 'yes' : 'no'}`
                 + ` usage=${formatByteSize(estimate.usage ?? 0)} quota=${formatByteSize(estimate.quota ?? 0)}`,
@@ -567,7 +584,8 @@ const readVideoLayerLines = async (): Promise<string[]> => {
 
 export const buildDiagnosticReport = async (): Promise<string> => {
     const appVersion = typeof __APP_VERSION__ === 'undefined' ? 'unknown' : __APP_VERSION__;
-    const heartbeats = await readDiagnosticsHeartbeats();
+    const emptyHeartbeat = { last: null, previous: null };
+    const heartbeats = await withDeadline(readDiagnosticsHeartbeats(), 800, { playback: emptyHeartbeat, service: emptyHeartbeat });
     const capacitor = (window as unknown as { Capacitor?: { getPlatform?: () => string; isNativePlatform?: () => boolean } }).Capacitor;
     const lines: string[] = [
         '### Folia diagnostics',
@@ -581,7 +599,7 @@ export const buildDiagnosticReport = async (): Promise<string> => {
         '',
         // 挖孔/刘海适配的现场：cutout mode、是否有挖孔、安全区矩形。
         'display cutout:',
-        ...(await readDisplayCutoutLines()),
+        ...(await withDeadline(readDisplayCutoutLines(), 800, ['  (timed out)'])),
         '',
         'session storage:',
         `  qq session: ${readLocalStorageFlag('online_provider:qq:cookie')}`,
@@ -664,7 +682,7 @@ export const buildDiagnosticReport = async (): Promise<string> => {
         lines.push(...qrLines.map(line => `  ${line}`));
     }
 
-    const crashEntries = await readCrashDiagnostics().catch(() => []);
+    const crashEntries = await withDeadline(readCrashDiagnostics().catch(() => []), 800, []);
     // 本地音频代理在播放器断开（切歌、拖动进度、Activity 销毁）时抛的 SocketException /
     // Connection reset 是预期的收尾，不是崩溃。以前它们会占满崩溃列表的 20 条、把真正的
     // 退出原因挤掉，所以单独归一行摘要，不进崩溃列表。
@@ -697,7 +715,7 @@ export const buildDiagnosticReport = async (): Promise<string> => {
         );
     }
 
-    const playbackDiagnostics = await readNativePlaybackDiagnostics();
+    const playbackDiagnostics = await withDeadline(readNativePlaybackDiagnostics(), 1200, null);
     lines.push('', 'lock screen artwork:');
     if (!playbackDiagnostics) {
         lines.push('  (native diagnostics unavailable)');
