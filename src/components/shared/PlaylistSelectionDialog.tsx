@@ -50,7 +50,9 @@ const PlaylistSelectionDialog: React.FC<PlaylistSelectionDialogProps> = ({
             description={description}
             size="m"
             fill
+            phoneFitKind="playlist-selection"
         >
+            <div data-folia-playlist-selection="true" className="flex min-h-0 flex-col">
             {onCreate && (
                 <button
                     type="button"
@@ -64,11 +66,12 @@ const PlaylistSelectionDialog: React.FC<PlaylistSelectionDialogProps> = ({
             )}
             {playlists.length > 0 ? (
                 // The list scrolls; the line above it stays.
-                <div className="st-card st-scroll min-h-0 overflow-y-auto rounded-xl bg-[var(--st-card)] shadow-[0_0_0_1px_var(--st-line)]">
+                <div data-folia-playlist-list="true" className="st-card st-scroll min-h-0 overflow-y-auto rounded-xl bg-[var(--st-card)] shadow-[0_0_0_1px_var(--st-line)]">
                     {playlists.map((playlist) => (
                         <button
                             key={playlist.id}
                             type="button"
+                            data-folia-playlist-option="true"
                             onClick={async () => {
                                 try {
                                     setSubmittingId(playlist.id);
@@ -96,6 +99,7 @@ const PlaylistSelectionDialog: React.FC<PlaylistSelectionDialogProps> = ({
                     {t('localMusic.noPlaylistsFound') || 'No playlists yet'}
                 </div>
             )}
+            </div>
         </ThemedDialog>
     );
 };

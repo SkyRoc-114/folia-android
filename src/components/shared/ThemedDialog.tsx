@@ -24,6 +24,8 @@ interface ThemedDialogProps {
     closeDisabled?: boolean;
     /** The tip of the dimmed X, naming the run that has to finish before closing. */
     closeDisabledTitle?: string;
+    /** 手机适配：对话框类型的稳定标记，透传给 Sheet（androidPhoneFit.css 用）。 */
+    phoneFitKind?: string;
 }
 
 // A dialog with a title, a description and a body, drawn in the shared sheet.
@@ -41,6 +43,7 @@ const ThemedDialog: React.FC<ThemedDialogProps> = ({
     fill = false,
     closeDisabled = false,
     closeDisabledTitle,
+    phoneFitKind,
 }) => (
     <Sheet
         isOpen={isOpen}
@@ -54,6 +57,7 @@ const ThemedDialog: React.FC<ThemedDialogProps> = ({
         footerNote={footerNote}
         closeDisabled={closeDisabled}
         closeDisabledTip={closeDisabledTitle}
+        phoneFitKind={phoneFitKind}
     >
         {description && (
             // pre-line so a description can break where its meaning does rather

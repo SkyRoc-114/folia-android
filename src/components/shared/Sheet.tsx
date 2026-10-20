@@ -139,6 +139,8 @@ type SheetProps = {
     from?: { x: number; y: number } | null;
     /** The lesson marker of the sheet, for Ponder: on the whole panel, its column and title row too. */
     ponderId?: string;
+    /** 手机适配：这一种对话框的稳定类型标记（androidPhoneFit.css 按它挑选择器）。 */
+    phoneFitKind?: string;
 };
 
 type SheetFrameProps = Omit<SheetProps, 'isOpen'>;
@@ -169,6 +171,7 @@ const SheetFrame: React.FC<SheetFrameProps> = ({
     closeDisabled = false,
     closeDisabledTip,
     closeTip,
+    phoneFitKind,
     titleLead,
     aside,
     underlay,
@@ -273,6 +276,8 @@ const SheetFrame: React.FC<SheetFrameProps> = ({
     return (
         <div
             data-folia-keyboard-window={isPresent ? 'true' : undefined}
+            // 手机适配：让底部弹层在小屏上贴边、按安全区留白。
+            data-folia-themed-overlay="true"
             // What hasOpenSheet (utils/keyboardTargets) looks for.
             data-folia-sheet={isPresent ? 'true' : undefined}
             inert={!isPresent}
@@ -300,6 +305,8 @@ const SheetFrame: React.FC<SheetFrameProps> = ({
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby={titleId}
+                data-folia-themed-dialog="true"
+                data-folia-themed-dialog-kind={phoneFitKind}
                 data-ponder={ponderId}
                 tabIndex={-1}
                 initial={cameFrom}

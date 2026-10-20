@@ -30,7 +30,7 @@ const AudioEffectGrid: React.FC<AudioEffectGridProps> = ({ effects, onEffectChan
     const { t } = useTranslation();
 
     return (
-        <EqualizerSection title={t('ui.equalizerEffects')} hint={t('ui.equalizerEffectsHint')}>
+        <EqualizerSection title={t('ui.equalizerEffects')} hint={t('ui.equalizerEffectsHint')} phoneFitMarker="audio-effects">
             <div className="grid grid-cols-[repeat(auto-fit,minmax(200px,1fr))] gap-x-7 gap-y-1.5 px-4 pb-3.5 pt-3">
                 {AUDIO_EFFECT_CONTROLS.map(control => {
                     const value = effects[control.id] ?? control.neutral;

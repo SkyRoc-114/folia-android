@@ -66,7 +66,7 @@ const EqualizerBandGrid: React.FC<EqualizerBandGridProps> = ({ gains, onBandChan
     };
 
     return (
-        <EqualizerSection title={t('ui.equalizerGain')} grow>
+        <EqualizerSection title={t('ui.equalizerGain')} grow phoneFitMarker="equalizer-bands">
             {/* st-scroll styles the bar; the height is set here, because the kit's bar is only ever upright. */}
             <div className="st-scroll flex flex-1 gap-2 overflow-x-auto px-4 pb-3 pt-3.5 [&::-webkit-scrollbar]:h-3">
                 <div

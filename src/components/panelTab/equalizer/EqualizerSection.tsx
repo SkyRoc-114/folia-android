@@ -9,13 +9,18 @@ type EqualizerSectionProps = {
     title: string;
     /** A few quiet words at the right end of the heading's line. */
     hint?: string;
+    /** 手机适配备用的稳定标记（androidPhoneFit.css 按它挑选择器）。 */
+    phoneFitMarker?: 'equalizer-bands' | 'audio-effects';
     /** Takes the height its column has to spare, and its card with it. */
     grow?: boolean;
     children: React.ReactNode;
 };
 
-const EqualizerSection: React.FC<EqualizerSectionProps> = ({ title, hint, grow, children }) => (
-    <section className={`mt-5 flex flex-col${grow ? ' flex-1' : ''}`}>
+const EqualizerSection: React.FC<EqualizerSectionProps> = ({ title, hint, grow, phoneFitMarker, children }) => (
+    <section
+        {...(phoneFitMarker ? { [`data-folia-${phoneFitMarker}`]: 'true' } : {})}
+        className={`mt-5 flex flex-col${grow ? ' flex-1' : ''}`}
+    >
         <div className="mb-2 flex min-h-6 items-center justify-between gap-3 px-1">
             <h3 className="text-[13px] font-semibold leading-5 text-[color:var(--st-t2)]">{title}</h3>
             {hint && <span className="text-xs leading-[18px] text-[color:var(--st-t3)]">{hint}</span>}
