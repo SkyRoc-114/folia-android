@@ -446,6 +446,16 @@ const readBottomBarGeometry = (): string[] => {
         const containingBlock = findAncestor(layer, element => getComputedStyle(element).position !== 'static');
         const blockRect = containingBlock?.getBoundingClientRect() ?? null;
 
+        // 手机适配的联动按钮现场：右下角齿轮与左下角命令面板按钮应当同高。
+        const describeChromeButton = (selector: string, label: string): string => {
+            const element = document.querySelector(selector) as HTMLElement | null;
+            if (!element) return `  ${label}: not mounted`;
+            const buttonRect = element.getBoundingClientRect();
+            return `  ${label}: top=${Math.round(buttonRect.top)} bottom=${Math.round(buttonRect.bottom)}`
+                + ` width=${Math.round(buttonRect.width)} height=${Math.round(buttonRect.height)}`
+                + ` cssBottom=${getComputedStyle(element).bottom}`;
+        };
+
         return [
             `  viewport: ${window.innerWidth}x${window.innerHeight}`,
             `  bar rect: top=${Math.round(rect.top)} bottom=${Math.round(rect.bottom)}`
@@ -460,6 +470,8 @@ const readBottomBarGeometry = (): string[] => {
                 + ` height=${blockRect ? Math.round(blockRect.height) : 'n/a'}`
                 + ` top=${blockRect ? Math.round(blockRect.top) : 'n/a'}`
                 + ` position=${containingBlock ? getComputedStyle(containingBlock).position : 'n/a'}`,
+            describeChromeButton('[data-testid="panel-toggle"]', 'panel toggle'),
+            describeChromeButton('[data-folia-command-palette-button="true"]', 'command button'),
         ];
     } catch (error) {
         return [`  geometry unavailable: ${error instanceof Error ? error.message : String(error)}`];

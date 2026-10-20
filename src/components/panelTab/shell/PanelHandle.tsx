@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Settings2, X, Command } from 'lucide-react';
 import type { Theme } from '../../../types';
 import { usePlayerBottomBarBottomPx } from '../../../hooks/usePlayerBottomBarBottomPx';
+import { useAndroidLayoutSettingsStore } from '../../../stores/useAndroidLayoutSettingsStore';
 import { usePlayerOverlayObstacle } from '../../../hooks/usePlayerOverlayLayout';
 
 // src/components/panelTab/shell/PanelHandle.tsx
@@ -43,6 +44,10 @@ const PanelHandle: React.FC<PanelHandleProps> = ({
     const bottomBarBottomPx = usePlayerBottomBarBottomPx();
     // The button is in the way of a mod's player layout, as the open panel above it is.
     const { ref: layoutRef, invalidate: invalidateLayout } = usePlayerOverlayObstacle('panel-toggle', 'panel');
+    // 手机适配竖屏：右下角齿轮和左下角命令面板按钮同高（120px），而不是跟着播放条基线走。
+    const phoneFitEnabled = useAndroidLayoutSettingsStore(state => state.phoneFitEnabled);
+    const phoneFitOrientation = useAndroidLayoutSettingsStore(state => state.phoneFitOrientation);
+    const phoneFitFixedBottom = phoneFitEnabled && phoneFitOrientation === 'portrait';
     const supportsHover = typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
     const commandSlideRef = React.useRef<{ startX: number; startY: number; triggered: boolean; } | null>(null);
     const suppressToggleClickRef = React.useRef(false);
@@ -324,7 +329,7 @@ const PanelHandle: React.FC<PanelHandleProps> = ({
                     data-testid="panel-toggle"
                     ref={layoutRef}
                     onUpdate={invalidateLayout}
-                    style={{ bottom: bottomBarBottomPx }}
+                    style={{ bottom: phoneFitFixedBottom ? 120 : bottomBarBottomPx }}
                     className="pointer-events-auto fixed right-0 z-[60] pr-4 md:pr-8 group w-20 flex justify-end"
                     onMouseEnter={handleToggleButtonMouseEnter}
                     onMouseLeave={handleToggleButtonMouseLeave}
