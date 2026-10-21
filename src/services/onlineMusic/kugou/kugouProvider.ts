@@ -988,8 +988,19 @@ const getKugouPlaylistTrackSongs = async (
         );
     }
 
-    kugouLikedTrackCache.set(globalCollectionId, { fetchedAt: Date.now(), songs });
-    return songs;
+    // KuGou 播放列表接口返回的顺序与官方客户端相反：整份列表读完后反转一次，
+    // 收藏列表与歌单缓存都按客户端从上到下的顺序展示（0.7.15 分支修过，0.7.21 重构时丢失）。
+    const clientOrderSongs = songs.length > 1 ? songs.slice().reverse() : songs;
+    if (songs.length > 1) {
+        noteLibraryStep('kugou', 'playlist:client-order', {
+            collection: globalCollectionId,
+            tracks: songs.length,
+            transform: 'reversed',
+            source: 'liked-or-mutation',
+        });
+    }
+    kugouLikedTrackCache.set(globalCollectionId, { fetchedAt: Date.now(), songs: clientOrderSongs });
+    return clientOrderSongs;
 };
 
 const removeKugouPlaylistTrackCacheEntry = (globalCollectionId: string, hash: string): void => {
@@ -1378,7 +1389,18 @@ export const kugouProvider: OnlineMusicProvider = {
 
             const requestLimit = Math.min(Math.max(1, limit), KUGOU_MAX_PAGE_SIZE);
             const response = await requestKugou('playlist_track_all', { id: String(id), pagesize: requestLimit, page: Math.floor(offset / requestLimit) + 1 });
-            return pageOf(listOf(response).map(normalizeKugouSong), response, requestLimit, offset);
+            const tracks = listOf(response).map(normalizeKugouSong);
+            // 常规歌单同样与客户端顺序相反：按页反转后再交给 pageOf。
+            if (tracks.length > 1) {
+                noteLibraryStep('kugou', 'playlist:client-order', {
+                    collection: String(id),
+                    tracks: tracks.length,
+                    transform: 'reversed',
+                    offset,
+                });
+                tracks.reverse();
+            }
+            return pageOf(tracks, response, requestLimit, offset);
         },
         async getCloudTracks(limit, offset) {
             const requestLimit = Math.min(Math.max(1, limit), KUGOU_MAX_PAGE_SIZE);

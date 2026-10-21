@@ -1077,6 +1077,28 @@ describe('kugouProvider', () => {
         });
     });
 
+
+    it('returns KuGou playlist tracks in the order the official client shows', async () => {
+        requestMock.mockResolvedValue({
+            data: {
+                count: 3,
+                songs: [
+                    { hash: 'HASH_A', name: 'First in API order', timelen: 1000 },
+                    { hash: 'HASH_B', name: 'Second in API order', timelen: 1000 },
+                    { hash: 'HASH_C', name: 'Third in API order', timelen: 1000 },
+                ],
+            },
+        });
+
+        const page = await kugouProvider.catalog?.getPlaylistTracks?.('collection_3_test', 30, 0);
+
+        // KuGou's API lists a playlist bottom-up while the client shows it top-down.
+        expect(page?.items.map(song => song.name)).toEqual([
+            'Third in API order',
+            'Second in API order',
+            'First in API order',
+        ]);
+    });
     it('normalizes the nested song shape returned by album catalog endpoints', async () => {
         requestMock.mockResolvedValue({
             total: 1,
@@ -1301,7 +1323,8 @@ describe('kugouProvider', () => {
 
         const liked = await kugouProvider.library?.getLikedSongIds?.('user');
 
-        expect(liked).toEqual({ ids: ['ABC123', 'DEF456'], whole: true });
+        // 接口自下而上返回，客户端自上而下展示：这里按客户端顺序反转。
+        expect(liked).toEqual({ ids: ['DEF456', 'ABC123'], whole: true });
         expect(requestMock).toHaveBeenNthCalledWith(1, 'user_playlist', {
             userid: 'user', page: 1, pagesize: 100,
         });
@@ -1337,7 +1360,8 @@ describe('kugouProvider', () => {
         const liked = await kugouProvider.library?.getLikedSongIds?.('user');
 
         expect(liked?.ids).toHaveLength(101);
-        expect(liked?.ids.at(-1)).toBe('PAGED-LAST');
+        // 反转后第一页的第一首落到末尾，所以客户端顺序下最后一条是第一页的 PAGED-0。
+        expect(liked?.ids.at(-1)).toBe('PAGED-0');
         expect(liked?.whole).toBe(true);
         expect(requestMock).toHaveBeenNthCalledWith(2, 'playlist_track_all', {
             id: 'collection_3_liked_test_paged', page: 1, pagesize: 100,
@@ -1427,7 +1451,7 @@ describe('kugouProvider', () => {
         await kugouProvider.library?.getLikedSongIds?.('user');
         const liked = await kugouProvider.library?.getLikedSongIds?.('user');
 
-        expect(liked?.ids).toEqual(['ABC123', 'DEF456']);
+        expect(liked?.ids).toEqual(['DEF456', 'ABC123']);
     });
 
     it('counts the liked songs by the count the list of playlists gives for the liked list, and gives none where it names none', async () => {
