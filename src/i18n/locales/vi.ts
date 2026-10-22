@@ -83,6 +83,7 @@ const vi = {
     "queueMoved": "Đã chuyển đến vị trí {{position}}",
     "openPlayer": "Mở trình phát",
     "openPlayerUnavailable": "Chưa có bài nào đang phát",
+    "openSettings": "Mở cài đặt",
     "goHome": "Về trang chủ",
     "wallSection": "Không gian tường"
   },
@@ -110,6 +111,15 @@ const vi = {
     "connect": "Kết nối dịch vụ trực tuyến",
     "noMatch": "Không có mục phù hợp",
     "shortcuts": "Đi tới",
+    "wallHint": {
+      "guestTitle": "Chưa kết nối dịch vụ nhạc trực tuyến",
+      "guestBody": "Chọn “{{connect}}” trên thanh thông tin để đăng nhập; danh sách phát, radio và album đã lưu của bạn sẽ lấp đầy bức tường này.",
+      "guestBodyWithLocal": "Chọn “{{connect}}” trên thanh thông tin để đăng nhập; danh sách phát, radio và album đã lưu của bạn sẽ lấp đầy bức tường này. Hoặc nhập thư mục nhạc trên tab {{local}}.",
+      "reloginTitle": "Phiên đăng nhập {{provider}} đã hết hạn",
+      "reloginBody": "Chọn “{{connect}}” trên thanh thông tin để đăng nhập lại; danh sách phát của bạn sẽ hiển thị trở lại trên tường.",
+      "localTitle": "Chưa nhập nhạc cục bộ",
+      "localBody": "Chọn “{{action}}” dưới mục “⋯” trên thanh thông tin; thư mục, album và nghệ sĩ của bạn sẽ lấp đầy bức tường này."
+    },
     "special": {
       "liked": "Bài hát yêu thích",
       "cloud": "Ổ đám mây",
@@ -269,6 +279,7 @@ const vi = {
     "wallpaperModeOn": "Đã bật chế độ hình nền",
     "wallpaperModeOff": "Đã tắt chế độ hình nền",
     "macWallpaperInputMonitoringNeeded": "Chế độ hình nền cần quyền Giám sát đầu vào: cấp quyền cho Folia trong Cài đặt hệ thống → Quyền riêng tư & Bảo mật → Giám sát đầu vào, rồi bật lại chế độ hình nền",
+    "macWallpaperAccessibilitySuggested": "Khi bật Stage Manager, nhấp chuột vào hình nền cũng được tính là nhấp vào desktop và dời các cửa sổ của bạn sang bên. Hãy cấp quyền cho Folia trong Cài đặt hệ thống → Quyền riêng tư & Bảo mật → Trợ năng, sau đó khởi động lại Folia để ngăn chặn điều đó; các biểu tượng trên màn hình nền vẫn có thể nhấp được",
     "macWallpaperAutohideDockOn": "Đã bật tự động ẩn Dock",
     "macWallpaperAutohideDockOff": "Đã tắt tự động ẩn Dock",
     "voiceInputPauseOn": "Đã bật tạm dừng khi nhập giọng nói",
@@ -284,6 +295,9 @@ const vi = {
     "autoPlayOnLaunchOn": "Tự động phát tiếp khi khởi động",
     "autoPlayOnLaunchOff": "Khôi phục bài trước và tạm dừng khi khởi động",
     "openHomeOnLaunch": "Mặc định mở trang chủ khi khởi động",
+    "gpuPreferenceChanged": "Đã đổi GPU kết xuất đồ họa; vui lòng khởi động lại Folia để áp dụng",
+    "backgroundThrottlingOn": "Đã bật tiết kiệm tài nguyên chạy ngầm",
+    "backgroundThrottlingOff": "Đã tắt tiết kiệm tài nguyên chạy ngầm",
     "visualizerSwitched": "Đã chuyển sang hiệu ứng thị giác {{mode}}",
     "classicReset": "Đã đặt lại thông số Classic",
     "cadenzaReset": "Đã đặt lại thông số Cadenza",
@@ -333,6 +347,8 @@ const vi = {
     "stageModeOff": "Đã tắt chế độ sân khấu",
     "queueInsertNext": "Thêm vào hàng đợi: phát tiếp theo",
     "queueAppend": "Thêm vào hàng đợi: vào cuối danh sách",
+    "equalizerModCurve": "\"{{mod}}\" đã áp dụng đường cong bộ cân bằng âm thanh riêng",
+    "equalizerModMode": "\"{{mod}}\" đã chuyển âm thanh sang {{mode}}",
     "homeLayoutGrid": "Bố cục trang chủ đổi sang Vast Desktop",
     "homeLayoutCarousel": "Bố cục trang chủ đổi sang Cổ điển",
     "cardStyleImage": "Kiểu thẻ đổi sang chỉ ảnh bìa",
@@ -670,6 +686,10 @@ const vi = {
         "title": "Mở Tùy chọn",
         "description": "Mở trung tâm tùy chọn"
       },
+      "settings-ai-provider": {
+        "title": "Cài đặt nhà cung cấp AI",
+        "description": "Chọn nhà cung cấp AI và mô hình"
+      },
       "settings-appearance": {
         "title": "Cài đặt giao diện",
         "description": "Mở cài đặt thị giác và giao diện"
@@ -729,6 +749,10 @@ const vi = {
       "playback-sound-preset-custom2": {
         "title": "Âm thanh: Tùy chỉnh 2",
         "description": "Áp dụng cấu hình âm thanh tùy chỉnh 2"
+      },
+      "playback-sound-mod-curve-release": {
+        "title": "Âm thanh: Quay lại cấu hình của tôi",
+        "description": "Bỏ đường cong cân bằng âm thanh do mod áp dụng"
       },
       "settings-local-lyrics-priority": {
         "title": "Độ ưu tiên lời bài hát nội bộ",
@@ -834,9 +858,29 @@ const vi = {
         "title": "Ngăn màn hình ngủ khi đang phát",
         "description": "Giữ màn hình luôn sáng khi đang phát nhạc"
       },
+      "desktop-toggle-background-throttling": {
+        "title": "Tiết kiệm tài nguyên chạy ngầm",
+        "description": "Bật/tắt giảm tốc độ kết xuất và giữ hoạt cảnh lời bài hát khi Folia thu nhỏ hoặc ẩn"
+      },
       "settings-graphics": {
         "title": "Cài đặt đồ họa",
         "description": "Mở chế độ tĩnh, giới hạn khung hình, sửa lỗi phát sáng Linux và giảm chuyển động"
+      },
+      "settings-gpu-preference": {
+        "title": "Cài đặt GPU kết xuất",
+        "description": "Đi tới tùy chọn chọn card đồ họa ứng dụng sử dụng để kết xuất"
+      },
+      "gpu-preference-auto": {
+        "title": "GPU kết xuất: Tự động",
+        "description": "Để Windows tự chọn card đồ họa; áp dụng sau khi khởi động lại"
+      },
+      "gpu-preference-high-performance": {
+        "title": "GPU kết xuất: Hiệu năng cao",
+        "description": "Kết xuất trên GPU rời; áp dụng sau khi khởi động lại"
+      },
+      "gpu-preference-low-power": {
+        "title": "GPU kết xuất: Tiết kiệm điện",
+        "description": "Kết xuất trên GPU tích hợp; áp dụng sau khi khởi động lại"
       },
       "settings-mods": {
         "title": "Cài đặt Mod",
@@ -1223,6 +1267,7 @@ const vi = {
         "description": "Hiển thị lời bài hát trong hiệu ứng thị giác phía sau thư viện"
       },
       "library-wall-backdrop-blur-toggle": {
+      "library-wall-seam-direction-picker": {"title":"Chọn hướng dải thông tin","description":"Mở dải thông tin dưới dạng cột dọc, hàng ngang trên tường, hoặc theo hình dáng màn hình"},
         "title": "Làm mờ nền sau thư viện",
         "description": "Làm mờ hiệu ứng thị giác hiển thị phía sau thư viện"
       },
@@ -1363,6 +1408,7 @@ const vi = {
         "description": "Xáo trộn hàng đợi phát hiện tại"
       },
       "playback-clear-queue": {
+      "playback-undo-queue-replace": {"title":"Hoàn tác thay thế hàng chờ từ mod","description":"Khôi phục hàng đợi phát từ trước khi mod thay thế"},
         "title": "Xóa hàng đợi",
         "description": "Xóa toàn bộ bài hát khỏi hàng đợi phát"
       },
@@ -1688,6 +1734,40 @@ const vi = {
     "foundMatches": "Tìm thấy {{count}} kết quả",
     "waitingForMusic": "",
     "options": "Tùy chọn",
+    "aiProvider_gemini": "Google Gemini",
+    "aiProvider_deepseek": "DeepSeek",
+    "aiProvider_mimo": "Xiaomi MiMo",
+    "aiProvider_qwen": "Alibaba Cloud Qwen",
+    "aiProvider_tencentcloud": "Tencent Cloud TokenHub",
+    "aiProvider_openai": "OpenAI",
+    "aiProvider_anthropic": "Anthropic",
+    "aiProvider_kimi": "Kimi",
+    "aiProvider_glm": "Zhipu GLM",
+    "aiProvider_custom": "Điểm cuối tương thích tùy chỉnh",
+    "aiApiKey": "Khóa API (API Key)",
+    "aiModel": "Mô hình (Model)",
+    "aiApiUrl": "URL API",
+    "aiModelsFetch": "Lấy danh sách mô hình",
+    "aiModelsLoading": "Đang lấy…",
+    "aiModelChoose": "Chọn một mô hình",
+    "aiModelManual": "Nhập thủ công",
+    "aiModelPlaceholder": "Mã ID mô hình",
+    "aiModelsAuthError": "Khóa không hợp lệ hoặc không có quyền liệt kê danh sách mô hình",
+    "aiModelsTimeout": "Yêu cầu danh sách mô hình đã hết thời gian. Vui lòng thử lại.",
+    "aiModelsEmpty": "Không tìm thấy mô hình nào. Bạn có thể nhập mô hình thủ công.",
+    "aiModelsError": "Không thể lấy danh sách mô hình. Vui lòng kiểm tra URL API và khóa API.",
+    "aiModelDefault": "Mặc định: {{model}}",
+    "aiModelRetired": "{{model}} đã ngừng hoạt động. Vui lòng chuyển sang {{replacement}}.",
+    "aiModelAlwaysThinks": "Mô hình này không thể tắt suy nghĩ (thinking), do đó việc phân tách câu lời bài hát sẽ chậm hơn.",
+    "aiEndpoint": "Máy chủ khu vực",
+    "aiApiUrlUnlistedDesc": "Không nằm trong danh sách máy chủ được đề xuất của nhà cung cấp này. Chọn một máy chủ để thay thế, hoặc chuyển sang Điểm cuối tương thích tùy chỉnh để chỉnh sửa.",
+    "aiEndpoint_cn": "Trung Quốc",
+    "aiEndpoint_global": "Quốc tế",
+    "aiEndpoint_singapore": "Singapore",
+    "aiEndpoint_us": "Hoa Kỳ",
+    "aiEndpoint_hongkong": "Hồng Kông",
+    "aiTemperatureRangeDesc": "Phạm vi: {{min}}–{{max}}. Mặc định là 0.7 khi để trống.",
+    "aiTemperaturePerModelDesc": "Phạm vi: {{min}}–{{max}}; một số mô hình có thể bỏ qua tùy chọn này. Mặc định là 0.7 khi để trống.",
     "info": "Thông tin",
     "panelExpand": "Mở rộng",
     "panelCollapse": "Thu gọn",
@@ -1718,6 +1798,12 @@ const vi = {
       "space": "Không gian",
       "punch": "Độ nảy"
     },
+    "equalizerModCurve": "Đường cong này được cung cấp bởi mod \"{{name}}\"",
+    "equalizerModCurveHint": "Các thiết lập sẵn và ô tùy chỉnh của bạn vẫn giữ nguyên. Để điều chỉnh đường cong này, trước tiên hãy lưu vào một ô tùy chỉnh.",
+    "equalizerModCurveRelease": "Quay lại âm thanh của tôi",
+    "equalizerModCurveSave": "Lưu vào {{slot}} (thay thế)",
+    "equalizerModCurveDormant": "Đường cong của mod \"{{name}}\" đang tạm dừng: mod đã bị tắt hoặc gỡ bỏ, và đường cong sẽ trở lại khi mod được bật lại. Việc thay đổi âm thanh ở đây sẽ loại bỏ nó.",
+    "equalizerModCurveDiscard": "Hủy bỏ đường cong này",
     "equalizerPreset": {
       "flat": "Flat",
       "lofi": "Lo-Fi",
@@ -1861,6 +1947,12 @@ const vi = {
     "devSourceHint": "Mod nguồn phát triển: sau khi xác nhận, chỉnh sửa tệp vẫn giữ nguyên quyền phê duyệt (chỉ dành cho bản dựng phát triển).",
     "platformReadHint": "Có thể đọc dữ liệu trên {{platforms}} bằng tài khoản bạn đã đăng nhập Folia, chẳng hạn như lịch sử nghe (giao diện thử nghiệm platform.raw).",
     "platformWriteHint": "Cũng có thể thay đổi dữ liệu trong tài khoản {{platforms}} của bạn, chẳng hạn như lượt thích, danh sách phát và lượt theo dõi.",
+    "queueReplaced": "“{{name}}” đã thay thế hàng đợi phát",
+    "queueReplaceUndo": "Hoàn tác",
+    "queueReplaceUndone": "Đã khôi phục hàng đợi phát từ trước khi thay thế",
+    "queueReplaceUndoGone": "Hàng đợi đã thay đổi kể từ khi bị thay thế, không còn gì để hoàn tác",
+    "queueReplaceHint": "Có thể thay thế toàn bộ hàng đợi phát cùng lúc và kết thúc FM cá nhân; Folia sẽ thông báo mod nào đã thực hiện và bạn có thể hoàn tác cho đến khi hàng đợi thay đổi.",
+    "equalizerControlHint": "Thay đổi cài đặt âm thanh của bạn: có thể đổi cấu hình âm thanh sẵn có hoặc áp dụng đường cong bộ cân bằng riêng.",
     "signatureVerified": "Đã xác minh",
     "signatureVerifiedDetail": "Mang chữ ký Folium chính thức hợp lệ ({{key}}): nguồn và nội dung đã được Folium kiểm duyệt và không bị thay đổi sau khi ký. Khi bật vẫn chạy với toàn quyền ứng dụng.",
     "signatureBeta": "Bản thử nghiệm sớm (Beta)",
@@ -2734,6 +2826,14 @@ const vi = {
     "bravaisBackdropLyricsDesc": "Hiển thị lời bài hát trong hiệu ứng thị giác qua các ô cửa sổ và thanh thông tin trong suốt. Tắt đi giúp trang chủ gọn mắt hơn; trang trình phát luôn hiển thị.",
     "bravaisBackdropBlur": "Làm mờ nền sau thư viện",
     "bravaisBackdropBlurDesc": "Làm mờ hiệu ứng thị giác hiển thị xuyên qua Không gian Bravais hoặc thanh thông tin. Đây là hiệu ứng làm mờ toàn màn hình trên lớp hiệu ứng thị giác và có thể giảm khung hình trên máy cấu hình yếu có tần số quét cao. Chỉ áp dụng khi có phần tử xuyên thấu.",
+    "bravaisSeamDirection": "Hướng dải thông tin",
+    "bravaisSeamDirectionDesc": "Theo chiều dọc sẽ mở dải thông tin giữa hai cột khối, tách bức tường sang trái và phải. Theo chiều ngang sẽ mở giữa hai hàng khối, tách bức tường lên trên và xuống dưới với dải chạy ngang màn hình. Bảng danh sách, biểu mẫu và áp phích nghệ sĩ / album luôn giữ nguyên chiều dọc.",
+    "bravaisSeamDirectionAuto": "Tự động",
+    "bravaisSeamDirectionAutoDesc": "Hiển thị dạng hàng trên màn hình dọc (điện thoại cầm đứng, cửa sổ hẹp cao), dạng cột trên màn hình rộng; tự động chuyển đổi khi xoay màn hình.",
+    "bravaisSeamDirectionVertical": "Dọc",
+    "bravaisSeamDirectionVerticalDesc": "Mở giữa hai cột khối; bức tường tách sang trái và phải.",
+    "bravaisSeamDirectionHorizontal": "Ngang",
+    "bravaisSeamDirectionHorizontalDesc": "Mở giữa hai hàng khối; bức tường tách lên trên và xuống dưới.",
     "homeTabsVisibility": "Thanh điều hướng Trang chủ",
     "rememberHomeCardPosition": "Nhớ vị trí thẻ trang chủ",
     "rememberHomeCardPositionDesc": "Quay lại thẻ cuối cùng trong từng phần khi chuyển tab hoặc rời trình phát. Vị trí được lưu cho đến khi đóng hoặc tải lại ứng dụng.",
@@ -3495,6 +3595,18 @@ const vi = {
     "glowBlurQuantize": "Sửa lỗi đơ hiệu ứng lời trên Linux",
     "glowBlurQuantizeDesc": "Thay đổi cách kết xuất ánh sáng phát ra của lời bài hát để khắc phục sự cố đơ khi phát lâu trên Linux. Mặc định bật trên Linux, tắt ở hệ thống khác. Xem",
     "glowBlurQuantizeDocs": "Lỗi cạn kiệt Chromium FD",
+    "backgroundThrottling": "Tiết kiệm tài nguyên chạy ngầm",
+    "backgroundThrottlingHint": "Giảm tốc độ kết xuất và tạm giữ hoạt cảnh lời bài hát khi Folia thu nhỏ hoặc ẩn",
+    "backgroundThrottlingDesc": "Khi cửa sổ bị thu nhỏ hoặc ẩn xuống khay hệ thống, Chromium có thể hạn chế tài nguyên và hoạt cảnh lời bài hát sẽ dừng lại, tiếp tục từ vị trí hiện tại khi bạn quay lại. Cửa sổ chỉ mất tiêu điểm nhưng vẫn hiển thị trên màn hình vẫn tiếp tục hoạt động. Âm nhạc vẫn phát bình thường. Tắt theo mặc định vì người phát trực tiếp (streamer) quay cửa sổ Folia trong OBS cần kết xuất liên tục trong nền. Không ảnh hưởng trong chế độ hình nền, khi xuất video hoặc khi kết nối nguồn trình duyệt OBS.",
+    "gpuPreference": "GPU kết xuất đồ họa",
+    "gpuPreferenceHint": "Chọn card đồ họa hiển thị ứng dụng trên máy tính có hai GPU; áp dụng sau khi khởi động lại",
+    "gpuPreferenceDesc": "Tự động: Windows tự quyết định, trên laptop thường là GPU tích hợp điều khiển màn hình và tiết kiệm pin hơn. Hiệu năng cao: GPU rời, hoạt cảnh mượt mà hơn nhưng tiêu thụ nhiều điện hơn, kể cả khi nhạc phát trong nền. Tiết kiệm điện: GPU tích hợp. Cài đặt GPU cho Folia trong Windows Graphics settings sẽ được ưu tiên cao hơn.",
+    "gpuPreferenceAuto": "Tự động",
+    "gpuPreferenceHighPerformance": "Hiệu năng cao",
+    "gpuPreferenceLowPower": "Tiết kiệm điện",
+    "gpuPreferenceRestartNotice": "Có hiệu lực sau khi Folia khởi động lại",
+    "gpuPreferenceCommandLineNotice": "Lần khởi chạy này đã truyền tham số GPU qua dòng lệnh, tham số này được ưu tiên",
+    "gpuPreferenceActive": "Đang dùng",
     "visualizerFrameRateValue": "Giới hạn",
     "themePresets": "Chủ đề mẫu",
     "themePresetsDefault": "Mặc định",
