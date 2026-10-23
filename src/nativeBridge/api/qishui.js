@@ -642,6 +642,8 @@ function createCatalog({ platform, sessions }, { now } = {}) {
         }
       }
       const unique = [...new Map(items.map(item => [String(item.base_info.id), item])).values()];
+      noteLibraryStep('qishui', 'playlists:read', { lists: unique.length,
+        sample: unique.slice(0, 8).map(item => `${item.base_info?.name || ''}#${item.base_info?.type ?? ''}:${item.base_info?.track_count ?? item.base_info?.track_cnt ?? item.base_info?.media_count ?? ''}`).join(' | ') });
       return {
         items: unique.slice(offset, offset + limit),
         total: unique.length,
@@ -760,7 +762,10 @@ async function likedPlaylist(platform) {
     for (const row of rows) {
       const playlist = row?.playlist || row || {};
       const base = playlist.base_info || {};
-      if (Number(base.type) === 1 && base.id) return { id: String(base.id), ownerId: String(base.owner_id || '') };
+      if (Number(base.type) === 1 && base.id) {
+        return { id: String(base.id), ownerId: String(base.owner_id || ''), type: Number(base.type),
+          name: String(base.name || ''), tracks: Number(base.track_count ?? base.track_cnt ?? base.media_count ?? -1) };
+      }
     }
     if (data.has_more !== true) return null;
     const next = String(data.next_cursor ?? '');
@@ -773,6 +778,9 @@ async function likedPlaylist(platform) {
 async function likedSongs(platform) {
   const liked = await likedPlaylist(platform);
   if (!liked) throw new QishuiError('invalid-response', 'Qishui liked playlist was not found');
+  // 车机的「我喜欢」可能与消费端 App 不是同一份；留痕告诉报告取的是哪个歌单、它自称多少首。
+  noteLibraryStep('qishui', 'liked:playlist', { id: liked.id, type: liked.type, name: liked.name,
+    tracks: liked.tracks, owner: Boolean(liked.ownerId) });
   const ids = new Set();
   let cursor = '';
   let whole = false;
@@ -792,6 +800,7 @@ async function likedSongs(platform) {
     if (!next || seen.has(next)) throw new QishuiError('invalid-response', 'Liked playlist cursor did not advance');
     cursor = next;
   }
+  noteLibraryStep('qishui', 'liked:read', { ids: ids.size, whole, playlistTracks: liked.tracks });
   return { ids: [...ids], whole, total: ids.size };
 }
 
@@ -1111,7 +1120,9 @@ const noteQishuiTrace = (operation, data) => {
     return;
   }
   if (operation === 'playlist_detail') {
-    noteLibraryStep('qishui', 'bridge:result', { operation, name: String(data?.name || ''), tracks: Number(data?.trackCount ?? -1) });
+    const base = data?.base_info || data || {};
+    noteLibraryStep('qishui', 'bridge:result', { operation, name: String(base.name || ''),
+      tracks: Number(base.track_count ?? base.track_cnt ?? data?.trackCount ?? -1), type: Number(base.type ?? -1) });
     return;
   }
   if (operation === 'audio') {
