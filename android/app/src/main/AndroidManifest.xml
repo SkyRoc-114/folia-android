@@ -64,4 +64,8 @@
     <!-- 原生频谱：android.media.audiofx.Visualizer 要挂到 ExoPlayer 的音频 session 上
          才拿得到数据。这是 normal 权限，安装时自动授予，不会弹窗。 -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- 原生频谱采集：Android 9 起 Visualizer 挂到 audio session 上要求 RECORD_AUDIO
+         已授予（否则 setEnabled 直接失败、一帧数据都没有）。只用于采集本应用自己播放的
+         音频做频谱显示，不录音、不落盘、不上传；Web 侧只在真正要画频谱时才申请。 -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 </manifest>

@@ -132,10 +132,13 @@ public final class FoliaNativePlayer {
      * `Visualizer(audioSessionId)`，session 取 ExoPlayer 自己的 `getAudioSessionId()`。
      *
      * 由 Web 侧显式开关：只有前台真的在画频谱时才开，页面一藏就关（后台画给谁看）。
-     * 下面的字段只由播放器线程读写（setSpectrumEnabled 也经 runOnPlayer 回来）。
+     *
+     * <p>这两个字段仍然只由播放器线程**写**，但插件线程的 getSpectrumStatus() 要跨线程
+     * 读一眼（开关意图和当前 tap），所以声明成 volatile —— 读到的是一份安全的快照，
+     * 不是去碰播放器。
      */
-    private boolean spectrumRequested = false;
-    @Nullable private NativeAudioSpectrumTap spectrumTap;
+    private volatile boolean spectrumRequested = false;
+    @Nullable private volatile NativeAudioSpectrumTap spectrumTap;
     /** 当前这个 tap 挂在哪个 session 上：session 一变（播放器重建）就得重挂。 */
     private int spectrumTapSession = 0;
     private volatile int cachedAudioSessionId = 0;
@@ -369,6 +372,27 @@ public final class FoliaNativePlayer {
             spectrumTap = null;
         }
         spectrumTapSession = 0;
+    }
+
+    /**
+     * 频谱开关的意图（Web 侧最后一次说的「要 / 不要」）。
+     *
+     * 和「真的在采」是两件事：暂停时开关是开的，但 tap 还挂着等下一次 isPlaying。
+     * 插件 getSpectrumStatus() 的 enabled 读它。
+     */
+    public boolean isSpectrumEnabled() {
+        return spectrumRequested;
+    }
+
+    /**
+     * 当前挂着的采集器；没有时 null。
+     *
+     * 只返回引用，状态由 {@link NativeAudioSpectrumTap} 自己的 volatile 字段保证线程安全，
+     * 不在调用线程上碰播放器 / Visualizer。
+     */
+    @Nullable
+    public NativeAudioSpectrumTap currentSpectrumTap() {
+        return spectrumTap;
     }
 
     /** 手上有没有还在播的那一首（系统控件该不该直接碰它，就问这个）。 */

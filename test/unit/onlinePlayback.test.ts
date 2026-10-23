@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const cachedAudioMock = vi.hoisted(() => vi.fn());
 const songCacheMock = vi.hoisted(() => vi.fn());
@@ -10,11 +10,18 @@ const loadLyricsStateMock = vi.hoisted(() => vi.fn());
 const saveLyricsStateMock = vi.hoisted(() => vi.fn());
 const isUrlValidMock = vi.hoisted(() => vi.fn(() => true));
 const updatePrefetchedAudioUrlMock = vi.hoisted(() => vi.fn());
+const nativeAudioUrlMock = vi.hoisted(() => vi.fn());
+const nativeCacheAvailable = vi.hoisted(() => ({ value: true }));
 
 vi.mock('@/services/onlineMusic/resourceCache', () => ({
     getCachedSongAudioBlob: cachedAudioMock,
+    getCachedSongAudioNativeUrl: nativeAudioUrlMock,
     getCachedSongReplayGain: vi.fn(async () => undefined),
     getSongCacheWithLegacyMigration: songCacheMock,
+}));
+
+vi.mock('@/services/nativeMediaCache', () => ({
+    nativeMediaCache: { isAvailable: () => nativeCacheAvailable.value },
 }));
 
 vi.mock('@/services/onlineMusic/omni', () => ({
@@ -83,6 +90,9 @@ describe('online audio ReplayGain plumbing', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         cachedAudioMock.mockResolvedValue(null);
+        nativeAudioUrlMock.mockReset();
+        nativeAudioUrlMock.mockResolvedValue(null);
+        nativeCacheAvailable.value = true;
         isUrlValidMock.mockReturnValue(true);
         resetOnlineRequestCooldowns();
         useOnlineProviderAccountStore.setState({ accounts: {} });
@@ -196,6 +206,9 @@ describe('online audio source failures', () => {
         sourceMock.mockReset();
         cachedAudioMock.mockReset();
         cachedAudioMock.mockResolvedValue(null);
+        nativeAudioUrlMock.mockReset();
+        nativeAudioUrlMock.mockResolvedValue(null);
+        nativeCacheAvailable.value = true;
         isUrlValidMock.mockReturnValue(true);
         resetOnlineRequestCooldowns();
         clearCachedSongAudioDistrust(song);
@@ -367,6 +380,78 @@ describe('online audio source failures', () => {
             await expect(loadOnlineSongAudioSource(song, 'high', null)).resolves.toMatchObject({ kind: 'ok', audioSrc: okSource.url });
             expect(cachedAudioMock).not.toHaveBeenCalled();
         });
+    });
+});
+
+// 安卓：缓存副本已经在原生 /media-cache 里时，播放器拿到的是 127.0.0.1 的地址 —— ExoPlayer
+// 读不了 blob:，真机上「有缓存就打回 <audio>」正是这一条。命中就不该再读字节或造 object URL。
+describe('native media cache', () => {
+    const nativeUrl = 'http://127.0.0.1:41234/media-cache/abc';
+    const okSource = { url: 'https://audio.test/song.mp3', fetchedAt: 1, quality: 'high' as const };
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+        sourceMock.mockReset();
+        cachedAudioMock.mockReset();
+        cachedAudioMock.mockResolvedValue(null);
+        nativeAudioUrlMock.mockReset();
+        nativeAudioUrlMock.mockResolvedValue(nativeUrl);
+        nativeCacheAvailable.value = true;
+        isUrlValidMock.mockReturnValue(true);
+        resetOnlineRequestCooldowns();
+        clearCachedSongAudioDistrust(song);
+        useOnlineProviderAccountStore.setState({ accounts: {} });
+        vi.spyOn(console, 'log').mockImplementation(() => { });
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('hands ExoPlayer the loopback URL instead of building a blob', async () => {
+        cachedAudioMock.mockResolvedValue(new Blob([new Uint8Array([1])]));
+
+        const result = await loadOnlineSongAudioSource(song, 'high', null);
+
+        expect(result).toMatchObject({ kind: 'ok', audioSrc: nativeUrl });
+        expect(result.kind === 'ok' && result.blobUrl).toBeUndefined();
+        expect(nativeAudioUrlMock).toHaveBeenCalledWith(song, 'high');
+        expect(cachedAudioMock).not.toHaveBeenCalled();
+        expect(sourceMock).not.toHaveBeenCalled();
+    });
+
+    it('asks the provider when the native cache has no URL', async () => {
+        nativeAudioUrlMock.mockResolvedValue(null);
+        sourceMock.mockResolvedValueOnce(okSource);
+
+        await expect(loadOnlineSongAudioSource(song, 'high', null)).resolves.toMatchObject({ kind: 'ok', audioSrc: okSource.url });
+    });
+
+    it('never hands out a URL for a copy the session distrusts', async () => {
+        distrustCachedSongAudio(song);
+        sourceMock.mockResolvedValueOnce(okSource);
+
+        await expect(loadOnlineSongAudioSource(song, 'high', null)).resolves.toMatchObject({ kind: 'ok', audioSrc: okSource.url });
+        expect(nativeAudioUrlMock).not.toHaveBeenCalled();
+    });
+
+    it('never hands out a URL when the caller bypasses the cache', async () => {
+        sourceMock.mockResolvedValueOnce(okSource);
+
+        await expect(loadOnlineSongAudioSource(song, 'high', null, { bypassMediaCache: true })).resolves.toMatchObject({ kind: 'ok', audioSrc: okSource.url });
+        expect(nativeAudioUrlMock).not.toHaveBeenCalled();
+    });
+
+    it('stays on the blob path where the native cache is off', async () => {
+        nativeCacheAvailable.value = false;
+        cachedAudioMock.mockResolvedValue(new Blob([new Uint8Array([1])]));
+
+        await expect(loadOnlineSongAudioSource(song, 'high', null)).resolves.toMatchObject({
+            kind: 'ok',
+            audioSrc: 'blob:test',
+            blobUrl: 'blob:test',
+        });
+        expect(nativeAudioUrlMock).not.toHaveBeenCalled();
     });
 });
 

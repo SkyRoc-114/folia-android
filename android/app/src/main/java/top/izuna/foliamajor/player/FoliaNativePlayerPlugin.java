@@ -1,17 +1,22 @@
 package top.izuna.foliamajor.player;
 
+import android.Manifest;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
+import android.util.Log;
 
 import androidx.media3.common.Player;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -42,8 +47,32 @@ import top.izuna.foliamajor.audio.NativeAudioSpectrumTap;
  * <p>事件名与 Web 侧 `src/services/playbackEngine/nativePlayerPlugin.ts` 一一对应，改一处
  * 两处都要改。
  */
-@CapacitorPlugin(name = "FoliaNativePlayer")
+@CapacitorPlugin(
+    name = "FoliaNativePlayer",
+    permissions = {
+        /*
+         * 原生频谱的运行时权限。
+         *
+         * android.media.audiofx.Visualizer 挂在 ExoPlayer 的 audio session 上时，Android 9
+         * 起要求 RECORD_AUDIO 已授予——Manifest 里声明了还不够，运行时没授权
+         * setEnabled(true) 会直接失败，表现正是「spectrum enabled=yes 但 events=0」。
+         * 只采本应用自己播放的音频，不录音、不落盘、不上传。
+         *
+         * 别名固定为 recordAudio：Web 侧如果要主动查/申请，用 Capacitor 的
+         * requestPermissions({ permissions: ['recordAudio'] }) 也对得上。
+         */
+        @Permission(
+            alias = "recordAudio",
+            strings = { Manifest.permission.RECORD_AUDIO }
+        )
+    }
+)
 public class FoliaNativePlayerPlugin extends Plugin {
+
+    private static final String TAG = "FoliaNativePlayerPlugin";
+
+    /** 频谱运行时权限的别名（与上面 @Permission 的 alias 一致）。 */
+    private static final String RECORD_AUDIO_ALIAS = "recordAudio";
 
     /** Web 侧监听的事件名（addListener('foliaNativePlayer')）。 */
     private static final String EVENT = "foliaNativePlayer";
@@ -100,6 +129,22 @@ public class FoliaNativePlayerPlugin extends Plugin {
     /** 频谱的「只留最新一帧」信箱（采集线程写、主线程取）。 */
     private final AtomicReference<JSObject> pendingSpectrum = new AtomicReference<>();
     private final AtomicBoolean spectrumDrainScheduled = new AtomicBoolean(false);
+
+    /**
+     * 正在等 RECORD_AUDIO 权限回调的那一次「开启频谱」。
+     *
+     * 只用于诊断（getSpectrumStatus 的 pendingPermission），以及回调里区分这次回调是不是
+     * 我们发起的。权限本身由 Capacitor 记账，这里不留第二份真相。
+     */
+    private volatile boolean spectrumPermissionPending = false;
+
+    /**
+     * Web 侧最后一次表达的「要 / 不要」。
+     *
+     * 权限弹窗期间用户仍可能把频谱关掉（页面切走、暂停）。回调回来时以这里为准：
+     * 已经是「不要」就不要再打开，避免权限一授予反而把已经关掉的东西又点亮。
+     */
+    private volatile boolean spectrumWanted = false;
 
     private final Runnable drainSpectrum = () -> {
         spectrumDrainScheduled.set(false);
@@ -413,25 +458,157 @@ public class FoliaNativePlayerPlugin extends Plugin {
      *
      * Web 侧按可见性开关：页面藏起来之后既没人看，也没有意义。默认关，只有真的要画
      * 频谱时才打开。
+     *
+     * <p>⭐ 打开时会先确认 RECORD_AUDIO：Visualizer 没有这个运行时权限就一帧都采不到
+     * （真机表现是 spectrum enabled=yes events=0）。第一次没授权时这里发起一次系统
+     * 权限请求并把这次「开启意图」交给回调；回调拿到授权才真正打开。
+     * 关闭永远不需要权限，直接关。
+     *
+     * <p>已经拒绝过之后再次打开仍然会请求：用户可能刚去系统设置里改过，不能让本地缓存
+     * 的「已拒绝」把它永久挡死。
      */
     @PluginMethod
     public void setSpectrumEnabled(PluginCall call) {
-        FoliaNativePlayer current = player;
         Boolean enabled = call.getBoolean("enabled");
-        if (current == null) {
-            call.reject("The player is not ready.");
-            return;
-        }
         if (enabled == null) {
             call.reject("enabled is required.");
             return;
         }
+        FoliaNativePlayer current = player;
+        if (current == null) {
+            call.reject("The player is not ready.");
+            return;
+        }
+        spectrumWanted = enabled;
+        if (!enabled) {
+            // 关闭不需要权限：先把等待中的那次请求作废，再直接关。
+            spectrumPermissionPending = false;
+            applySpectrumEnabled(call, current, false);
+            return;
+        }
+        if (spectrumPermissionPending) {
+            // 系统权限弹窗还开着：不再发第二次请求（那会再弹一个对话框），让第一次的结果说话。
+            call.reject("Spectrum permission request is already in progress.");
+            return;
+        }
+        if (getPermissionState(RECORD_AUDIO_ALIAS) != PermissionState.GRANTED) {
+            spectrumPermissionPending = true;
+            Log.i(TAG, "开启原生频谱需要 RECORD_AUDIO，先发起一次权限请求");
+            // 这次不 resolve：结果在 recordAudioPermissionCallback 里给。
+            requestPermissionForAlias(RECORD_AUDIO_ALIAS, call, "recordAudioPermissionCallback");
+            return;
+        }
+        applySpectrumEnabled(call, current, true);
+    }
+
+    /**
+     * 真正把开关交给播放器。
+     *
+     * 和权限流程分开，是因为它有两个入口：权限已经授予时直接调，权限回调里再调一次。
+     */
+    private void applySpectrumEnabled(PluginCall call, FoliaNativePlayer current, boolean enabled) {
         current.setSpectrumEnabled(enabled);
         if (!enabled) {
             // 关掉之后可能还有一帧躺在信箱里，别让它再出去。
             pendingSpectrum.set(null);
         }
-        call.resolve();
+        JSObject result = new JSObject();
+        result.put("enabled", enabled);
+        call.resolve(result);
+    }
+
+    /**
+     * RECORD_AUDIO 权限回调。
+     *
+     * 授权了才真正打开频谱；被拒就把原因写进日志并 reject —— Web 侧能立刻知道这一开
+     * 是「没有权限」，而不是「开了但没数据」。
+     */
+    @PermissionCallback
+    private void recordAudioPermissionCallback(PluginCall call) {
+        spectrumPermissionPending = false;
+        if (call == null) {
+            Log.w(TAG, "频谱权限回调没有 call，忽略");
+            return;
+        }
+        if (!spectrumWanted) {
+            // 等权限期间 Web 侧已经把它关了：即使授予了也不要再打开。
+            Log.i(TAG, "频谱权限回调到达时用户已经关闭，保持关闭");
+            JSObject result = new JSObject();
+            result.put("enabled", false);
+            call.resolve(result);
+            return;
+        }
+        if (getPermissionState(RECORD_AUDIO_ALIAS) != PermissionState.GRANTED) {
+            Log.w(TAG, "原生频谱开启被拒：RECORD_AUDIO 未授予");
+            call.reject("Spectrum requires the RECORD_AUDIO permission");
+            return;
+        }
+        FoliaNativePlayer current = player;
+        if (current == null) {
+            call.reject("The player is not ready.");
+            return;
+        }
+        applySpectrumEnabled(call, current, true);
+    }
+
+    /**
+     * 原生频谱的运行时状态（诊断用）。
+     *
+     * <p>返回：
+     * <pre>
+     * {
+     *   permission: 'granted' | 'denied' | 'prompt',
+     *   enabled: boolean,        // Web 侧最后一次要的开关
+     *   running: boolean,        // 采集线程已启动（不代表已挂上）
+     *   attached: boolean,       // Visualizer 真的 setEnabled 成功
+     *   failed: boolean,         // 挂载失败且不会自动重试
+     *   frames: number,          // 已经推给 Web 的帧数（20fps）
+     *   lastError: string,       // 失败原因；空串表示没有
+     *   audioSessionId: number,
+     *   pendingPermission: boolean
+     * }
+     * </pre>
+     *
+     * <p>真机上「enabled=yes 但 frames=0」可以靠它一眼分清：permission 被拒、在等播放、
+     * Visualizer 被占用、还是蓝牙输出。
+     */
+    @PluginMethod
+    public void getSpectrumStatus(PluginCall call) {
+        PermissionState state = getPermissionState(RECORD_AUDIO_ALIAS);
+        String permission = permissionLabel(state);
+        FoliaNativePlayer current = player;
+        boolean enabled = current != null && current.isSpectrumEnabled();
+        NativeAudioSpectrumTap tap = current == null ? null : current.currentSpectrumTap();
+        boolean running = tap != null && tap.isRunning();
+        boolean attached = tap != null && tap.isAttached();
+        boolean failed = tap != null && tap.isFailed();
+        long frames = tap == null ? 0L : tap.getFrameCount();
+        String lastError = tap == null ? null : tap.getLastError();
+        if (lastError == null && tap == null && state != PermissionState.GRANTED) {
+            // 没有 tap 时，权限本身就是最可能的解释：把它写进 lastError，省得 Web 再猜。
+            lastError = "record-audio-" + permission;
+        } else if (lastError == null && enabled && tap == null) {
+            // 开关开了但还没挂：播放器在暂停 / 等 isPlaying，属于正常等待。
+            lastError = "waiting-for-playback";
+        }
+        JSObject result = new JSObject();
+        result.put("permission", permission);
+        result.put("enabled", enabled);
+        result.put("running", running);
+        result.put("attached", attached);
+        result.put("failed", failed);
+        result.put("frames", (double) frames);
+        result.put("lastError", lastError == null ? "" : lastError);
+        result.put("audioSessionId", current == null ? 0 : current.getAudioSessionId());
+        result.put("pendingPermission", spectrumPermissionPending);
+        call.resolve(result);
+    }
+
+    /** Capacitor 的 PermissionState → 契约里的三档（PROMPT_WITH_RATIONALE 也算 prompt）。 */
+    private static String permissionLabel(PermissionState state) {
+        if (state == PermissionState.GRANTED) return "granted";
+        if (state == PermissionState.DENIED) return "denied";
+        return "prompt";
     }
 
     /**

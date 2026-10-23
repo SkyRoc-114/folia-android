@@ -35,6 +35,7 @@ import {
   cancelLocalCoverAssetMigration,
   resetLocalCoverAssetRuntime,
 } from './localCoverAssetService';
+import { nativeMediaCache } from './nativeMediaCache';
 
 // src/services/db.ts
 // Keeps the historical storage API stable while delegating every IndexedDB operation to Dexie repositories.
@@ -49,6 +50,14 @@ const hasElectronAudioCacheBridge = () => (
 
 const hasElectronAudioCacheStatsBridge = () => (
   typeof window !== 'undefined' && Boolean(window.electron?.getAudioCacheStats)
+);
+
+/**
+ * 「保留 audio_ 开头的键」这条规则对安卓的原生媒体缓存同样成立：同一批缓存，只是存在
+ * LocalAudioServer 那边（nativeMediaCache 自己不读 db，所以这条引用没有环）。
+ */
+const keepsCachedAudio = (preserveKeys: string[]) => (
+  !preserveKeys.some(key => key.startsWith('audio_'))
 );
 
 export const saveSessionData = async (key: keyof SessionData, value: unknown): Promise<void> => {
@@ -142,9 +151,10 @@ export const upsertThemeRegistryEntries = writeThemeRegistryEntries;
 export const clearCache = async (preserveKeys: string[] = []): Promise<void> => {
   try {
     await clearCacheTables(preserveKeys);
-    if (hasElectronAudioCacheBridge() && !preserveKeys.some(key => key.startsWith('audio_'))) {
+    if (hasElectronAudioCacheBridge() && keepsCachedAudio(preserveKeys)) {
       await window.electron!.clearAudioCache();
     }
+    if (keepsCachedAudio(preserveKeys)) await nativeMediaCache.clear();
     if (!preserveKeys.some(key => key.startsWith('cover_'))) await clearCoverAssets();
   } catch (error) {
     console.error('Clear cache failed', error);
@@ -167,6 +177,14 @@ export const getCacheUsageByCategory = async (): Promise<{
       usage.mediaCount += stats.count;
     } else if (hasElectronAudioCacheBridge()) {
       usage.media += await window.electron!.getAudioCacheUsage();
+    } else {
+      // 安卓：媒体缓存现在写在原生（/media-cache），IndexedDB 那半边只剩余数；不加上这份，
+      // 「已用 N MB」会一直显示 0，清缓存也看不出效果。拿不到就按 0 算，不改原有数字。
+      const stats = await nativeMediaCache.stats();
+      if (stats) {
+        usage.media += stats.bytes;
+        usage.mediaCount += stats.count;
+      }
     }
     usage.cover += await getCoverAssetUsage();
     return usage;
@@ -181,6 +199,7 @@ export const clearCacheByCategory = async (category: CacheCategory): Promise<voi
     if (category === 'media' && hasElectronAudioCacheBridge()) {
       await window.electron!.clearAudioCache();
     }
+    if (category === 'media') await nativeMediaCache.clear();
     if (category === 'cover') await clearCoverAssets();
   } catch (error) {
     console.error('Failed to clear cache by category', error);
@@ -240,6 +259,8 @@ export const deleteLocalSongs = async (ids: string[]): Promise<void> => {
 export const clearAllData = async (): Promise<void> => {
   try {
     if (hasElectronAudioCacheBridge()) await window.electron!.clearAudioCache();
+    // 原生那份也跟着走，否则「清空所有数据」之后 /media-cache 里还躺着一整库缓存。
+    await nativeMediaCache.clear();
     await clearCoverAssets();
     await cancelLocalCoverAssetMigration();
     await clearLocalCoverBinaries();

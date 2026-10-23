@@ -11,6 +11,7 @@ import { getCollectionOrderDiagnosticLines } from './collectionOrderDiagnostics'
 import { getOnlineMutationDiagnosticLines } from './onlineMutationDiagnostics';
 import { getOnlinePlaybackDiagnosticLines } from './onlinePlaybackDiagnostics';
 import { getLyricsDiagnosticLines } from './lyricsDiagnostics';
+import { nativeMediaCache } from '../services/nativeMediaCache';
 import { getLocalLibraryDiagnosticLines } from './localLibraryDiagnostics';
 import { nativePlaybackEngine } from '../services/playbackEngine/nativePlaybackEngine';
 import { isNativePlaybackShell, isNativePlayerAvailable } from '../services/playbackEngine/nativePlayerPlugin';
@@ -631,6 +632,18 @@ const withDeadline = async <T>(promise: Promise<T>, ms: number, fallback: T): Pr
 };
 
 /**
+ * 媒体缓存这一行的来源。
+ *
+ * 安卓上字节写在原生 /media-cache（ExoPlayer 直接播那份），网页和桌面仍在 IndexedDB / 主进程；
+ * 报告里看清原生那份的条数与体积，才能把「已缓存却还在走 blob」分成「没写进去」和「没读到」。
+ */
+const readMediaCacheLines = async (): Promise<string[]> => {
+    const stats = await withDeadline(nativeMediaCache.stats(), 800, null);
+    if (!stats) return ['  native: unavailable'];
+    return [`  native: count=${stats.count} bytes=${stats.bytes} (${formatByteSize(stats.bytes)})`];
+};
+
+/**
  * 视频层的本地视频在安卓上靠 IndexedDB 里的整份 Blob 持久化（桌面端存的是文件句柄）。
  *
  * 用户报「重启后视频没了」时，这几行能直接把范围分开：数据根本没写进去、写进去了但没被读回来、
@@ -713,6 +726,10 @@ export const buildDiagnosticReport = async (): Promise<string> => {
         '',
         'native playback (android):',
         ...readNativePlaybackLines(),
+        '',
+        // 媒体缓存在哪：安卓走原生 /media-cache，其余平台走 IndexedDB / 主进程。
+        'media cache:',
+        ...(await readMediaCacheLines()),
         '',
         'playback heartbeat:',
         `  previous: ${formatPlaybackHeartbeat(heartbeats.playback.previous)}`,

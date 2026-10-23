@@ -398,3 +398,14 @@ AI 合并上游模型发现/预设接口并保留安卓直连运行时；`packag
   unsupported-source、automix、replay-gain。ReplayGain 与 automix 下一轮再搬原生。
 - 近似说明：空间混响是 Freeverb 近似（非 2.2s IR 卷积）、drive 无 4× oversampling、
   压缩器检波方式不同、输出固定 16-bit；听感需真机校准。
+
+### 0.7.22-android.278：原生频谱权限 + 媒体缓存回环
+
+- 频谱：Manifest 加 RECORD_AUDIO；FoliaNativePlayerPlugin 在 setSpectrumEnabled(true) 时请求运行时权限，
+  授权后才挂 Visualizer；新增 getSpectrumStatus() 暴露 permission/enabled/attached/failed/frames/lastError。
+  Visualizer attach 各失败分支明确记录原因（权限、占用、蓝牙、captureSize 等）。
+- 媒体缓存：LocalAudioServer 增加 /media-cache（GET/HEAD/PUT/DELETE/清空/stats），
+  流式写 .part 再 rename，Range/CORS，id base64url 白名单；Web 侧 nativeMediaCache 优先写私有目录，
+  audioCache 读/写/删/统计与 onlinePlayback 的缓存分支都优先走 loopback URL，
+  已缓存歌曲不再生成 blob:，ExoPlayer 可以直接播。
+- 旧 IndexedDB 缓存在读取时懒迁移到私有目录；设置里的缓存统计/清除同时覆盖原生目录。

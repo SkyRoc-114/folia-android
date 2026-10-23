@@ -5,6 +5,8 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.util.Log;
 
+import java.util.concurrent.atomic.AtomicLong;
+
 /**
  * 当前文件：原生播放（ExoPlayer）的频谱采集。
  *
@@ -29,9 +31,15 @@ import android.util.Log;
  * 负责把结果 post 回主线程再过 Capacitor 的桥，别在回调里直接碰 WebView。
  *
  * <p>拿不到数据时静默降级：一帧都不推，Web 侧维持它原来的行为。拿不到数据的常见原因：
- * manifest 缺 {@code MODIFY_AUDIO_SETTINGS}、别的进程已经占用了这个 session 的 Visualizer、
- * 以及蓝牙 A2DP 输出（系统明确不给数据）。这几种失败在这里都是**恒定**的，所以起不来
- * 就置 {@link #failed} 不再重试，免得每轮采集都白烧电还刷异常。
+ * manifest 缺 {@code RECORD_AUDIO} / {@code MODIFY_AUDIO_SETTINGS}、别的进程已经占用了这个
+ * session 的 Visualizer、以及蓝牙 A2DP 输出（系统明确不给数据）。这几种失败在这里都是
+ * **恒定**的，所以起不来就置 {@link #failed} 不再重试，免得每轮采集都白烧电还刷异常。
+ *
+ * <p>⭐ 失败不能只是「没声音」：插件那边有一个 {@code getSpectrumStatus()}，Web 诊断要能
+ * 分清「开关没开」「在等播放」「权限被拒」「Visualizer 挂不上」。所以这里把
+ * {@link #isRunning()} / {@link #isAttached()} / {@link #isFailed()} /
+ * {@link #getFrameCount()} / {@link #getLastError()} 都做成 volatile / 原子读，任何线程
+ * 都能安全问，不碰采集线程。
  */
 public final class NativeAudioSpectrumTap {
 
@@ -135,6 +143,17 @@ public final class NativeAudioSpectrumTap {
     private volatile boolean running = false;
     /** 起不来就不再试（见类注释最后一段）。 */
     private volatile boolean failed = false;
+    /** Visualizer 是否真的挂上并 setEnabled 成功；和 {@link #running} 不是一回事。 */
+    private volatile boolean attached = false;
+    /** 已经送给上层的帧数：0 帧 + failed 就是「一条路都没通」的硬证据。 */
+    private final AtomicLong frameCount = new AtomicLong();
+    /**
+     * 最近一次失败的原因（给 getSpectrumStatus 读）。
+     *
+     * 以前这里只置一个 failed，插件和 Web 侧只能看到「events=0」，分不清是权限、session
+     * 还是被占用。现在每个失败分支都写一句能直接读的原因，成功后清空。
+     */
+    private volatile String lastError;
 
     public NativeAudioSpectrumTap(int audioSessionId, Listener listener) {
         this.audioSessionId = audioSessionId;
@@ -147,6 +166,8 @@ public final class NativeAudioSpectrumTap {
             return;
         }
         running = true;
+        attached = false;
+        lastError = null;
         // 回调跑在创建 Visualizer 的那条线程的 Looper 上，所以这条线程必须有 Looper。
         thread = new HandlerThread("folia-native-spectrum");
         thread.start();
@@ -160,6 +181,7 @@ public final class NativeAudioSpectrumTap {
             return;
         }
         running = false;
+        attached = false;
         Handler currentWorker = worker;
         HandlerThread currentThread = thread;
         worker = null;
@@ -186,13 +208,13 @@ public final class NativeAudioSpectrumTap {
             int size = Math.min(1024, Math.max(128, range[1]));
             if (probe.setCaptureSize(size) != Visualizer.SUCCESS) {
                 releaseQuietly(probe);
-                failed = true;
+                fail("setCaptureSize(" + size + ") 失败");
                 return;
             }
             int sampling = probe.getSamplingRate();
             if (sampling <= 0) {
                 releaseQuietly(probe);
-                failed = true;
+                fail("Visualizer 采样率无效(" + sampling + ")");
                 return;
             }
             int maxRate = probe.getMaxCaptureRate();
@@ -213,7 +235,7 @@ public final class NativeAudioSpectrumTap {
                 }
             }, rate, false, true) != Visualizer.SUCCESS) {
                 releaseQuietly(probe);
-                failed = true;
+                fail("setDataCaptureListener(" + rate + "mHz) 失败");
                 return;
             }
             /*
@@ -228,16 +250,64 @@ public final class NativeAudioSpectrumTap {
             spectrum = new int[SPECTRUM_LENGTH];
             if (probe.setEnabled(true) != Visualizer.SUCCESS) {
                 releaseQuietly(probe);
-                failed = true;
+                // 最常见的一种：RECORD_AUDIO 没授予（或用户撤销了）。这一条必须写清楚，
+                // 否则表现只有「events=0」，看不出是被权限挡住的。
+                fail("setEnabled(true) 失败：可能缺少 RECORD_AUDIO 权限、session 被占用或输出是蓝牙");
                 return;
             }
             visualizer = probe;
+            attached = true;
+            lastError = null;
+            Log.i(TAG, "原生频谱采集已挂上 session=" + audioSessionId
+                + " captureSize=" + captureSize + " rate=" + rate + "mHz");
         } catch (Throwable error) {
             // 采集起不来不是错误路径的终点：静默降级，Web 侧维持原来那份显示。
             Log.w(TAG, "原生频谱采集起不来，可视化维持原样", error);
             releaseQuietly(probe);
-            failed = true;
+            fail(error.getClass().getSimpleName() + ": " + error.getMessage());
         }
+    }
+
+    /**
+     * 记下一条失败原因并收口。
+     *
+     * 每个 attach 失败路径都走这里：日志里一句、状态里一句，插件 getSpectrumStatus()
+     * 读到的 lastError 就是它。只写 volatile 字段，任何线程读都安全。
+     */
+    private void fail(String reason) {
+        failed = true;
+        attached = false;
+        lastError = reason;
+        Log.w(TAG, "原生频谱采集失败：" + reason);
+    }
+
+    // ------------------------------------------------------------------
+    // 状态（给插件 getSpectrumStatus 用）：只读 volatile / 原子字段，不碰采集线程。
+    // ------------------------------------------------------------------
+
+    /** 采集线程已启动（不代表 Visualizer 已经挂上）。 */
+    public boolean isRunning() {
+        return running;
+    }
+
+    /** Visualizer 已经 setEnabled 成功，接下来就等帧。 */
+    public boolean isAttached() {
+        return attached;
+    }
+
+    /** 挂载失败且不会自动重试（见类注释）。关闭再开启会新建一个 tap。 */
+    public boolean isFailed() {
+        return failed;
+    }
+
+    /** 已经送给上层的帧数。 */
+    public long getFrameCount() {
+        return frameCount.get();
+    }
+
+    /** 最近一次挂载失败的原因；成功或尚未失败时为 null。 */
+    public String getLastError() {
+        return lastError;
     }
 
     private void releaseVisualizer() {
@@ -295,6 +365,8 @@ public final class NativeAudioSpectrumTap {
         double trebleRaw = bandValue(hzPerBin, 3500, 12000);
 
         buildSpectrum();
+        // 帧数在「帧已经成型」时加：Web 侧看到的 frames 与真有回调是同一刻。
+        frameCount.incrementAndGet();
 
         int[] snapshot = new int[SPECTRUM_LENGTH];
         System.arraycopy(spectrum, 0, snapshot, 0, SPECTRUM_LENGTH);

@@ -47,6 +47,7 @@ const SENTINELS = [
     'nativePlaybackEnabled',
     'native playback (android)',
     'setDsp',
+    'media-cache-stats',
 ];
 
 const extra = [];
