@@ -1,7 +1,14 @@
 import { audioBands, audioPower } from '../../stores/motionSignals';
 import {
+    describeNativeDsp,
+    normalizeNativeDspOptions,
+    summarizeNativeDsp,
+    type NativeDspSummary,
+} from './nativeDsp';
+import {
     nativePlayer,
     type NativeAudioBands,
+    type NativeDspOptions,
     type NativePlaybackEvent,
     type NativePlayerEvent,
     type NativeSpectrumEvent,
@@ -46,6 +53,7 @@ export interface NativePlayerPort {
     setVolume(volume: number): Promise<void>;
     setSpeed(speed: number): Promise<void>;
     setSpectrumEnabled(enabled: boolean): Promise<void>;
+    setDsp(options: NativeDspOptions): Promise<void>;
     release(): Promise<void>;
     addListener(listener: (event: NativePlayerEvent) => void): Promise<{ remove(): Promise<void> | void }>;
 }
@@ -59,6 +67,7 @@ const defaultPort: NativePlayerPort = {
     setVolume: volume => nativePlayer.setVolume(volume),
     setSpeed: speed => nativePlayer.setSpeed(speed),
     setSpectrumEnabled: enabled => nativePlayer.setSpectrumEnabled(enabled),
+    setDsp: options => nativePlayer.setDsp(options),
     release: () => nativePlayer.release(),
     addListener: listener => nativePlayer.addListener(listener),
 };
@@ -78,6 +87,13 @@ export type NativeSpectrumDiagnostics = {
     lastBands: NativeAudioBands | null;
     /** 最近一个统计窗口内的每秒事件数。 */
     ratePerSec: number;
+};
+
+/** 最近一次交给原生的 DSP 设置（只留摘要，见 nativeDsp.ts 的 summarizeNativeDsp）。 */
+export type NativeDspDiagnostics = NativeDspSummary & {
+    /** 一共发过几次 setDsp：设置变化一次、重新接管一首再一次。 */
+    sends: number;
+    lastAt: number | null;
 };
 
 export type NativePlaybackDiagnostics = {
@@ -105,6 +121,8 @@ export type NativePlaybackDiagnostics = {
     /** 最近 60 秒里的开关请求数：真机上「谁在反复开关」看这个。 */
     spectrumEnableRecent: number;
     spectrumEnabledAt: number | null;
+    /** 均衡器 + 音效的最近一次 DSP 设置与发送次数。 */
+    dsp: NativeDspDiagnostics;
     lastError: string | null;
     commandCount: number;
     lastCommand: string | null;
@@ -191,6 +209,10 @@ class NativePlaybackEngine {
     private spectrumEnableOff = 0;
     private spectrumEnableTimestamps: number[] = [];
     private spectrumEnabledAt: number | null = null;
+    private lastDsp: NativeDspOptions | null = null;
+    private lastDspSignature: string | null = null;
+    private dspSends = 0;
+    private dspLastAt: number | null = null;
     private lastError: string | null = null;
     private commandCount = 0;
     private lastCommand: string | null = null;
@@ -401,6 +423,38 @@ class NativePlaybackEngine {
         return this.spectrumEnabled;
     }
 
+    /**
+     * 均衡器 + 音效交给原生的 AudioProcessor 链（Java 的 `setDsp`）。可重复调用、实时生效。
+     *
+     * 按 payload 去重：同一组设置被反复调用（设置订阅、重渲染、接管判定各叫一次）只发一次。
+     * `force` 给「换了一首」用：原生重新 prepare 之后 DSP 链可能要再落一次参数。
+     * 不等待返回值：调用方要的是「已经交出」，发送失败不该拦住播放。
+     *
+     * 不逐条打日志：拖均衡器时一次拖动就是几十次变化，真正的记录在 getDiagnostics().dsp
+     * 与「复制诊断数据」里（只留摘要）。只在开关翻转（第一次落参数、开/关均衡器）时打一行。
+     * `noteCommand` 仍然记最后一次。
+     */
+    setDsp(settings: NativeDspOptions, options: { force?: boolean } = {}): void {
+        const payload = normalizeNativeDspOptions(settings);
+        const signature = JSON.stringify(payload);
+        if (!options.force && signature === this.lastDspSignature) return;
+        const wasEnabled = this.lastDsp?.enabled ?? null;
+        this.lastDsp = payload;
+        this.lastDspSignature = signature;
+        this.dspSends += 1;
+        this.dspLastAt = this.now();
+        if (wasEnabled !== payload.enabled) {
+            console.info('[NativePlayer] DSP', describeNativeDsp(payload));
+        }
+        this.noteCommand(`setDsp(${payload.enabled ? 'on' : 'off'})`);
+        void this.port.setDsp(payload).catch(() => undefined);
+    }
+
+    /** 最近一次发给原生的 DSP 设置（诊断与单测用）。 */
+    getLastDsp(): NativeDspOptions | null {
+        return this.lastDsp;
+    }
+
     subscribe(listener: (event: NativePlayerEvent) => void): () => void {
         this.listeners.add(listener);
         this.ensureSubscription();
@@ -608,6 +662,18 @@ class NativePlaybackEngine {
             spectrumEnableOff: this.spectrumEnableOff,
             spectrumEnableRecent: this.spectrumEnableTimestamps.filter(at => this.now() - at <= 60_000).length,
             spectrumEnabledAt: this.spectrumEnabledAt,
+            dsp: this.lastDsp
+                ? { ...summarizeNativeDsp(this.lastDsp), sends: this.dspSends, lastAt: this.dspLastAt }
+                : {
+                    enabled: false,
+                    nonZeroBands: 0,
+                    peakGainDb: 0,
+                    averageGainDb: 0,
+                    nonNeutralEffects: 0,
+                    replayGainDb: 0,
+                    sends: 0,
+                    lastAt: null,
+                },
             lastError: this.lastError,
             commandCount: this.commandCount,
             lastCommand: this.lastCommand,

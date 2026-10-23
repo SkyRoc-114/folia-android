@@ -382,3 +382,19 @@ AI 合并上游模型发现/预设接口并保留安卓直连运行时；`packag
   position/spectrum 速率，必要时降频谱到 15fps 或只保留 bands。
 - **已知边界**：ExoPlayer 不共享 WebView Cookie，但在线音源都先经 LocalAudioServer 回环，
   不受影响；blob（媒体缓存/部分本地歌）必然回网页路径；锁屏拖动 seek 仍未接。
+
+
+### 0.7.22-android.277：均衡器/音效改走原生 DSP
+
+- 新增 `audio/FoliaAudioProcessor.java`（media3 `BaseAudioProcessor`，16-bit PCM）、
+  `FoliaDspSettings.java`（夹紧/不可变）、`FoliaRenderersFactory.java`（
+  `DefaultAudioSink.Builder.setAudioProcessors`）。
+- DSP：10 段 RBJ biquad（31..16k，Q=1.4，lowshelf/peaking/highshelf）+ 音效链
+  （HP/LP、tanh drive、bitcrush、wow、vinyl noise、M/S width、compressor+makeup、
+  Freeverb 空间混响）+ ReplayGain 增益；参数 15ms 平滑、实时生效、关闭后 bit-perfect 直通。
+- Web 侧：`setDsp` 契约；`nativeDsp.ts` 把「实际听到的」均衡器（mod 曲线优先）与音效
+  整理成 payload；接管时/设置变化时立即发；**均衡器、音效不再触发回落**。
+- 回落矩阵只剩：native-disabled、plugin-unavailable、stage-playback、empty/blob/data/
+  unsupported-source、automix、replay-gain。ReplayGain 与 automix 下一轮再搬原生。
+- 近似说明：空间混响是 Freeverb 近似（非 2.2s IR 卷积）、drive 无 4× oversampling、
+  压缩器检波方式不同、输出固定 16-bit；听感需真机校准。

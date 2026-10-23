@@ -46,6 +46,7 @@ const SENTINELS = [
     'setSpectrumEnabled',
     'nativePlaybackEnabled',
     'native playback (android)',
+    'setDsp',
 ];
 
 const extra = [];

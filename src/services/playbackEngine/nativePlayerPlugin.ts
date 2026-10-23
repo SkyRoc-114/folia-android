@@ -7,7 +7,7 @@ import { Capacitor, registerPlugin, type PluginListenerHandle } from '@capacitor
 // 契约（Java 同事按这个实现）：
 //   prepare({ url, startPositionMs, repeatMode }) / play() / pause() / stop()
 //   seek({ positionMs }) / setVolume({ volume }) / setSpeed({ speed })
-//   setSpectrumEnabled({ enabled }) / getSnapshot() / release()
+//   setSpectrumEnabled({ enabled }) / setDsp({ enabled, gains, effects, replayGainDb }) / getSnapshot() / release()
 //   事件 { type: 'ready'|'playing'|'paused'|'ended'|'position'|'buffering'|'error'|'idle',
 //          positionMs, durationMs, message? }
 //   频谱事件 { type: 'spectrum', bands: { bass, lowMid, mid, vocal, treble, power },
@@ -56,6 +56,35 @@ export type NativePlaybackSnapshot = {
     playing: boolean;
 };
 
+/** `setDsp` 的音效字段：与 utils/audioEffects.ts 的 AudioEffectSettings 一一对应（九个，顺序无关）。 */
+export type NativeDspEffects = {
+    highpass: number;
+    lowpass: number;
+    drive: number;
+    crush: number;
+    wow: number;
+    noise: number;
+    width: number;
+    space: number;
+    punch: number;
+};
+
+/**
+ * 均衡器 + 音效的 DSP 参数，交给 Java 侧 ExoPlayer 的 AudioProcessor 链处理。
+ *
+ * 均衡器/音效打开时不再回落网页播放，靠的就是这条通道（见 nativeDsp.ts 与 useNativePlaybackRuntime.ts）。
+ * 方法可重复调用、实时生效；ReplayGain 这一轮仍走网页回落，所以 `replayGainDb` 固定 0。
+ */
+export type NativeDspOptions = {
+    /** Web 侧 audioEqualizerSettings.enabled；false 时 Java 旁路整条 DSP（参数照收）。 */
+    enabled: boolean;
+    /** 10 段 dB，顺序同 AUDIO_EQUALIZER_BANDS（31Hz … 16kHz）。 */
+    gains: number[];
+    effects: NativeDspEffects;
+    /** 暂固定 0：原生 ReplayGain 还没做，RG 非 off 时整首回落网页。 */
+    replayGainDb: number;
+};
+
 export interface FoliaNativePlayerPlugin {
     prepare(options: {
         url: string;
@@ -71,6 +100,7 @@ export interface FoliaNativePlayerPlugin {
     setVolume(options: { volume: number }): Promise<void>;
     setSpeed(options: { speed: number }): Promise<void>;
     setSpectrumEnabled(options: { enabled: boolean }): Promise<void>;
+    setDsp(options: NativeDspOptions): Promise<void>;
     getSnapshot(): Promise<NativePlaybackSnapshot>;
     release(): Promise<void>;
     addListener(
@@ -112,6 +142,7 @@ export const nativePlayer = {
     setVolume: (volume: number) => FoliaNativePlayer.setVolume({ volume }),
     setSpeed: (speed: number) => FoliaNativePlayer.setSpeed({ speed }),
     setSpectrumEnabled: (enabled: boolean) => FoliaNativePlayer.setSpectrumEnabled({ enabled }),
+    setDsp: (options: NativeDspOptions) => FoliaNativePlayer.setDsp(options),
     getSnapshot: () => FoliaNativePlayer.getSnapshot(),
     release: () => FoliaNativePlayer.release(),
     addListener: (listener: (event: NativePlayerEvent) => void) =>

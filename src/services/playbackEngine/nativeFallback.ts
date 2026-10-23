@@ -5,11 +5,16 @@ import type { ReplayGainMode } from '../../types';
 //
 // 规则只有一条：
 //
-//     nativeTakes = nativeActive && 源支持 && !webAudioOnlyFeatureActive
+//     nativeTakes = nativeActive && 源支持 && !webPlaybackOnlyFeatureActive
 //
 // nativeActive = 设置里开着原生播放 && 插件真的在（网页/桌面没有这个插件，永远 false）。
-// webAudioOnlyFeatureActive = 均衡器（含 mod 曲线）/ 音效 / automix / ReplayGain 非 off /
-// blob: 或 data: 源 —— 这些功能长在 Web Audio 图上，原生播放器给不了；不删功能，整首回 <audio>。
+// webPlaybackOnlyFeatureActive = automix / ReplayGain 非 off（源本身的 blob: / data: 另算）。
+//
+// 均衡器与音效**不在这里**：它们改由原生的 DSP 处理（nativeDsp.ts → FoliaNativePlayer.setDsp），
+// 打开均衡器/音效不再把这一首打回网页。ReplayGain 这一轮还没做原生版、automix 的两套 deck 长在
+// Web Audio 图上，所以这两项仍然整首回 <audio>。
+//
+// 顺序也是契约：同一首同时命中多个原因时，日志与诊断里出现的永远是表里靠前的那个。
 
 export type NativeFallbackReason =
     | 'native-disabled'
@@ -19,8 +24,6 @@ export type NativeFallbackReason =
     | 'blob-source'
     | 'data-source'
     | 'unsupported-source'
-    | 'equalizer'
-    | 'audio-effects'
     | 'automix'
     | 'replay-gain';
 
@@ -30,12 +33,6 @@ export type NativeTakeoverInput = {
     /** Capacitor.isPluginAvailable('FoliaNativePlayer')。 */
     pluginAvailable: boolean;
     source: string | null;
-    /** 均衡器处理开没开（enabled）。 */
-    equalizerEnabled: boolean;
-    /** 有没有一条生效中的 mod 曲线（它同样长在 Web Audio 图上）。 */
-    equalizerModCurveActive: boolean;
-    /** 音效是不是中性（高/低通、动态、噪声、宽度……全在中位）。 */
-    audioEffectsNeutral: boolean;
     automixEnabled: boolean;
     replayGainMode: ReplayGainMode;
     /** Now Playing / PlayerCap 这类外部播放接管时不碰本地播放器。 */
@@ -51,10 +48,11 @@ export type NativeTakeoverDecision = {
     reason: NativeFallbackReason | null;
 };
 
-/** 只挡原生、网页路径照常的「Web Audio 专属功能」。 */
-export const resolveWebAudioOnlyFeature = (input: NativeTakeoverInput): NativeFallbackReason | null => {
-    if (input.equalizerEnabled || input.equalizerModCurveActive) return 'equalizer';
-    if (!input.audioEffectsNeutral) return 'audio-effects';
+/**
+ * 只挡原生、网页路径照常的功能：automix（两套 deck 在 Web Audio 图上）与 ReplayGain。
+ * 均衡器/音效已经改走原生 DSP，不再出现在这里。
+ */
+export const resolveWebPlaybackOnlyFeature = (input: NativeTakeoverInput): NativeFallbackReason | null => {
     if (input.automixEnabled) return 'automix';
     if (input.replayGainMode !== 'off') return 'replay-gain';
     return null;
@@ -83,9 +81,9 @@ export const resolveNativeTakeover = (input: NativeTakeoverInput): NativeTakeove
     if (!/^(https?|content|file):\/\//.test(input.source)) {
         return { nativeActive, takes: false, reason: 'unsupported-source' };
     }
-    const webAudioOnly = resolveWebAudioOnlyFeature(input);
-    if (webAudioOnly) {
-        return { nativeActive, takes: false, reason: webAudioOnly };
+    const webPlaybackOnly = resolveWebPlaybackOnlyFeature(input);
+    if (webPlaybackOnly) {
+        return { nativeActive, takes: false, reason: webPlaybackOnly };
     }
     return { nativeActive, takes: true, reason: null };
 };

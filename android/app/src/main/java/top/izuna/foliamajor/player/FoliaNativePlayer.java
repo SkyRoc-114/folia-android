@@ -16,13 +16,18 @@ import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 
+import top.izuna.foliamajor.audio.FoliaAudioProcessor;
+import top.izuna.foliamajor.audio.FoliaDspSettings;
+import top.izuna.foliamajor.audio.FoliaRenderersFactory;
 import top.izuna.foliamajor.audio.NativeAudioSpectrumTap;
 
 // 当前文件：Folia 在安卓上的原生播放内核（媒体解码 / 出声 + 频谱采集的宿主）。
 //
-// 只做「把这一个地址解码并出声」，不碰任何音效：均衡器、音效链、淡入淡出、automix
-// 交叉淡化都还在 WebView 的 Web Audio 图里，原生接管的那一刻它们整体失效
-// （createMediaElementSource 是单向不可逆的），那些留给后面的阶段。
+// 只做「把这一个地址解码并出声」，外加**音频链上的 DSP**：10 段均衡器、音效链、ReplayGain
+// 全部由 FoliaAudioProcessor 在 ExoPlayer 的 AudioProcessor 里完成（见 audio/ 目录）。
+// 也就是说 Web 侧打开均衡器 / 音效时，原生这条路继续出声，不需要回落到 <audio>。
+//
+// 淡入淡出、automix 交叉淡化仍然在 WebView 的 Web Audio 图里，不在这一层。
 //
 // ⭐⭐ **线程：这是这个文件里最容易出事的一条。**
 //
@@ -89,6 +94,16 @@ public final class FoliaNativePlayer {
     private final Context context;
     private final Listener listener;
 
+    /**
+     * 音频链上的 DSP。
+     *
+     * <p>一个播放器实例一个：设置从插件线程写进来（volatile 快照），音频线程读，
+     * 播放器重建时不用重新挂 —— 处理器跟着 sink 走，{@link #ensurePlayer()} 每次都把它
+     * 塞进同一个 {@link FoliaRenderersFactory}。
+     */
+    private final FoliaAudioProcessor audioProcessor = new FoliaAudioProcessor();
+    private final FoliaRenderersFactory renderersFactory;
+
     @Nullable private ExoPlayer player;
     /** release 过就不再收播放器（线程已经 quit，再 post 会崩）。 */
     private volatile boolean released = false;
@@ -145,6 +160,7 @@ public final class FoliaNativePlayer {
     public FoliaNativePlayer(Context context, Listener listener) {
         this.context = context.getApplicationContext();
         this.listener = listener;
+        this.renderersFactory = new FoliaRenderersFactory(this.context, audioProcessor);
         playbackThread.start();
         playerLooper = playbackThread.getLooper();
         handler = new Handler(playerLooper);
@@ -254,6 +270,23 @@ public final class FoliaNativePlayer {
             ExoPlayer current = player;
             if (current != null) current.setRepeatMode(requestedRepeatMode);
         });
+    }
+
+    /**
+     * 换一份 DSP 设置（均衡器 / 音效 / ReplayGain）。
+     *
+     * <p>⭐ 不走 {@link #runOnPlayer}：设置本身是不可变快照，{@link FoliaAudioProcessor}
+     * 用 {@code AtomicReference} 换引用，音频线程每个 buffer 读一次。所以：
+     * <ul>
+     *   <li>播放中实时生效，不需要重建播放器，也不会卡住插件线程；</li>
+     *   <li>参数变化在音频线程上按 15ms 一阶平滑推进，不会爆音；</li>
+     *   <li>播放器还没建、或者已经被回收，写进去也不会出问题（下次 configure 时读到的就是它）。</li>
+     * </ul>
+     *
+     * <p>settings 为 null 时按「全中性」处理，等价于关掉 DSP 但保留 ReplayGain 0dB。
+     */
+    public void setDsp(@Nullable FoliaDspSettings settings) {
+        audioProcessor.setSettings(settings == null ? FoliaDspSettings.NEUTRAL : settings);
     }
 
     /**
@@ -407,6 +440,9 @@ public final class FoliaNativePlayer {
             // 线程」—— 也就是 Capacitor 的桥线程，而位置上报会跑到别的线程上去，
             // 于是每 250ms 跨线程碰一次播放器。
             .setLooper(playerLooper)
+            // 音频链上的 DSP（均衡器 / 音效 / ReplayGain）从 sink 这一层挂进来。
+            // RenderersFactory 每次建 sink 都会带上同一个 processor，播放器重建也不会丢设置。
+            .setRenderersFactory(renderersFactory)
             .setMediaSourceFactory(new DefaultMediaSourceFactory(httpFactory))
             .build();
         // 焦点交给 ExoPlayer 自己管。WebView 那套「把 Chromium 的焦点监听器换成空实现」

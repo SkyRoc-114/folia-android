@@ -17,6 +17,7 @@ import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import top.izuna.foliamajor.audio.FoliaDspSettings;
 import top.izuna.foliamajor.audio.NativeAudioSpectrumTap;
 
 /**
@@ -82,6 +83,15 @@ public class FoliaNativePlayerPlugin extends Plugin {
     private volatile boolean destroyed = false;
 
     private FoliaNativePlayer player;
+
+    /**
+     * 最近一次下发的 DSP 设置。
+     *
+     * <p>播放器可以被回收再重建（Activity 重建、插件 release 之后再 prepare），而 Web 侧
+     * 不会为此重新下发一遍设置。所以这里留一份，{@link #ensurePlayer()} 建新播放器时直接
+     * 装回去。
+     */
+    private volatile FoliaDspSettings lastDsp = FoliaDspSettings.NEUTRAL;
 
     /** 位置降频：只有播放器线程会碰这两个字段（onEvent 在那条线程上跑）。 */
     private long lastWebNotifyAtMs = 0L;
@@ -218,6 +228,8 @@ public class FoliaNativePlayerPlugin extends Plugin {
         if (current != null) return current;
         current = new FoliaNativePlayer(getContext(), engineListener);
         player = current;
+        // 播放器重建后把上一次的设置装回去：Web 侧不需要因为重建而重发。
+        current.setDsp(lastDsp);
         lastWebNotifyAtMs = 0L;
         lastForwardedPositionMs = 0L;
         return current;
@@ -420,6 +432,70 @@ public class FoliaNativePlayerPlugin extends Plugin {
             pendingSpectrum.set(null);
         }
         call.resolve();
+    }
+
+    /**
+     * 均衡器 / 音效 / ReplayGain 的整体下发。
+     *
+     * <p>字段名照抄 Web 侧（不要改名）：
+     * <pre>
+     * {
+     *   enabled: boolean,
+     *   gains: [10 个 dB 值],
+     *   effects: { highpass, lowpass, drive, crush, wow, noise, width, space, punch },
+     *   replayGainDb: number | null
+     * }
+     * </pre>
+     *
+     * <p>设置写进的是 {@code FoliaAudioProcessor} 的原子快照：播放中实时生效、不重建播放器、
+     * 参数变化在音频线程上平滑过渡。越界 / NaN 由 {@link FoliaDspSettings} 夹紧，这里只负责
+     * 取值。
+     */
+    @PluginMethod
+    public void setDsp(PluginCall call) {
+        // 允许比 prepare 更早调用：播放器壳子可以懒建，设置写进处理器后等第一次 configure 生效。
+        FoliaNativePlayer current = ensurePlayer();
+        if (current == null) {
+            call.reject("The player is not ready.");
+            return;
+        }
+
+        Boolean enabled = call.getBoolean("enabled");
+        JSArray gains = call.getArray("gains");
+        JSObject effects = call.getObject("effects");
+        Double replayGainDb = call.getDouble("replayGainDb");
+
+        float[] parsedGains = new float[FoliaDspSettings.BAND_COUNT];
+        if (gains != null) {
+            int count = Math.min(FoliaDspSettings.BAND_COUNT, gains.length());
+            for (int index = 0; index < count; index += 1) {
+                parsedGains[index] = (float) gains.optDouble(index, 0.0);
+            }
+        }
+
+        FoliaDspSettings settings = new FoliaDspSettings(
+            Boolean.TRUE.equals(enabled),
+            parsedGains,
+            effectValue(effects, "highpass", FoliaDspSettings.NEUTRAL_HIGHPASS_HZ),
+            effectValue(effects, "lowpass", FoliaDspSettings.NEUTRAL_LOWPASS_HZ),
+            effectValue(effects, "drive", FoliaDspSettings.NEUTRAL_DRIVE),
+            effectValue(effects, "crush", FoliaDspSettings.NEUTRAL_CRUSH),
+            effectValue(effects, "wow", FoliaDspSettings.NEUTRAL_WOW),
+            effectValue(effects, "noise", FoliaDspSettings.NEUTRAL_NOISE),
+            effectValue(effects, "width", FoliaDspSettings.NEUTRAL_WIDTH),
+            effectValue(effects, "space", FoliaDspSettings.NEUTRAL_SPACE),
+            effectValue(effects, "punch", FoliaDspSettings.NEUTRAL_PUNCH),
+            replayGainDb == null ? 0f : replayGainDb.floatValue()
+        );
+
+        lastDsp = settings;
+        current.setDsp(settings);
+        call.resolve();
+    }
+
+    /** 取一个音效参数；字段缺省时用中性值，与 {@code normalizeAudioEffects} 的行为一致。 */
+    private static float effectValue(JSObject effects, String key, float neutral) {
+        return effects == null ? neutral : (float) effects.optDouble(key, neutral);
     }
 
     @PluginMethod

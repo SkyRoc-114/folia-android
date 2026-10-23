@@ -227,6 +227,14 @@ const readNativePlaybackLines = (): string[] => {
             + ` rate=${native.rate} volume=${native.volume.toFixed(2)}`,
         `  takeovers: ${native.takeovers} fallbacks: ${native.fallbacks}`
             + ` last reason: ${native.lastFallbackReason ?? '(none)'}`,
+        // 均衡器 + 音效走原生 DSP：这里只留摘要（开没开、几段非零、峰值/均值、几个音效），
+        // 不把十段和九个参数原样抄进报告。
+        `  dsp (equalizer + effects): enabled=${native.dsp.enabled ? 'yes' : 'no'}`
+            + ` nonzero bands=${native.dsp.nonZeroBands}`
+            + ` peak=${native.dsp.peakGainDb.toFixed(1)}dB avg=${native.dsp.averageGainDb.toFixed(1)}dB`
+            + ` effects=${native.dsp.nonNeutralEffects}/9`
+            + ` replayGain=${native.dsp.replayGainDb}dB`
+            + ` sends=${native.dsp.sends} lastAt=${when(native.dsp.lastAt)}`,
         `  fallback history: ${fallbackHistory}`,
         `  last native event: ${native.lastEventType ?? '(none)'} at=${when(native.lastEventAt)}`,
         `  recent native events: ${recentEvents}`,

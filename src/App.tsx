@@ -191,7 +191,6 @@ import { resolveNativeTakeover } from './services/playbackEngine/nativeFallback'
 import { useNativePlaybackRuntime } from './services/playbackEngine/useNativePlaybackRuntime';
 import { nativeTransportFade } from './services/playbackEngine/nativeTransportFade';
 import { getNativeMediaFacade } from './services/playbackEngine/nativeMediaFacade';
-import { isNeutralAudioEffects } from './utils/audioEffects';
 
 const LOCAL_MUSIC_UPDATED_EVENT = 'folia-local-music-updated';
 const DEV_DEBUG_SHORTCUT_LABEL = 'Alt+Shift+D';
@@ -1160,22 +1159,18 @@ export default function App() {
 
     // ---- 原生播放（Android）----
     // 一条判定，两半：设置开着 + 插件真的在 → nativeActive（这条路「能用」）；
-    // 这一首的源吃得下 + 没有 Web Audio 专属功能 → nativeTakes（这一首真的交给原生）。
+    // 这一首的源吃得下 + 没有网页专属功能（automix / ReplayGain）→ nativeTakes（这一首真的交给原生）。
+    // 均衡器与音效不再参与判定：它们由原生 DSP 处理（useNativePlaybackRuntime → nativePlaybackEngine.setDsp），
+    // 打开它们不会再把这一首打回网页播放。
     // 判定本身是纯函数（services/playbackEngine/nativeFallback.ts），组合矩阵在单测里。
     // 放在 automix 之前：automix 的门控要读 nativeTakes（原生接管时两套 deck 不能同时出声）。
     const nativePlaybackEnabled = useAudioSettingsStore(state => state.nativePlaybackEnabled);
     const nativePluginAvailable = isNativePlayerAvailable();
     const replayGainMode = usePlaybackStore(state => state.replayGainMode);
-    const audioEqualizerSettings = useAudioSettingsStore(state => state.audioEqualizerSettings);
-    const audioEqualizerModCurve = useAudioSettingsStore(state => state.audioEqualizerModCurve);
-    const audioEqualizerModCurveSuspended = useAudioSettingsStore(state => state.audioEqualizerModCurveSuspended);
     const nativeTakeover = resolveNativeTakeover({
         nativeEnabled: nativePlaybackEnabled,
         pluginAvailable: nativePluginAvailable,
         source: audioSrc,
-        equalizerEnabled: audioEqualizerSettings.enabled,
-        equalizerModCurveActive: Boolean(audioEqualizerModCurve && !audioEqualizerModCurveSuspended),
-        audioEffectsNeutral: isNeutralAudioEffects(audioEqualizerSettings.effects),
         automixEnabled,
         replayGainMode,
         stageActive: isNowPlayingStageActive || isPlayerCapStageActive,
@@ -2553,9 +2548,10 @@ export default function App() {
     });
 
     /**
-     * 播放中途改设置（开均衡器、开 automix、换 ReplayGain 模式）会把 nativeTakes 翻过来：
+     * 播放中途改设置（开 automix、换 ReplayGain 模式）会把 nativeTakes 翻过来：
      * 同一首必须在两条路径之间交接，不能停在半路。换歌引起的翻转交给 playSong 自己的自动播放，
      * 这里只管「同一首」。位置从引擎的 stop 快照续，不是从头再来。
+     * 开/关均衡器与音效不在此列：它们由原生 DSP 处理，不再翻 nativeTakes。
      */
     const nativeHandoffRef = useRef({ takes: nativeTakes, src: audioSrc });
     useEffect(() => {

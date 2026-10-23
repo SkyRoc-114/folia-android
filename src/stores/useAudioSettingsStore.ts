@@ -46,8 +46,9 @@ export const PLAYBACK_FADE_KEY = 'folia_playback_fade_enabled';
 
 /**
  * Android 原生播放（ExoPlayer，见 services/playbackEngine）。默认开。
- * 均衡器 / 音效 / automix / ReplayGain 这类长在 Web Audio 图上的功能会把单首自动回落，
- * 所以这个开关只决定「可不可以走原生」，不保证每一首都走。
+ * 均衡器与音效由原生 DSP 处理（FoliaNativePlayer.setDsp），不再触发回落；automix 与 ReplayGain
+ * 还长在 Web Audio 图上，这两项打开时单首会自动回落。这个开关只决定「可不可以走原生」，
+ * 不保证每一首都走。
  */
 export const NATIVE_PLAYBACK_KEY = 'folia_native_playback_enabled';
 
@@ -216,7 +217,7 @@ export type AudioSettingsState = {
     playbackFadeEnabled: boolean;
     /**
      * Android 原生播放（ExoPlayer，services/playbackEngine）。默认开。
-     * 均衡器 / 音效 / automix / ReplayGain 这类 Web Audio 专属功能会把单首自动回落，
+     * 均衡器与音效由原生 DSP 处理，不再触发回落；automix / ReplayGain 打开时单首仍会自动回落。
      * 这个开关只决定「可不可以走原生」，不保证每一首都走。
      */
     nativePlaybackEnabled: boolean;

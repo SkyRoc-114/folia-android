@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { MutableRefObject } from 'react';
 import { PlayerState } from '../../types';
 import { setDuration, setPlayerState } from '../../stores/usePlaybackStore';
+import { useAudioSettingsStore } from '../../stores/useAudioSettingsStore';
 import { currentTime } from '../../stores/motionSignals';
+import { buildNativeDspOptions } from './nativeDsp';
 import { nativePlaybackEngine } from './nativePlaybackEngine';
 import type { NativeFallbackReason } from './nativeFallback';
 import { nativeTransportFade } from './nativeTransportFade';
@@ -16,6 +18,7 @@ import { nativeTransportFade } from './nativeTransportFade';
 //   · 播完了 → 交给队列（原来 `onEnded`）
 //   · 播不出来 → 报错（原来 `onError`）
 //   · 频谱开关随「原生在播 + 页面可见 + 真的要频谱」变化
+//   · 均衡器/音效 → 原生 DSP（只在接管这一首时发；设置一变立即补发）
 //
 // 剩下的（音量、seek、暂停、进度条时钟）分别在 syncOutputGain / seekMainAudio /
 // transport / usePlaybackVisualizerBridge 里各接一次。
@@ -72,6 +75,23 @@ export const useNativePlaybackRuntime = ({
     wantedRef.current = spectrumWanted;
     const decisionKeyRef = useRef('');
 
+    /*
+     * 均衡器与音效：读听众自己的设置、mod 曲线和挂起状态，算出实际听到的那一组。
+     *
+     * 只在原生真的接管这一首时交给引擎；回落网页时一个字节也不发 —— 网页路径的 Web Audio
+     * 图自己会处理（usePlaybackAudioBridge）。enabled=false 也照发：Java 收下参数并旁路，
+     * 这样开关均衡器不需要重新 prepare 这一首。
+     */
+    const audioEqualizerSettings = useAudioSettingsStore(state => state.audioEqualizerSettings);
+    const audioEqualizerModCurve = useAudioSettingsStore(state => state.audioEqualizerModCurve);
+    const audioEqualizerModCurveSuspended = useAudioSettingsStore(state => state.audioEqualizerModCurveSuspended);
+    const dspOptions = useMemo(
+        () => buildNativeDspOptions(audioEqualizerSettings, audioEqualizerModCurve, audioEqualizerModCurveSuspended),
+        [audioEqualizerSettings, audioEqualizerModCurve, audioEqualizerModCurveSuspended],
+    );
+    /** 上一次发出去的是哪一首、哪一组设置：同一首歌同一组设置不重发。 */
+    const dspSentRef = useRef<{ source: string | null; signature: string }>({ source: null, signature: '' });
+
     // 本首是接管还是回落：日志一条、诊断计数一次（同一首同一原因不重复记）。
     useEffect(() => {
         const key = `${audioSrc ?? ''}|${takes}|${fallbackReason ?? ''}`;
@@ -118,6 +138,27 @@ export const useNativePlaybackRuntime = ({
             void nativePlaybackEngine.stop().catch(() => undefined);
         }
     }, [audioSrc, enabled, repeatOne, takes]);
+
+    /*
+     * 均衡器 + 音效 → 原生 DSP。放在装地址之后：这一首已经进播放器（currentUrl 已设），参数不会跑到
+     * prepare 前面太远。三种时机各发一次：
+     *   1. 开始接管这一首（换歌 / 从网页切回原生）—— 原生重新 prepare 过，参数再落一次；
+     *   2. 接管过程中设置变化（拖均衡器、开音效、mod 曲线生效/挂起）—— 立即补发，不等切歌；
+     *   3. 重新接管同一首（回落过又回来）—— 上面清过记号，按 1 处理。
+     * 回落网页时清掉记号且不发送：网页路径有自己的 Web Audio 图。
+     */
+    useEffect(() => {
+        if (!takes || !audioSrc) {
+            dspSentRef.current = { source: null, signature: '' };
+            return;
+        }
+        const signature = JSON.stringify(dspOptions);
+        const freshTakeover = dspSentRef.current.source !== audioSrc;
+        if (!freshTakeover && signature === dspSentRef.current.signature) return;
+        dspSentRef.current = { source: audioSrc, signature };
+        // freshTakeover 时强制重发：引擎按 payload 去重，换歌后的同一组设置本来会被它挡掉。
+        nativePlaybackEngine.setDsp(dspOptions, { force: freshTakeover });
+    }, [audioSrc, dspOptions, takes]);
 
     // 设置关掉、或插件消失 → 收掉播放器，别让上一首在后台继续响。
     useEffect(() => {
