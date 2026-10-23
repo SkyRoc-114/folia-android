@@ -340,3 +340,17 @@ AI 合并上游模型发现/预设接口并保留安卓直连运行时；`packag
 
 构建：`npm run build:capacitor` → `npx cap sync android` → `android/gradlew.bat assembleDebug`。
 版本 `0.7.22-android.272`（versionCode 310）。
+
+### 0.7.22-android.273：汽水「我喜欢」只显示一首歌的修复
+
+车机协议里「我喜欢」是 `type=1` 的歌单：读它的曲目时必须带 `type: 1`，否则
+`/playlist/detail/` 只回一条（看到的封面是最新一首、打开只有一首歌）。桌面桥的
+`playlist_tracks` 固定传 `type: null`，安卓桥补了 `liked` 标记：
+
+- `qishuiCatalog.getPlaylistTracks/getPlaylistDetail`：`collection.isLiked === true` 时
+  多传 `liked: true`（桌面端该字段被上游包忽略，行为不变）
+- 安卓桥 `playlist_tracks`：`liked=true` 时 `playlistPage` 的 `type` 传 1，游标缓存 key
+  也带 type，避免和普通歌单共用
+- 桥内新增 `qishui:bridge:request` / `qishui:bridge:result` 留痕（search 条目数、
+  liked_songs ids 数、playlist_tracks 条目数、audio 主机等），诊断报告可直接看到车机接口返回了什么
+- 回归测试：`test/unit/qishui/likedPlaylistTracks.test.ts`

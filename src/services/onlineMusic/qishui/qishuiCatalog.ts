@@ -16,12 +16,16 @@ export const qishuiCatalog: OnlineCatalogProvider = {
             return { ...page, items: page.items.map(normalizeQishuiSong) };
         }
         const page = await requestQishui<ProviderPage<unknown>>('playlist_tracks', { id: String(id), limit, offset,
+            // 车机协议里「我喜欢」是 type=1 的歌单，普通歌单详情不带 type 只会回一条；
+            // 安卓桥按这个标记改用 type=1 读全（桌面端该字段会被上游包忽略）。
+            ...(collection?.isLiked === true ? { liked: true } : {}),
             ownerId: typeof collection?.providerData?.ownerId === 'string' ? collection.providerData.ownerId : '' });
         return { ...page, items: page.items.map(normalizeQishuiSong) };
     },
     async getPlaylistDetail(id, collection) {
         if (id === RECENT_ID) return recentCollection();
         const raw = await requestQishui('playlist_detail', { id: String(id), limit: 1,
+            ...(collection?.isLiked === true ? { liked: true } : {}),
             ownerId: typeof collection?.providerData?.ownerId === 'string' ? collection.providerData.ownerId : '' });
         if (!raw) return null;
         const detail = normalizeQishuiCollection({ ...record(raw), isOwned: collection?.isOwned ?? record(raw).isOwned });

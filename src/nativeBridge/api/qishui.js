@@ -2,6 +2,7 @@
 // process and uses node:crypto; this implementation keeps the same operations, strings and
 // response shapes, but signs with WebCrypto (crypto.subtle) and stores its account in localStorage.
 // HTTP goes through the WebView's fetch, which the Android shell answers through FoliaNative.httpRequest.
+import { noteLibraryStep } from './libraryTrace.js';
 
 export const QISHUI_UA = 'LunaOpenSDK/1.0.10';
 export const QISHUI_PREFIX = '/api/luna/v1/platform';
@@ -542,7 +543,7 @@ async function search(platform, query, type, limit, offset) {
 }
 
 // Playlist cursors are not row numbers, so an offset is reached by walking from the beginning.
-async function playlistPage(platform, id, ownerId, limit, offset, marks) {
+async function playlistPage(platform, id, ownerId, limit, offset, marks, types = null) {
   let lineage = { cursor: '0' };
   let consumed = 0;
   for (const [position, mark] of marks?.positions || []) {
@@ -558,7 +559,7 @@ async function playlistPage(platform, id, ownerId, limit, offset, marks) {
   while (items.length < limit && pages < PAGE_LIMIT) {
     pages += 1;
     seen.add(cursor);
-    const data = await platform('/playlist/detail/', { playlist_id: id, owner_id: ownerId || '', count: PAGE_SIZE, cursor, type: null });
+    const data = await platform('/playlist/detail/', { playlist_id: id, owner_id: ownerId || '', count: PAGE_SIZE, cursor, type: types });
     collection ||= data.playlist;
     if (marks && cursor === '0') marks.collection = data.playlist;
     const batch = arrayOf(data.media_entities, 'playlist tracks');
@@ -586,12 +587,12 @@ async function playlistPage(platform, id, ownerId, limit, offset, marks) {
 function createPlaylistCursors(sessions, now = Date.now) {
   const entries = new Map();
   let account = null;
-  const keyOf = (id, ownerId) => `${id}:${ownerId || ''}`;
+  const keyOf = (id, ownerId, types) => `${id}:${ownerId || ''}:${types ?? ''}`;
   return {
-    get(id, ownerId) {
+    get(id, ownerId, types) {
       const user = sessions?.get()?.userId || '';
       if (user !== account) { entries.clear(); account = user; }
-      const key = keyOf(id, ownerId);
+      const key = keyOf(id, ownerId, types);
       let entry = entries.get(key);
       if (entry && now() - entry.at > CURSOR_TTL_MS) entry = undefined;
       entries.delete(key);
@@ -616,8 +617,9 @@ function createCatalog({ platform, sessions }, { now } = {}) {
       if (!media?.track_entity) throw new QishuiError('not-playable', 'Qishui did not return the track');
       return media.track_entity;
     },
-    async playlist_tracks({ id, ownerId, limit, offset }) {
-      try { return await playlistPage(platform, id, ownerId, limit, offset, cursors.get(id, ownerId)); }
+    async playlist_tracks({ id, ownerId, limit, offset, liked }) {
+      const types = liked === true ? 1 : null;
+      try { return await playlistPage(platform, id, ownerId, limit, offset, cursors.get(id, ownerId, types), types); }
       catch (error) { cursors.forget(id); throw error; }
     },
     async user_playlists({ limit, offset }) {
@@ -1094,6 +1096,35 @@ const idOf = (value) => {
   return value;
 };
 
+// 诊断留痕：安卓上汽水走的是车机协议，搜索/喜欢/歌单各返回多少条只有这里能看到。
+const noteQishuiTrace = (operation, data) => {
+  if (operation.startsWith('search')) {
+    noteLibraryStep('qishui', 'bridge:result', { operation, items: Array.isArray(data?.items) ? data.items.length : 0, hasMore: Boolean(data?.hasMore) });
+    return;
+  }
+  if (operation === 'liked_songs') {
+    noteLibraryStep('qishui', 'bridge:result', { operation, ids: Array.isArray(data?.ids) ? data.ids.length : 0, whole: Boolean(data?.whole) });
+    return;
+  }
+  if (operation === 'playlist_tracks' || operation === 'recent_played') {
+    noteLibraryStep('qishui', 'bridge:result', { operation, items: Array.isArray(data?.items) ? data.items.length : 0, hasMore: Boolean(data?.hasMore) });
+    return;
+  }
+  if (operation === 'playlist_detail') {
+    noteLibraryStep('qishui', 'bridge:result', { operation, name: String(data?.name || ''), tracks: Number(data?.trackCount ?? -1) });
+    return;
+  }
+  if (operation === 'audio') {
+    let host = '';
+    try { host = new URL(String(data?.url || '')).host; } catch (_) { /* not a URL */ }
+    noteLibraryStep('qishui', 'bridge:result', { operation, host, preview: Boolean(data?.preview) });
+    return;
+  }
+  if (operation === 'login_status') {
+    noteLibraryStep('qishui', 'bridge:result', { operation, signedIn: Boolean(data) });
+  }
+};
+
 function createQishuiApi(sessions) {
   const client = createClient({ sessions });
   const catalog = createCatalog(client);
@@ -1113,6 +1144,7 @@ function createQishuiApi(sessions) {
     async request(operation, raw = {}) {
       try {
         syncCaches();
+        noteLibraryStep('qishui', 'bridge:request', { operation });
         if (!QISHUI_OPERATIONS.includes(operation)) throw new QishuiError('unsupported', 'Unsupported Qishui operation');
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new QishuiError('invalid-response', 'Invalid Qishui parameters');
         const limit = Math.min(raw.limit ?? 30, 100);
@@ -1148,7 +1180,7 @@ function createQishuiApi(sessions) {
             break;
           }
           case 'playlist_detail': case 'playlist_tracks':
-            data = await catalog.playlist_tracks({ ...p, ownerId: raw.ownerId || '' });
+            data = await catalog.playlist_tracks({ ...p, ownerId: raw.ownerId || '', liked: raw.liked === true });
             if (operation === 'playlist_detail') data = data.collection || null;
             break;
           case 'feed_modes': data = await feed.modes(); break;
@@ -1184,6 +1216,7 @@ function createQishuiApi(sessions) {
           default:
             data = p.query === '' ? { items: [], hasMore: false, nextOffset: offset } : await catalog[operation](p);
         }
+        noteQishuiTrace(operation, data);
         if (!['logout', 'login_status', 'login_qr_check'].includes(operation) && nowUser() !== userId) {
           throw new QishuiError('unavailable', 'Qishui account changed during the request');
         }
