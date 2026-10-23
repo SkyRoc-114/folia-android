@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import type { MotionValue } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { getCacheUsageByCategory, clearCacheByCategory } from '../../services/db';
+import { forgetSettledDrumHits } from '../../services/analysis/drumHits';
 import { DualTheme, StageStatus, StageSource, Theme, ThemeMode, type NowPlayingConnectionStatus, type ReplayGainMode } from '../../types';
 import { getNavidromeConfig, saveNavidromeConfig, clearNavidromeConfig, hashPassword, navidromeApi, setNavidromeEnabled, getCachedNavidromeServerProfile, refreshNavidromeServerProfile, getNavidromeConfigOrigin, dismissNavidromeServerPreset } from '../../services/navidromeService';
 import { fetchNavidromeServerPreset, markNavidromeConfigAsPresetIfMatching, restoreNavidromeServerPreset } from '../../services/navidromeServerPreset';
@@ -391,6 +392,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         const aiSeed = directAiRuntime ? useAiClientSettingsStore.getState().settings : null;
         return {
             GEMINI_API_KEY: '',
+        GEMINI_API_MODEL: '',
+        AI_PROVIDER_PRESET: '',
             OPENAI_API_KEY: '',
             OPENAI_API_URL: aiSeed?.openaiApiUrl ?? '',
             OPENAI_API_MODEL: aiSeed?.openaiApiModel ?? '',
@@ -574,6 +577,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
             await (window as any).electron.saveSettings('OPENAI_API_MODEL', electronSettings.OPENAI_API_MODEL);
             await (window as any).electron.saveSettings('OPENAI_API_TEMPERATURE', temperature);
             await (window as any).electron.saveSettings('OPENAI_API_STREAM', electronSettings.OPENAI_API_STREAM === true);
+            await (window as any).electron.saveSettings('GEMINI_API_MODEL', electronSettings.GEMINI_API_MODEL);
+            await (window as any).electron.saveSettings('AI_PROVIDER_PRESET', electronSettings.AI_PROVIDER_PRESET);
             await (window as any).electron.saveSettings('AI_PROVIDER', electronSettings.AI_PROVIDER);
             await (window as any).electron.saveSettings('USE_SYSTEM_PROXY_FOR_AI', electronSettings.USE_SYSTEM_PROXY_FOR_AI);
             await (window as any).electron.saveSettings('ENABLE_UPDATE_CHECK', electronSettings.ENABLE_UPDATE_CHECK);
@@ -897,6 +902,8 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     const handleClear = async (category: CacheCategory) => {
         setIsCleaning(category);
         await clearCacheByCategory(category);
+        // The drum hits' memory of which tracks are stored goes with the stored analyses.
+        if (category === 'analysis') forgetSettledDrumHits();
         await fetchCacheUsage();
         setIsCleaning(null);
     };

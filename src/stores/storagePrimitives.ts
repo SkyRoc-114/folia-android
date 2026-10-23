@@ -19,6 +19,12 @@ export const setStoredBoolean = (key: string, value: boolean) => {
     }
 };
 
+export const setStoredString = (key: string, value: string) => {
+    if (typeof window !== 'undefined') {
+        localStorage.setItem(key, value);
+    }
+};
+
 export const getStoredString = (key: string, fallback: string) => {
     if (typeof window === 'undefined') {
         return fallback;
@@ -46,5 +52,11 @@ export const getStoredJson = <T>(key: string, fallback: T): T => {
 export const setStoredJson = (key: string, value: unknown) => {
     if (typeof window !== 'undefined') {
         localStorage.setItem(key, JSON.stringify(value));
+    }
+};
+
+export const removeStoredKey = (key: string) => {
+    if (typeof window !== 'undefined') {
+        localStorage.removeItem(key);
     }
 };

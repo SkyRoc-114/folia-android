@@ -105,6 +105,8 @@ export type KugouFailureDetails = {
     detail?: string;
     // The main process could not load KuGouMusicApi (`api=unloaded`).
     apiUnloaded?: boolean;
+    // A session is stored that the main process cannot load in this run (`session=unreadable`).
+    sessionUnreadable?: boolean;
 };
 
 const toFiniteNumber = (value: unknown): number | undefined => {
@@ -145,6 +147,7 @@ export const extractKugouFailureDetails = (error: unknown): KugouFailureDetails 
         errorCode: toFiniteNumber(fields.get('error_code')),
         detail: match[2]?.trim() || undefined,
         ...(fields.get('api') === 'unloaded' ? { apiUnloaded: true } : {}),
+        ...(fields.get('session') === 'unreadable' ? { sessionUnreadable: true } : {}),
     };
 };
 
@@ -157,6 +160,7 @@ export const isKugouAuthFailure = (details: Pick<KugouFailureDetails, 'status' |
 /**
  * Wraps an Electron IPC rejection into an OnlineProviderError so callers can tell a rejected login
  * (`auth-required`) from everything else (`network`) instead of seeing "[object Object]".
+ * A stored session the main process cannot load now is `unavailable`: the account is not known, not gone.
  */
 export const toKugouProviderError = (operation: KugouOperation, error: unknown): OnlineProviderError => {
     if (error instanceof OnlineProviderError) return error;
@@ -169,7 +173,7 @@ export const toKugouProviderError = (operation: KugouOperation, error: unknown):
     const suffix = details.detail ? `: ${details.detail}` : '';
     const authFailure = isKugouAuthFailure(details);
     return new OnlineProviderError(
-        authFailure ? 'auth-required' : 'network',
+        authFailure ? 'auth-required' : details.sessionUnreadable ? 'unavailable' : 'network',
         `${authFailure ? 'KuGou login required' : 'KuGou request failed'} (${summary})${suffix}`,
         'kugou',
         error,
