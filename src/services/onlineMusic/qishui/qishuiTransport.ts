@@ -1,5 +1,7 @@
 import { OnlineProviderError } from '../../../types/onlineMusic';
 import type { ProviderErrorCode } from '../../../types/onlineMusic';
+import { isFoliaExtensionBridgeConfigured, requestFoliaExtension } from '../../foliaExtensionBridge';
+import { IS_ANDROID_WEBVIEW } from '../../../utils/platform';
 import type { QishuiOperation, QishuiParams, QishuiBridgeResult } from 'qishui-music-api';
 
 // Typed renderer boundary for the car bridge; credentials and player models stay in the main process.
@@ -8,6 +10,7 @@ export type { QishuiOperation, QishuiParams, QishuiBridgeResult } from 'qishui-m
 // itself failed (the main process threw). qishuiFailure.ts tells both apart by them.
 export const QISHUI_NEEDS_DESKTOP = 'Qishui requires the desktop app';
 export const QISHUI_BRIDGE_FAILED = 'Qishui desktop request failed';
+export const QISHUI_ANDROID_FAILED = 'Qishui Android bridge request failed';
 const STAGES = ['access-code', 'ticket', 'account'] as const;
 export type QishuiLoginStage = typeof STAGES[number];
 // The last failure of a sign-in operation (login_*), for the sign-in diagnostics. Other requests made
@@ -20,16 +23,35 @@ export class QishuiRequestError extends OnlineProviderError {
         super(code, message, 'qishui');
     }
 }
+// 桌面走 Electron 主进程桥；安卓没有 Electron，走内置原生桥（nativeBridge/api/qishui.js）。
+// 只认 electron 的话，安卓上汽水会被判成「运行时不可用」，整个平台在界面上就消失了。
 export const getQishuiAvailability = () => (
-    typeof window !== 'undefined' && typeof window.electron?.qishuiRequest === 'function'
+    typeof window !== 'undefined'
+    && (typeof window.electron?.qishuiRequest === 'function' || IS_ANDROID_WEBVIEW)
         ? { configured: true } as const : { configured: false, reason: 'runtime-unavailable' } as const
 );
 export async function requestQishui<T = unknown>(operation: QishuiOperation, params: QishuiParams = {}): Promise<T> {
     if (operation === 'login_qr_key') lastFailure = null;
     if (!getQishuiAvailability().configured) throw new OnlineProviderError('unavailable', QISHUI_NEEDS_DESKTOP, 'qishui');
     let result: QishuiBridgeResult;
-    try { result = await window.electron!.qishuiRequest(operation, params); }
-    catch (error) { throw new OnlineProviderError('network', QISHUI_BRIDGE_FAILED, 'qishui', error); }
+    if (typeof window.electron?.qishuiRequest === 'function') {
+        try { result = await window.electron.qishuiRequest(operation, params); }
+        catch (error) { throw new OnlineProviderError('network', QISHUI_BRIDGE_FAILED, 'qishui', error); }
+    } else {
+        // Android：内置原生桥（nativeBridge/api/qishui.js 按同样的协议回答）。
+        if (!isFoliaExtensionBridgeConfigured('extension')) {
+            throw new OnlineProviderError('unavailable', QISHUI_NEEDS_DESKTOP, 'qishui');
+        }
+        try {
+            result = await requestFoliaExtension<QishuiBridgeResult>({
+                provider: 'qishui',
+                operation,
+                params,
+            });
+        } catch {
+            throw new OnlineProviderError('network', QISHUI_ANDROID_FAILED, 'qishui');
+        }
+    }
     if (!result.ok) {
         const stage = STAGES.find(stage => stage === result.error.stage) ?? null;
         const upstreamCode = typeof result.error.upstreamCode === 'string' && /^\d{1,12}$/.test(result.error.upstreamCode) ? result.error.upstreamCode : undefined;

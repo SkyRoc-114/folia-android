@@ -52,18 +52,51 @@ final class LocalAudioServer {
     /** 直接按绝对路径流原文件的 ref 前缀（文件系统兜底扫描出来的歌，不复制进私有目录）。 */
     private static final String FILE_PREFIX = "file-";
     /*
+     * 汽水音乐（抖音/字节）播放地址所在的 CDN 后缀。
+     *
+     * 播放地址来自 douyinvod / bytefcdn / zjcdn 这类字节域，qishui.com、douyin.com
+     * 自己也会直发流。单列一份是因为 Referer 要按这一族单独判（见 refererForHost），
+     * 下面那份白名单只是把它并进去。不要在这里写 com / cn 这种过宽的后缀：
+     * 这个数组决定本机能代谁去取流，宽一格就多一片可被滥用的目标。
+     */
+    private static final String[] BYTEDANCE_AUDIO_HOST_SUFFIXES = {
+        "douyinvod.com",
+        "bytefcdn.com",
+        "bytecdn.cn",
+        "byteicdn.com",
+        "ibytedtos.com",
+        "pstatp.com",
+        "bytedance.com",
+        "bytetos.com",
+        "volcvideo.com",
+        "volccdn.com",
+        "volces.com",
+        "volcengineapi.com",
+        "douyin.com",
+        "qishui.com",
+        "zijieapi.com",
+        "zjcdn.com",
+        "snssdk.com"
+    };
+    /*
      * 只能代哪些主机的远端音频。
      *
      * 这个服务监听在 127.0.0.1 上，设备上任何应用都能连上来 —— 放行任意 URL 就等于
-     * 开了一个「任读全网」的口子，所以按主机白名单收口。目前只有 Kuwo（波点）需要它：
-     * 它的 CDN 不下发 CORS 头，而 <audio> 带 crossOrigin="anonymous"，
-     * 于是播放被同源策略挡掉（表现是 MEDIA_ELEMENT_ERROR: Format error）。
+     * 开了一个「任读全网」的口子，所以按主机白名单收口。目前只有 Kuwo（波点）/ 网易 /
+     * 酷狗，以及汽水音乐（抖音/字节）需要它：它们的 CDN 不下发 CORS 头，而
+     * <audio> 带 crossOrigin="anonymous"，于是播放被同源策略挡掉
+     * （表现是 MEDIA_ELEMENT_ERROR: Format error）。
      */
-    private static final String[] REMOTE_AUDIO_HOST_SUFFIXES = { "kuwo.cn", "music.126.net", "kugou.com" };
+    private static final String[] REMOTE_AUDIO_HOST_SUFFIXES = withSuffixes(
+        new String[] { "kuwo.cn", "music.126.net", "kugou.com" },
+        BYTEDANCE_AUDIO_HOST_SUFFIXES
+    );
     private static final String REMOTE_AUDIO_USER_AGENT =
         "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Mobile Safari/537.36";
     private static final String REMOTE_AUDIO_REFERER = "https://www.kuwo.cn/";
     private static final String NETEASE_REMOTE_AUDIO_REFERER = "https://music.163.com/";
+    /** 汽水（抖音）的 CDN 只认自家站点来的请求，桌面站点的 Referer 会被拒或被回错误页。 */
+    private static final String BYTEDANCE_REMOTE_AUDIO_REFERER = "https://music.douyin.com/";
     private final Context context;
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final OkHttpClient remoteAudioClient = new OkHttpClient.Builder()
@@ -152,25 +185,72 @@ final class LocalAudioServer {
 
     /** 有些 CDN 看 Referer 决定给不给资源：不带时回的是一段 HTML 而不是音频。 */
     private static String remoteAudioReferer(String value) {
+        String host;
         try {
-            String host = new URL(value).getHost();
-            if (host != null && (host.equals("music.126.net") || host.endsWith(".music.126.net"))) {
-                return NETEASE_REMOTE_AUDIO_REFERER;
-            }
-            // 酷狗 CDN 对没有 Referer 的请求有时回错误页；带上官网 Referer 与普通移动 UA 即可。
-            if (host != null && (host.equals("kugou.com") || host.endsWith(".kugou.com"))) {
-                return "https://www.kugou.com/";
-            }
+            host = new URL(value).getHost();
         } catch (Exception ignored) {
             return REMOTE_AUDIO_REFERER;
         }
+        return refererForHost(host);
+    }
+
+    /**
+     * 按主机挑 Referer。
+     *
+     * 汽水（抖音）的 CDN 只认自家站点来的请求：带 www.kuwo.cn 那种无关的 Referer
+     * 会被回成一段 HTML 或 403，喂进 <audio> 就是 "Format error"。所以这一族主机
+     * 统一发 music.douyin.com；UA 仍然是上面那条移动 Chrome，不发 LunaOpenSDK 的
+     * 客户端 UA —— 那套 UA 是桌面端登录链路的，拿它取流反而容易被判成异常客户端。
+     */
+    static String refererForHost(String host) {
+        String normalized = host == null ? "" : host.toLowerCase(Locale.ROOT);
+        if (matchesHost(normalized, "music.126.net")) return NETEASE_REMOTE_AUDIO_REFERER;
+        // 酷狗 CDN 对没有 Referer 的请求有时回错误页；带上官网 Referer 与普通移动 UA 即可。
+        if (matchesHost(normalized, "kugou.com")) return "https://www.kugou.com/";
+        if (isByteDanceHost(normalized)) return BYTEDANCE_REMOTE_AUDIO_REFERER;
         return REMOTE_AUDIO_REFERER;
+    }
+
+    /** 汽水/抖音那批 CDN 主机（含 qishui.com、douyin.com 自身）。 */
+    private static boolean isByteDanceHost(String host) {
+        if (host.isEmpty()) return false;
+        for (String suffix : BYTEDANCE_AUDIO_HOST_SUFFIXES) {
+            if (matchesHost(host, suffix)) return true;
+        }
+        return false;
+    }
+
+    /** 主机正好是后缀本身，或者是它的子域。 */
+    private static boolean matchesHost(String host, String suffix) {
+        return host.equals(suffix) || host.endsWith("." + suffix);
     }
 
     private static boolean isRemoteAudioHostAllowed(String host) {
         if (host.isEmpty()) return false;
         for (String suffix : REMOTE_AUDIO_HOST_SUFFIXES) {
-            if (host.equals(suffix) || host.endsWith("." + suffix)) return true;
+            if (matchesHost(host, suffix)) return true;
+        }
+        return false;
+    }
+
+    /** 把几组主机后缀并成一份白名单；域名只在各自的数组里写一次。 */
+    private static String[] withSuffixes(String[]... groups) {
+        int total = 0;
+        for (String[] group : groups) total += group.length;
+        String[] merged = new String[total];
+        int offset = 0;
+        for (String[] group : groups) {
+            System.arraycopy(group, 0, merged, offset, group.length);
+            offset += group.length;
+        }
+        return merged;
+    }
+
+    /** 调用方带来的头里有没有这一条（HTTP 头名不分大小写，Map 的键却是大小写敏感的）。 */
+    private static boolean hasHeader(Map<String, String> headers, String name) {
+        if (headers == null) return false;
+        for (String key : headers.keySet()) {
+            if (name.equalsIgnoreCase(key)) return true;
         }
         return false;
     }
@@ -379,9 +459,16 @@ final class LocalAudioServer {
         Request.Builder request = new Request.Builder().url(target);
         // 有些 CDN 看 UA / Referer 决定给不给资源，不带的话会回一段 HTML 而不是音频
         // —— 那种回包喂进 <audio> 正是「Format error」的经典来源。
-        request.header("User-Agent", REMOTE_AUDIO_USER_AGENT);
-        request.header("Referer", remoteAudioReferer(target));
-        // 调用方带来的头（飞牛的 music-token）最后写：同名的以它为准。
+        //
+        // 默认值只补空缺：调用方显式给了 UA / Referer（汽水的 CDN 有时要带自己的）时，
+        // 不再写默认值，同名的头以调用方为准。HTTP 头不分大小写，所以这里按忽略大小写判。
+        if (!hasHeader(extraHeaders, "user-agent")) {
+            request.header("User-Agent", REMOTE_AUDIO_USER_AGENT);
+        }
+        if (!hasHeader(extraHeaders, "referer")) {
+            request.header("Referer", remoteAudioReferer(target));
+        }
+        // 调用方带来的头（汽水的 Referer/UA、飞牛的 music-token）最后写：同名的以它为准。
         if (extraHeaders != null) {
             for (Map.Entry<String, String> entry : extraHeaders.entrySet()) {
                 request.header(entry.getKey(), entry.getValue());
@@ -401,16 +488,14 @@ final class LocalAudioServer {
             String contentType = body.contentType() != null ? body.contentType().toString() : "audio/mpeg";
             String contentRange = upstream.header("Content-Range");
             long size = body.contentLength();
-            // 上游不给长度（chunked）时，拿 Content-Range 里的 total 兜底。
+            // 上游不给长度（chunked）时用 Content-Range 兜底，但要分清是哪一段：
+            // 206 的 Content-Length 必须是「这一段」的字节数，拿 Content-Range 里的 total
+            // 顶上去，发出去的字节比头部声明少，播放器就会一直等剩下的数据（拖进度条后卡住）；
+            // 200 的 Content-Length 才是整首长度。
             if (size < 0 && contentRange != null) {
-                int slash = contentRange.indexOf('/');
-                if (slash >= 0 && slash + 1 < contentRange.length()) {
-                    try {
-                        size = Long.parseLong(contentRange.substring(slash + 1).trim());
-                    } catch (NumberFormatException ignored) {
-                        size = -1;
-                    }
-                }
+                size = upstream.code() == 206
+                    ? contentRangeWidth(contentRange)
+                    : contentRangeTotal(contentRange);
             }
             boolean partial = upstream.code() == 206 || contentRange != null;
 
@@ -453,6 +538,32 @@ final class LocalAudioServer {
 
     private interface StreamSupplier {
         InputStream open() throws IOException;
+    }
+
+    /** "bytes 100-199/1000" → 100（这一段有多少字节）；解析不出来回 -1。 */
+    private static long contentRangeWidth(String contentRange) {
+        int space = contentRange.indexOf(' ');
+        int dash = space < 0 ? -1 : contentRange.indexOf('-', space + 1);
+        int slash = dash < 0 ? -1 : contentRange.indexOf('/', dash + 1);
+        if (dash < 0 || slash < 0) return -1;
+        try {
+            long start = Long.parseLong(contentRange.substring(space + 1, dash).trim());
+            long end = Long.parseLong(contentRange.substring(dash + 1, slash).trim());
+            return end - start + 1;
+        } catch (NumberFormatException ignored) {
+            return -1;
+        }
+    }
+
+    /** "bytes 100-199/1000" → 1000（整首有多大）；解析不出来回 -1。 */
+    private static long contentRangeTotal(String contentRange) {
+        int slash = contentRange.indexOf('/');
+        if (slash < 0 || slash + 1 >= contentRange.length()) return -1;
+        try {
+            return Long.parseLong(contentRange.substring(slash + 1).trim());
+        } catch (NumberFormatException ignored) {
+            return -1;
+        }
     }
 
     private void writeResponse(

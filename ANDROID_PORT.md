@@ -290,3 +290,53 @@ Android 改动贴到新结构上。
 **待办**
 - 真机验证登录（系统浏览器 → 回调 → 回到 App 后平台显示已登录、歌单/喜欢可读）
 - Android 播放：暂关闭完整播放（无 librespot）；计划用 30 秒 preview_url 试听
+### 0.7.22 同步（android-0.7.22）与汽水音乐安卓移植
+
+上游 v0.7.22（tag `v0.7.22`）已合并进 `android-0.7.22` 分支（合并提交记录了 18 个冲突的处理：
+网易云登录态改用上游新版 `getLoginStatus`/`signInRanOut`，QQ 保留资料缓存并并入
+`signedOutUnlessStoreUnreadable`，书库首页保留安卓设备扫描，Bravais 保留探索诊断，
+AI 合并上游模型发现/预设接口并保留安卓直连运行时；`package-lock` 采用上游后重新 `npm install`）。
+
+汽水音乐（qishui）是 v0.7.22 新增平台，上游实现**只跑 Electron 主进程**：
+`src/services/onlineMusic/qishui/qishuiTransport.ts` 只认 `window.electron.qishuiRequest`，
+协议包 `qishui-music-api@0.2.2` 用 `node:crypto`（P-256 生成/签名、PKCS#10 CSR、MD5）与 `Buffer`，
+`<audio crossOrigin>` 依赖主进程 `mediaCors` 重写 CORS。安卓（Capacitor WebView）没有这些，
+按波点（bodian）同构方案移植：
+
+1. **`src/nativeBridge/api/qishui.js`（新增，约 1200 行）**
+   - `qishui-music-api@0.2.2` 全部 25 个 operation 的浏览器移植：
+     `login_status/logout/login_qr_key/create/check/cancel`、搜索/歌单/歌曲/歌词/艺人、
+     `feed/feed_modes`、`liked_songs/like_song/...`、`recent_played/check_tracks/dislike_song`
+   - `node:crypto` 全部替换：P-256 用 WebCrypto（`https://localhost` 是安全上下文），
+     ECDSA raw `r||s` 转 DER、PKCS#10 CSR 用 Uint8Array 手工拼（与原 Buffer 实现逐字节一致）；
+     MD5 常量硬编码；`randomBytes/randomUUID` 用 WebCrypto
+   - 会话/设备号存 localStorage（`qishuiDeviceId`、`qishuiSessionV1`），revision 变化时清
+     feed 队列与歌单游标缓存；错误契约与桌面桥一致（`ok/error{code,message,stage,upstreamCode}`）
+   - 出口 `handleQishuiRequest`，由 `src/nativeBridge/api/folia.js` 分发（在 netease 兜底之前）
+2. **传输层**：`qishuiTransport.ts` 的可用性判定接受 `IS_ANDROID_WEBVIEW`；安卓分支走
+   `requestFoliaExtension({ provider:'qishui' })`（`FoliaBridgeProvider` 加 `'qishui'`）；
+   桥通道失败在 `qishuiFailure.ts` 映射为 `local-service-stopped`
+3. **原生 HTTP**：汽水接口无 ACAO 且要求 `LunaOpenSDK/1.0.10` UA → 走
+   `FoliaNative.httpRequest`（OkHttp）。`nativeAndroidBridge.ts` 的 `API_HOSTS` 加
+   qishui/douyin/bytedance/volc/byte 等主机；`credentials:'omit'` 时向 Java 传
+   `sendCookies:false`（对齐桌面桥不带 cookie）
+4. **原生媒体**：`LocalAudioServer.java` 的远端音频白名单加 17 条字节/汽水 CDN 后缀
+   （douyinvod / bytefcdn / zjcdn / snssdk 等），`refererForHost()` 对字节族发
+   `https://music.douyin.com/`（UA 仍为移动 Chrome，不发 LunaOpenSDK）；
+   `FoliaNativePlugin.registerRemoteAudio` 支持可选 `headers`（显式头优先）；
+   顺带修了既有 206+chunked 场景 `Content-Length` 用 total 导致播放器卡住的边界问题
+5. **测试**：新增 `test/unit/qishui/androidAvailability.test.ts`、
+   `test/unit/qishui/protocolPort.test.ts`（DER/CSR/常量/session/错误包装）；
+   `platformNamePlaces.ts` 登记 qishui 计数
+
+**已知边界/风险（真机需验证）**
+- CSR/PKCS#10 由 WebCrypto 生成，结构与协议包逐字节一致，但服务端是否接受只能在真机确认
+- `bd-ticket-guard-server-data` 依赖 OkHttp 原样回传，再由 fetch shim 复制进 `Response.headers`
+- `AbortSignal.timeout` 对 shim 不生效，实际超时由 shim `foliaTimeoutMs` + Java `timeoutMs` 兜底；
+  `redirect:'error'` 在 Java 侧退化为 follow
+- 会话目前是 localStorage 明文（与波点 token 同级）；后续可换 Android Keystore 加密
+- 加密音频协议只回 `unsupported`（映射 `no-audio`），这是协议边界
+- 汽水 CDN 是否校验 Referer/UA、是否 302 到白名单外主机，需真机抓包确认
+
+构建：`npm run build:capacitor` → `npx cap sync android` → `android/gradlew.bat assembleDebug`。
+版本 `0.7.22-android.272`（versionCode 310）。

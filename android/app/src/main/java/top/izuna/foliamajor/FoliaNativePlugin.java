@@ -44,8 +44,10 @@ import java.lang.reflect.Method;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.Headers;
@@ -306,7 +308,13 @@ public class FoliaNativePlugin extends Plugin {
             }
             // OkHttp has no cookie jar here, so carry the WebView cookie store
             // ourselves unless the caller injected an explicit Cookie header.
-            if (headers == null || headers.optString("cookie") == null) {
+            //
+            // sendCookies=false 是给桌面桥那套 credentials:'omit' 用的：汽水（抖音）的接口
+            // 按不带登录态的匿名请求取流，若这里偷偷补上 WebView 里残留的抖音 Cookie，
+            // 拿到的就可能是另一份（甚至 401 的）响应。显式的 Cookie 头仍然照发：
+            // 调用方自己要的凭据不能被这个开关吞掉。
+            boolean sendCookies = Boolean.TRUE.equals(call.getBoolean("sendCookies", true));
+            if (sendCookies && !hasHeader(headers, "cookie")) {
                 String storedCookies = CookieManager.getInstance().getCookie(url);
                 if (storedCookies != null && !storedCookies.isEmpty()) {
                     builder.header("Cookie", storedCookies);
@@ -385,6 +393,16 @@ public class FoliaNativePlugin extends Plugin {
         } catch (IOException | IllegalArgumentException error) {
             call.reject(error.getMessage(), error);
         }
+    }
+
+    /** JS 传过来的请求头有没有这一条；HTTP 头名不分大小写，JSON 键却是原样保留的。 */
+    private static boolean hasHeader(JSObject headers, String name) {
+        if (headers == null || name == null) return false;
+        Iterator<String> names = headers.keys();
+        while (names.hasNext()) {
+            if (name.equalsIgnoreCase(names.next())) return true;
+        }
+        return false;
     }
 
     private void storeResponseCookies(String requestUrl, Response response) {
@@ -492,13 +510,31 @@ public class FoliaNativePlugin extends Plugin {
         }
         try {
             if (localAudioServer == null) localAudioServer = new LocalAudioServer(getContext());
-            String localUrl = localAudioServer.registerRemoteAudio(url);
+            // 汽水（抖音）那批 CDN 的流地址有时只认特定的 Referer / UA / 自定义头，
+            // 而 <audio> 自己一条头都加不了，只能注册时把调用方要的头带进来。
+            // 不传 headers 时走和以前完全一样的那条路（本地服务补默认 UA / Referer）。
+            String localUrl = localAudioServer.registerRemoteAudio(url, headerMap(call.getObject("headers")), false);
             JSObject result = new JSObject();
             result.put("url", localUrl);
             call.resolve(result);
         } catch (Exception error) {
             call.reject(error.getMessage(), error);
         }
+    }
+
+    /** JSObject（字符串字典）→ 请求头 Map；空对象与不传等价，返回 null。 */
+    private static Map<String, String> headerMap(JSObject source) {
+        if (source == null) return null;
+        Map<String, String> headers = new LinkedHashMap<>();
+        Iterator<String> names = source.keys();
+        while (names.hasNext()) {
+            String name = names.next();
+            if (name == null || name.isEmpty()) continue;
+            String value = source.optString(name, null);
+            if (value == null) continue;
+            headers.put(name, value);
+        }
+        return headers.isEmpty() ? null : headers;
     }
 
     @PluginMethod

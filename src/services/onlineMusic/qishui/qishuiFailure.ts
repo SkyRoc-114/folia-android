@@ -1,6 +1,6 @@
 import { OnlineProviderError } from '../../../types/onlineMusic';
 import type { OnlineFailureDetail, OnlineFailureOperation } from '../../../types/onlineMusic';
-import { QISHUI_BRIDGE_FAILED, QISHUI_NEEDS_DESKTOP, QishuiRequestError } from './qishuiTransport';
+import { QISHUI_ANDROID_FAILED, QISHUI_BRIDGE_FAILED, QISHUI_NEEDS_DESKTOP, QishuiRequestError } from './qishuiTransport';
 
 // src/services/onlineMusic/qishui/qishuiFailure.ts
 // What a Qishui request for a song's audio or a collection's tracks that failed hands to the shared
@@ -20,6 +20,8 @@ export const describeQishuiFailure = (_operation: OnlineFailureOperation, error:
     if (error.message === QISHUI_NEEDS_DESKTOP) return { case: 'not-configured' };
     // The bridge itself failed (the main process threw): the local side, not the network.
     if (error.message === QISHUI_BRIDGE_FAILED) return { case: 'local-service-stopped' };
+    // 安卓没有 Electron 主进程：内置原生桥的消息通道没答（超时、未装桥、页面重载）。
+    if (error.message === QISHUI_ANDROID_FAILED) return { case: 'local-service-stopped' };
     // Nobody is signed in: say "sign in to play", not "the sign-in ran out".
     if (error.code === 'auth-required' && error.message === SIGNED_OUT) return { signedOut: true };
     // Only encrypted audio came back: there is no address Folia can play, and asking again gives the same.

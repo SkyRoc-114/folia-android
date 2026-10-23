@@ -35,6 +35,12 @@ const SENTINELS = [
     'ne:qr:key:start',
     // 播放失败可见化
     'media-error-',
+    // 0.7.22 汽水音乐安卓桥：协议移植、可用性、原生 HTTP/媒体白名单
+    'qishuiSessionV1',
+    'Qishui Android bridge request failed',
+    'LunaOpenSDK/1.0.10',
+    'sendCookies',
+    'qishuiDeviceId',
 ];
 
 const extra = [];

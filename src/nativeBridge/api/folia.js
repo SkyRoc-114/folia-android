@@ -93,6 +93,7 @@ import {
   handleKGUserCloud,
 } from './kugou.js';
 import { handleBodianRequest } from './bodian.js';
+import { handleQishuiRequest } from './qishui.js';
 import { handleSpotifyRequest } from './spotify.js';
 
 function firstValue(...values) {
@@ -1418,6 +1419,9 @@ export async function handleFoliaApiRequest(input) {
   }
   if (input?.provider === 'bodian') {
     return await handleBodianRequest(String(input.operation || ''), input.params || body || {});
+  }
+  if (input?.provider === 'qishui') {
+    return await handleQishuiRequest(String(input.operation || ''), input.params || body || {});
   }
   if (input?.provider === 'qq') {
     return await handleFoliaQqRequest(input, url);

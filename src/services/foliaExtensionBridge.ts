@@ -7,7 +7,7 @@ const BRIDGE_REQUEST_TIMEOUT_MS = 45_000;
 
 export const FOLIA_EXTENSION_API_BASE = 'extension';
 
-export type FoliaBridgeProvider = 'netease' | 'qq' | 'kugou' | 'bodian' | 'qq_raw' | 'spotify' | 'ytm';
+export type FoliaBridgeProvider = 'netease' | 'qq' | 'kugou' | 'bodian' | 'qishui' | 'qq_raw' | 'spotify' | 'ytm';
 
 export interface FoliaBridgeRequest {
   provider: FoliaBridgeProvider;
