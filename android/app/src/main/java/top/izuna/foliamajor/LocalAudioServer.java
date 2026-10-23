@@ -12,7 +12,6 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -28,7 +27,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.regex.Pattern;
 
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
@@ -38,40 +36,18 @@ import okhttp3.ResponseBody;
 /**
  * 本地音频流服务器。
  *
- * 来源：
+ * 两种来源：
  *   /audio/<MediaStore id>          系统媒体库里的文件
  *   /audio/imported-<file name>     通过系统文件管理器挑选后复制进 App 私有目录的文件
- *   /remote-audio/<token>           代转发的远端音频（白名单主机）
- *   /media-cache/<id>               媒体缓存副本（App 私有目录，可写可读可删）
- *   /media-cache-stats              媒体缓存的 {count, bytes}
  *
  * WebView 的 <audio> 播不了 content:// 这种 URI，也不认 App 私有目录里的路径，
  * 所以原生起一个只监听 127.0.0.1 的小服务，把音频以 http 的形式喂回去。
  * 必须支持 Range：<audio> 拖进度、以及某些格式要先读文件尾部的元数据，都靠它。
- *
- * <p>线程：{@code cachedThreadPool} 一个连接一个线程，请求体（PUT）就在自己那条连接
- * 线程上流式读，不会占住别人的 GET / HEAD —— 并发上传和边传边播都不用另外排队。
- * 池子不设上限是故意的：这个服务只监听回环，连接数由本应用自己控制。
  */
 final class LocalAudioServer {
     private static final String TAG = "LocalAudioServer";
     private static final String AUDIO_PATH_PREFIX = "/audio/";
     private static final String REMOTE_AUDIO_PATH_PREFIX = "/remote-audio/";
-    /** 媒体缓存副本：GET/HEAD/PUT/DELETE 都走这个前缀。 */
-    private static final String MEDIA_CACHE_PATH_PREFIX = "/media-cache/";
-    /** 不带尾斜杠的目录本身：只接 DELETE（清空整个缓存）。 */
-    private static final String MEDIA_CACHE_DIRECTORY_PATH = "/media-cache";
-    /** 缓存占用统计：{count, bytes}。 */
-    private static final String MEDIA_CACHE_STATS_PATH = "/media-cache-stats";
-    /** 缓存 id 只允许 base64url（Web 侧 id = base64url(cacheKey)）；点号留给 sidecar。 */
-    private static final Pattern MEDIA_CACHE_ID_PATTERN = Pattern.compile("[A-Za-z0-9_-]{1,120}");
-    /** sidecar 后缀：<id>.mime 里存 PUT 时的 Content-Type。 */
-    private static final String MEDIA_CACHE_MIME_SUFFIX = ".mime";
-    /** 没有 sidecar / sidecar 坏了时的兜底类型。 */
-    private static final String DEFAULT_MEDIA_CACHE_MIME = "audio/mpeg";
-    private static final String CORS_ALLOW_METHODS = "GET, HEAD, PUT, DELETE, OPTIONS";
-    private static final String CORS_ALLOW_HEADERS = "range, content-range, content-length, content-type";
-    private static final String CORS_EXPOSE_HEADERS = "range, content-range, content-length, accept-ranges";
     private static final String IMPORTED_PREFIX = "imported-";
     /** 直接按绝对路径流原文件的 ref 前缀（文件系统兜底扫描出来的歌，不复制进私有目录）。 */
     private static final String FILE_PREFIX = "file-";
@@ -286,101 +262,6 @@ final class LocalAudioServer {
         return dir;
     }
 
-    /**
-     * 媒体缓存副本存放位置：<filesDir>/media-cache/。
-     *
-     * 在线歌播过一次之后，字节从 WebView 的 IndexedDB 搬到 App 私有目录，播放器拿
-     * http://127.0.0.1:<port>/media-cache/<id> 直接播。blob: 对 ExoPlayer 来说是个
-     * 它不认识的 scheme，只能回落 <audio>；换成回环 HTTP 之后两条播放路径都能吃。
-     */
-    File mediaCacheDirectory() {
-        File dir = new File(context.getFilesDir(), "media-cache");
-        if (!dir.exists()) dir.mkdirs();
-        return dir;
-    }
-
-    /** 缓存 id 白名单：base64url 字符集、1..120 字符，拒绝路径穿越与隐藏文件。 */
-    private static boolean isMediaCacheIdValid(String id) {
-        return id != null && MEDIA_CACHE_ID_PATTERN.matcher(id).matches();
-    }
-
-    /**
-     * 媒体缓存的 {count, bytes}。
-     *
-     * sidecar（.mime）与写一半的 .part 不算，否则「缓存占用」会随每首歌多出几十字节，
-     * 统计也跟实际能播的份数对不上。
-     */
-    private long[] mediaCacheStats() {
-        File[] files = mediaCacheDirectory().listFiles();
-        long count = 0;
-        long bytes = 0;
-        if (files != null) {
-            for (File file : files) {
-                if (!file.isFile()) continue;
-                String name = file.getName();
-                if (name.endsWith(MEDIA_CACHE_MIME_SUFFIX) || name.endsWith(".part")) continue;
-                count += 1;
-                bytes += file.length();
-            }
-        }
-        return new long[] { count, bytes };
-    }
-
-    /** 清空整个媒体缓存目录（含 sidecar / 残骸）。 */
-    private int clearMediaCache() {
-        File[] files = mediaCacheDirectory().listFiles();
-        if (files == null) return 0;
-        int removed = 0;
-        for (File file : files) {
-            if (file.isFile() && file.delete()) removed += 1;
-        }
-        return removed;
-    }
-
-    /** sidecar 里存的 Content-Type；没有、读不动、内容不像话时回 audio/mpeg。 */
-    private String readMediaCacheMime(File directory, String id) {
-        File sidecar = new File(directory, id + MEDIA_CACHE_MIME_SUFFIX);
-        if (!sidecar.isFile() || sidecar.length() <= 0 || sidecar.length() > 256) {
-            return DEFAULT_MEDIA_CACHE_MIME;
-        }
-        byte[] buffer = new byte[(int) sidecar.length()];
-        try (InputStream input = new FileInputStream(sidecar)) {
-            int read = 0;
-            while (read < buffer.length) {
-                int current = input.read(buffer, read, buffer.length - read);
-                if (current == -1) break;
-                read += current;
-            }
-            String value = new String(buffer, 0, read, StandardCharsets.UTF_8);
-            return normalizeMediaCacheMime(value);
-        } catch (IOException error) {
-            Log.w(TAG, "media cache mime unreadable: " + id, error);
-            return DEFAULT_MEDIA_CACHE_MIME;
-        }
-    }
-
-    /** 把调用方给的 Content-Type 收成一行安全值（header 里不能带 CR/LF）。 */
-    private static String normalizeMediaCacheMime(String raw) {
-        if (raw == null) return DEFAULT_MEDIA_CACHE_MIME;
-        String value = raw.trim();
-        if (value.isEmpty() || value.length() > 120) return DEFAULT_MEDIA_CACHE_MIME;
-        for (int index = 0; index < value.length(); index += 1) {
-            char current = value.charAt(index);
-            if (current < 0x20 || current == 0x7f) return DEFAULT_MEDIA_CACHE_MIME;
-        }
-        return value;
-    }
-
-    /** 写 sidecar；失败只记日志，不影响副本本身（读的时候会回 audio/mpeg）。 */
-    private void writeMediaCacheMime(File directory, String id, String mime) {
-        File sidecar = new File(directory, id + MEDIA_CACHE_MIME_SUFFIX);
-        try (OutputStream output = new FileOutputStream(sidecar)) {
-            output.write(normalizeMediaCacheMime(mime).getBytes(StandardCharsets.UTF_8));
-        } catch (IOException error) {
-            Log.w(TAG, "media cache mime write failed: " + id, error);
-        }
-    }
-
     private void handle(Socket socket) {
         try (Socket client = socket;
              BufferedInputStream input = new BufferedInputStream(client.getInputStream());
@@ -402,77 +283,27 @@ final class LocalAudioServer {
                 }
             }
 
-            String rawPath = requestParts[1];
-            int queryAt = rawPath.indexOf('?');
-            String queryString = queryAt >= 0 ? rawPath.substring(queryAt + 1) : "";
-            String path = queryAt >= 0 ? rawPath.substring(0, queryAt) : rawPath;
-            String method = requestParts[0];
+            String path = requestParts[1];
+            int query = path.indexOf('?');
+            if (query >= 0) path = path.substring(0, query);
             /*
              * 预检（OPTIONS）必须自己答。
              *
              * 跨源请求只要带了 Range 之外的头、或者某些 WebView 版本对 Range 也走预检，
              * 浏览器就会先发一个 OPTIONS —— 服务不答就是 CORS 失败，
              * 而失败的表现和「文件不存在」一模一样（mediaErrorCode=4）。
-             * 媒体缓存的 PUT/DELETE 还会带 Content-Type，所以这里的方法与头都要放行；
-             * 答一个 204 之后，探测、播放、上传三条路都才走得通。
+             * 答一个 204 并放行 Range，探测和播放两条路都才走得通。
              */
-            if ("OPTIONS".equals(method)) {
+            if ("OPTIONS".equals(requestParts[0])) {
                 String response = "HTTP/1.1 204 No Content\r\n"
                     + "Access-Control-Allow-Origin: *\r\n"
-                    + "Access-Control-Allow-Methods: " + CORS_ALLOW_METHODS + "\r\n"
-                    + "Access-Control-Allow-Headers: " + CORS_ALLOW_HEADERS + "\r\n"
-                    + "Access-Control-Expose-Headers: " + CORS_EXPOSE_HEADERS + "\r\n"
+                    + "Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n"
+                    + "Access-Control-Allow-Headers: range, content-range, content-length\r\n"
+                    + "Access-Control-Expose-Headers: range, content-range, content-length, accept-ranges\r\n"
                     + "Access-Control-Max-Age: 86400\r\n"
                     + "Content-Length: 0\r\nConnection: close\r\n\r\n";
                 output.write(response.getBytes(StandardCharsets.US_ASCII));
                 output.flush();
-                return;
-            }
-            if (MEDIA_CACHE_STATS_PATH.equals(path)) {
-                if ("GET".equals(method) || "HEAD".equals(method)) {
-                    writeMediaCacheStats(output, "HEAD".equals(method));
-                } else {
-                    writeStatus(output, 405, "Method Not Allowed");
-                }
-                return;
-            }
-            /*
-             * 媒体缓存目录本身：DELETE 清空整个目录。
-             *
-             * /media-cache 与 /media-cache/ 两种写法都收：Web 侧把 base 拼出来时尾斜杠
-             * 很容易多一个，为这个回 404 没有意义。
-             */
-            if (MEDIA_CACHE_DIRECTORY_PATH.equals(path) || (MEDIA_CACHE_DIRECTORY_PATH + "/").equals(path)) {
-                if ("DELETE".equals(method)) {
-                    int removed = clearMediaCache();
-                    Log.i(TAG, "media cache cleared (" + removed + " files)");
-                    writeNoContent(output);
-                } else {
-                    writeStatus(output, 405, "Method Not Allowed");
-                }
-                return;
-            }
-            if (path.startsWith(MEDIA_CACHE_PATH_PREFIX)) {
-                String id = decodePathSegment(path.substring(MEDIA_CACHE_PATH_PREFIX.length()));
-                if (id == null) {
-                    writeStatus(output, 400, "Bad Request");
-                    return;
-                }
-                if (!isMediaCacheIdValid(id)) {
-                    // 路径穿越 / 点号 / 超长一律挡在拼路径之前。
-                    Log.w(TAG, "media cache id refused: " + id);
-                    writeStatus(output, 400, "Bad Request");
-                    return;
-                }
-                if ("PUT".equals(method)) {
-                    writeMediaCacheFile(input, output, headers, id);
-                } else if ("DELETE".equals(method)) {
-                    deleteMediaCacheFile(output, id, queryString);
-                } else if ("GET".equals(method) || "HEAD".equals(method)) {
-                    streamMediaCacheFile(output, requestParts, headers, id);
-                } else {
-                    writeStatus(output, 405, "Method Not Allowed");
-                }
                 return;
             }
             if (path.startsWith(REMOTE_AUDIO_PATH_PREFIX)) {
@@ -705,250 +536,6 @@ final class LocalAudioServer {
         }
     }
 
-    /**
-     * 读一份媒体缓存副本（GET / HEAD /media-cache/<id>）。
-     *
-     * 直接复用 writeResponse：Range / 206 / Content-Range / CORS 只写一遍。ExoPlayer
-     * 拖进度和 <audio> 探元数据都靠 Range，少了它播放器会整首重下。
-     */
-    private void streamMediaCacheFile(
-        BufferedOutputStream output,
-        String[] requestParts,
-        Map<String, String> headers,
-        String id
-    ) throws IOException {
-        File directory = mediaCacheDirectory();
-        File target = new File(directory, id);
-        if (!target.isFile()) {
-            Log.w(TAG, "media cache copy missing: " + id);
-            writeStatus(output, 404, "Not Found");
-            return;
-        }
-        writeResponse(
-            output,
-            requestParts,
-            headers,
-            target.length(),
-            readMediaCacheMime(directory, id),
-            () -> new FileInputStream(target)
-        );
-    }
-
-    /**
-     * 存一份媒体缓存副本（PUT /media-cache/<id>）。
-     *
-     * 字节走 HTTP 请求体，不走 Capacitor 桥：桥只有一条，几 MB 的 base64 压上去，
-     * 位置事件和别的调用全在排队。
-     *
-     * <p>先写临时 .part 再 rename：写一半被杀不会把一份坏字节留成「这首歌」，而坏副本
-     * 正是下一次播放会读到的那份（症状是「播到一半断了，之后永远播不了」）。临时名带
-     * 纳秒：同一个 id 并发 PUT 时各自写各自的 .part，不会互相踩。
-     *
-     * <p>请求体支持 Content-Length 和 Transfer-Encoding: chunked 两种；后者是 Web 侧
-     * 用 ReadableStream 做 body 时浏览器会选的编码，不能只会读定长。
-     */
-    private void writeMediaCacheFile(
-        BufferedInputStream input,
-        BufferedOutputStream output,
-        Map<String, String> headers,
-        String id
-    ) throws IOException {
-        String mime = normalizeMediaCacheMime(headers.get("content-type"));
-        long declared = parseLongOr(headers.get("content-length"), -1);
-        String transferEncoding = headers.get("transfer-encoding");
-        boolean chunked = transferEncoding != null
-            && transferEncoding.toLowerCase(Locale.ROOT).contains("chunked");
-        if (declared <= 0 && !chunked) {
-            // 没有长度就没法判断「写完了没有」：宁可 411，也不留半份副本。
-            writeStatus(output, 411, "Length Required");
-            return;
-        }
-        File directory = mediaCacheDirectory();
-        File target = new File(directory, id);
-        File temp = new File(directory, id + "-" + System.nanoTime() + ".part");
-        long written = 0;
-        try (OutputStream fileOutput = new BufferedOutputStream(new FileOutputStream(temp))) {
-            if (chunked) {
-                written = copyChunkedBody(input, fileOutput);
-            } else {
-                byte[] buffer = new byte[64 * 1024];
-                while (written < declared) {
-                    int read = input.read(buffer, 0, (int) Math.min(buffer.length, declared - written));
-                    if (read == -1) break;
-                    fileOutput.write(buffer, 0, read);
-                    written += read;
-                }
-            }
-        }
-        // chunked 时 Content-Length 按 RFC 应被忽略（有些客户端会同时发一个旧的），
-        // 完整性只看 chunked 自己的结束块。
-        if (written <= 0 || (!chunked && declared > 0 && written != declared)) {
-            temp.delete();
-            Log.w(TAG, "media cache write short: " + written + "/" + declared + " id=" + id);
-            writeStatus(output, 400, "Incomplete Body");
-            return;
-        }
-        if (!temp.renameTo(target)) {
-            // 目标已存在时个别实现会拒绝 rename：清掉再试一次（同一 id 是覆盖写）。
-            target.delete();
-            if (!temp.renameTo(target)) {
-                temp.delete();
-                Log.w(TAG, "media cache rename failed: " + id);
-                writeStatus(output, 500, "Store Failed");
-                return;
-            }
-        }
-        // sidecar 在 rename 之后写：副本已经完整，Content-Type 差一点也只是回兜底类型。
-        writeMediaCacheMime(directory, id, mime);
-        Log.i(TAG, "media cache stored " + id + " (" + written + " bytes, " + mime + ")");
-        writeStatus(output, 201, "Created");
-    }
-
-    /**
-     * 删一份媒体缓存副本（DELETE /media-cache/<id>?size=NN）。
-     *
-     * 带 size 时只在长度对得上时才删：调用方要删的是它读到的那一份，期间被写进来的
-     * 新副本不是（例如重新缓存后大小变了）。不匹配回 409，让调用方自己决定要不要重试。
-     * 不存在的 id 按幂等处理：清掉可能残留的 sidecar，回 204。
-     */
-    private void deleteMediaCacheFile(
-        BufferedOutputStream output,
-        String id,
-        String queryString
-    ) throws IOException {
-        File directory = mediaCacheDirectory();
-        File target = new File(directory, id);
-        File sidecar = new File(directory, id + MEDIA_CACHE_MIME_SUFFIX);
-        if (!target.isFile()) {
-            sidecar.delete();
-            writeNoContent(output);
-            return;
-        }
-        long expectedSize = queryParam(queryString, "size", -1);
-        if (expectedSize >= 0 && target.length() != expectedSize) {
-            Log.i(TAG, "media cache delete skipped, size mismatch: " + id
-                + " local=" + target.length() + " expected=" + expectedSize);
-            writeStatus(output, 409, "Conflict");
-            return;
-        }
-        boolean removed = target.delete();
-        // sidecar 跟着副本走：留着它会让统计和目录看起来多一份。
-        sidecar.delete();
-        if (!removed) {
-            Log.w(TAG, "media cache delete failed: " + id);
-            writeStatus(output, 500, "Delete Failed");
-            return;
-        }
-        writeNoContent(output);
-    }
-
-    /** GET /media-cache-stats → {count,bytes}。HEAD 只回头。 */
-    private void writeMediaCacheStats(OutputStream output, boolean headOnly) throws IOException {
-        long[] stats = mediaCacheStats();
-        String body = "{\"count\":" + stats[0] + ",\"bytes\":" + stats[1] + "}";
-        byte[] payload = body.getBytes(StandardCharsets.UTF_8);
-        String response = "HTTP/1.1 200 OK\r\n"
-            + "Content-Type: application/json; charset=utf-8\r\n"
-            + "Cache-Control: no-store\r\n"
-            + "Access-Control-Allow-Origin: *\r\n"
-            + "Access-Control-Allow-Methods: " + CORS_ALLOW_METHODS + "\r\n"
-            + "Access-Control-Allow-Headers: " + CORS_ALLOW_HEADERS + "\r\n"
-            + "Access-Control-Expose-Headers: " + CORS_EXPOSE_HEADERS + "\r\n"
-            + "Content-Length: " + payload.length + "\r\n"
-            + "Connection: close\r\n\r\n";
-        output.write(response.getBytes(StandardCharsets.US_ASCII));
-        if (!headOnly) output.write(payload);
-        output.flush();
-    }
-
-    /**
-     * 读 chunked 请求体。
-     *
-     * 格式是「十六进制长度行 + 数据 + CRLF」，最后一块长度 0，后面可能跟 trailer。
-     * 写文件的循环在调用方，这里只负责把每一块数据搬到 fileOutput。
-     */
-    private static long copyChunkedBody(InputStream input, OutputStream fileOutput) throws IOException {
-        long written = 0;
-        byte[] buffer = new byte[64 * 1024];
-        while (true) {
-            String sizeLine = readLine(input);
-            if (sizeLine == null) throw new IOException("chunked body ended before last chunk");
-            int extension = sizeLine.indexOf(';');
-            String hex = (extension >= 0 ? sizeLine.substring(0, extension) : sizeLine).trim();
-            long chunkSize;
-            try {
-                chunkSize = Long.parseLong(hex, 16);
-            } catch (NumberFormatException error) {
-                throw new IOException("invalid chunk size: " + hex);
-            }
-            if (chunkSize < 0) throw new IOException("negative chunk size: " + chunkSize);
-            if (chunkSize == 0) {
-                // 吃掉 trailer，直到空行；不解析，只要把连接读到响应的位置。
-                String trailer;
-                while ((trailer = readLine(input)) != null && !trailer.isEmpty()) {
-                    // ignore trailers
-                }
-                return written;
-            }
-            long remaining = chunkSize;
-            while (remaining > 0) {
-                int read = input.read(buffer, 0, (int) Math.min(buffer.length, remaining));
-                if (read == -1) throw new IOException("chunked body truncated");
-                fileOutput.write(buffer, 0, read);
-                written += read;
-                remaining -= read;
-            }
-            // 每块数据后面的 CRLF：readLine 读到空行即返回。
-            readLine(input);
-        }
-    }
-
-    /** URL 解码一个路径片段；编码坏掉时回 null，不把异常甩给整条请求。 */
-    private static String decodePathSegment(String raw) {
-        try {
-            return URLDecoder.decode(raw, "UTF-8");
-        } catch (Exception error) {
-            return null;
-        }
-    }
-
-    private static long parseLongOr(String raw, long fallback) {
-        if (raw == null) return fallback;
-        try {
-            return Long.parseLong(raw.trim());
-        } catch (NumberFormatException ignored) {
-            return fallback;
-        }
-    }
-
-    /** 从 a=1&b=2 里取一个数；没有或不是数就给 fallback。 */
-    private static long queryParam(String queryString, String key, long fallback) {
-        if (queryString == null || queryString.isEmpty()) return fallback;
-        for (String pair : queryString.split("&")) {
-            int at = pair.indexOf('=');
-            if (at <= 0 || !key.equals(pair.substring(0, at))) continue;
-            return parseLongOr(pair.substring(at + 1), fallback);
-        }
-        return fallback;
-    }
-
-    /**
-     * 204 响应（DELETE 成功）。
-     *
-     * 204 按规范不带消息体，也不该带 Content-Length；CORS 头照样要给，否则 fetch 侧
-     * 读到的是一次「网络错误」而不是「删掉了」。
-     */
-    private static void writeNoContent(OutputStream output) throws IOException {
-        String response = "HTTP/1.1 204 No Content\r\n"
-            + "Access-Control-Allow-Origin: *\r\n"
-            + "Access-Control-Allow-Methods: " + CORS_ALLOW_METHODS + "\r\n"
-            + "Access-Control-Allow-Headers: " + CORS_ALLOW_HEADERS + "\r\n"
-            + "Access-Control-Expose-Headers: " + CORS_EXPOSE_HEADERS + "\r\n"
-            + "Connection: close\r\n\r\n";
-        output.write(response.getBytes(StandardCharsets.US_ASCII));
-        output.flush();
-    }
-
     private interface StreamSupplier {
         InputStream open() throws IOException;
     }
@@ -1024,8 +611,8 @@ final class LocalAudioServer {
         response.append("Access-Control-Allow-Origin: *\r\n");
         // crossOrigin="anonymous" 的 <audio> 会带 CORS 语义，把 Range 相关头暴露出来，
         // 拖进度条（发 Range、读 Content-Range）才不会在 CORS 检查上被拦。
-        response.append("Access-Control-Allow-Headers: ").append(CORS_ALLOW_HEADERS).append("\r\n");
-        response.append("Access-Control-Expose-Headers: ").append(CORS_EXPOSE_HEADERS).append("\r\n");
+        response.append("Access-Control-Allow-Headers: range, content-range, content-length\r\n");
+        response.append("Access-Control-Expose-Headers: range, content-range, content-length, accept-ranges\r\n");
         response.append("Connection: close\r\n");
         if (size > 0) {
             response.append("Content-Length: ").append(contentLength).append("\r\n");
@@ -1119,8 +706,8 @@ final class LocalAudioServer {
             + "Content-Type: text/plain\r\n"
             + "Content-Length: 0\r\n"
             + "Access-Control-Allow-Origin: *\r\n"
-            + "Access-Control-Allow-Headers: " + CORS_ALLOW_HEADERS + "\r\n"
-            + "Access-Control-Expose-Headers: " + CORS_EXPOSE_HEADERS + "\r\n"
+            + "Access-Control-Allow-Headers: range, content-range, content-length\r\n"
+            + "Access-Control-Expose-Headers: range, content-range, content-length, accept-ranges\r\n"
             + "Connection: close\r\n\r\n";
         output.write(response.getBytes(StandardCharsets.US_ASCII));
         output.flush();

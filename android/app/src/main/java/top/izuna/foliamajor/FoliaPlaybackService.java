@@ -35,7 +35,6 @@ import okhttp3.ResponseBody;
 import org.json.JSONObject;
 
 import top.izuna.foliamajor.coloros.ColorOsLyricBridge;
-import top.izuna.foliamajor.player.FoliaNativePlayerPlugin;
 
 public class FoliaPlaybackService extends Service {
     private static final String CHANNEL_ID = "folia_playback";
@@ -64,14 +63,6 @@ public class FoliaPlaybackService extends Service {
     private static volatile String powerDiagnostic = "inactive";
     private static final long SERVICE_HEARTBEAT_INTERVAL_MS = 10_000L;
     /**
-     * 原生播放时刷新系统 PlaybackState 的周期。
-     *
-     * 后台的 WebView 会被节流，Web 那一秒一次的状态推送可能几十秒才来；而 ExoPlayer 还在正常
-     * 出声。锁屏/通知栏的进度条读的是这里写进去的 PlaybackState，不自己刷新就会停在原地。
-     * 只在原生手上确实有歌时才动，没歌时这一步什么也不做。
-     */
-    private static final long NATIVE_PROGRESS_INTERVAL_MS = 1_000L;
-    /**
      * `service-start` 的重复记录间隔。前台服务每次收到播放状态推送都会走一遍 `onStartCommand`，
      * 崩溃历史只留 20 条，不节流的话这些重复记录会把真正的退出原因挤掉。
      */
@@ -87,25 +78,6 @@ public class FoliaPlaybackService extends Service {
             mainHandler.postDelayed(this, SERVICE_HEARTBEAT_INTERVAL_MS);
         }
     };
-    private final Runnable nativeProgressRunnable = new Runnable() {
-        @Override
-        public void run() {
-            try {
-                if (FoliaNativePlayerPlugin.hasActiveMedia() && mediaSession != null) {
-                    mediaSession.setPlaybackState(buildPlaybackState(
-                        FoliaNativePlayerPlugin.isNativePlaying(),
-                        Math.max(0L, FoliaNativePlayerPlugin.currentPositionMs()),
-                        cachedSongKey
-                    ));
-                }
-            } catch (Throwable ignored) {
-                // 原生播放这一层不在时保持原样；下一次 tick 会再试。
-            }
-            if (running) {
-                mainHandler.postDelayed(this, NATIVE_PROGRESS_INTERVAL_MS);
-            }
-        }
-    };
 
     @Override
     public void onCreate() {
@@ -114,26 +86,8 @@ public class FoliaPlaybackService extends Service {
         createNotificationChannel();
         mediaSession = new MediaSession(this, "FoliaPlayback");
         mediaSession.setCallback(new MediaSession.Callback() {
-            @Override public void onPlay() {
-                // 原生播放这一路直接动手：后台挂久了 WebView 的 JS 会被节流甚至挂起，
-                // 只靠「广播 → 插件 → JS」会出现「通知中心点了播放一点反应都没有」。
-                // 发命令给 Web 的原有行为保持不变，两边各管一半（原生出声，Web 管界面与歌词）。
-                try {
-                    FoliaNativePlayerPlugin.resumeFromSystem();
-                } catch (Throwable ignored) {
-                    // 原生播放器不在（没开原生播放 / 插件没加载）：交给 Web 那条路照旧。
-                }
-                emit("play");
-            }
-            @Override public void onPause() {
-                // 同上，方向相反：先让原生停下，再照旧把命令发给 Web。
-                try {
-                    FoliaNativePlayerPlugin.pauseFromSystem();
-                } catch (Throwable ignored) {
-                    // 同上。
-                }
-                emit("pause");
-            }
+            @Override public void onPlay() { emit("play"); }
+            @Override public void onPause() { emit("pause"); }
             @Override public void onSkipToNext() { emit("next"); }
             @Override public void onSkipToPrevious() { emit("previous"); }
             @Override public void onStop() { emit("stop"); }
@@ -154,7 +108,6 @@ public class FoliaPlaybackService extends Service {
         }
         recordServiceLifecycle("service-create", "Foreground playback service created");
         mainHandler.post(serviceHeartbeatRunnable);
-        mainHandler.post(nativeProgressRunnable);
     }
 
     /** ColorOS lyric bridge uses this to decide whether a metadata refresh intent is worth sending. */
@@ -282,34 +235,13 @@ public class FoliaPlaybackService extends Service {
             cachedCoverUrl,
             cachedSongKey
         ));
-        mediaSession.setPlaybackState(buildPlaybackState(cachedPlaying, resolvePlaybackPositionMs(), cachedSongKey));
+        mediaSession.setPlaybackState(buildPlaybackState(cachedPlaying, cachedPositionMs, cachedSongKey));
         if (notify) {
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null && running) {
                 manager.notify(NOTIFICATION_ID, buildNotification(cachedTitle, cachedArtist, cachedPlaying, retained));
             }
         }
-    }
-
-    /**
-     * 通知栏 / 锁屏那条进度条该显示的位置。
-     *
-     * 原生在放的时候直接问播放器：它的位置就是真值。Web 报上来的那一份要过 Chromium 的
-     * 定时器节流 —— 挂着不动久了，那一推可能几十秒才来一次，通知栏就停着、或者一直是 00。
-     * 其余情况照旧用 Web 报的位置：`<audio>` 播到哪只有它知道。
-     */
-    private long resolvePlaybackPositionMs() {
-        try {
-            if (FoliaNativePlayerPlugin.hasActiveMedia()) {
-                long nativePosition = FoliaNativePlayerPlugin.currentPositionMs();
-                if (nativePosition >= 0L) {
-                    return nativePosition;
-                }
-            }
-        } catch (Throwable ignored) {
-            // 原生播放这一层不可用（插件没加载）：回退到 Web 上报的缓存值。
-        }
-        return cachedPositionMs;
     }
 
     private PlaybackState buildPlaybackState(boolean playing, long position, String songKey) {
@@ -548,7 +480,6 @@ public class FoliaPlaybackService extends Service {
         recordServiceLifecycle("service-destroy", "Foreground playback service destroyed");
         running = false;
         mainHandler.removeCallbacks(serviceHeartbeatRunnable);
-        mainHandler.removeCallbacks(nativeProgressRunnable);
         updatePlaybackLocks(false);
         artworkExecutor.shutdownNow();
         if (mediaSession != null) {

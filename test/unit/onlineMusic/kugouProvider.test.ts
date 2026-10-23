@@ -421,6 +421,24 @@ describe('kugouProvider', () => {
         });
     });
 
+    it('skips empty artist arrays so later singer fields are not lost', () => {
+        const nested = normalizeKugouSong({
+            FileHash: '8C2F0C043E99779C8910C78E43DBC42A',
+            SongName: '先说谎的人 (0.8X)',
+            authors: [],
+            singerinfo: [{ id: '8893172', name: '涵の心事.' }],
+        });
+        expect(nested.artists.map(artist => artist.name)).toEqual(['涵の心事.']);
+
+        const topLevel = normalizeKugouSong({
+            FileHash: 'D67DAA030838F1F0E9DC11CDCDB4DB5A',
+            SongName: '灰かぶり (灰姑娘)',
+            authors: [],
+            singer_name: '十明',
+        });
+        expect(topLevel.artists.map(artist => artist.name)).toEqual(['十明']);
+    });
+
     it('uses the FileName field returned by KuGou search results as the song title', () => {
         const song = normalizeKugouSong({
             FileHash: '8C2F0C043E99779C8910C78E43DBC42A',

@@ -89,21 +89,6 @@ const intensities = { beat: 1, downbeat: 1 };
 /** Median gap between the installed track's beats, in seconds; see `getBeatFxBeatPeriod`. */
 const DEFAULT_BEAT_PERIOD = 0.5;
 let beatPeriod = DEFAULT_BEAT_PERIOD;
-/** 原生播放的一帧：插值位置 + 原生频谱带（0..255）。没有节拍表时用 bass 瞬态保底。 */
-export type BeatFxNativeClock = {
-    positionSec: number | null;
-    bands?: {
-        bass: number;
-        lowMid: number;
-        mid: number;
-        vocal: number;
-        treble: number;
-        power: number;
-    } | null;
-};
-/** 原生 bass 的慢包络与上一次保底脉冲的时刻。 */
-let nativeBassEnvelope = 0;
-let lastNativePulseAt = 0;
 
 /** Median gap between consecutive events, or the default for fewer than two. */
 export const resolveBeatFxBeatPeriod = (events: readonly BeatFxEvent[]): number => {
@@ -242,28 +227,14 @@ export const getBeatFxRotationSign = (): number => state.rotationSign;
 /**
  * One frame of the beat clock. `audioElement` is the deck being heard, or null when nothing is
  * playing; `context` is the AudioContext it is routed through, used for output latency.
- *
- * `nativeClock` is the native player's side of the same call: no element and no AnalyserNode
- * exist there, so the interpolated position is fed straight in (the beat list still drives both
- * envelopes), and while no beat list is installed the native bass band's transients keep the
- * envelopes moving — a fallback, not a second source of truth.
  */
-export const tickBeatFx = (
-    audioElement: HTMLMediaElement | null,
-    context: BaseAudioContext | null | undefined,
-    nativeClock?: BeatFxNativeClock,
-) => {
+export const tickBeatFx = (audioElement: HTMLMediaElement | null, context: BaseAudioContext | null | undefined) => {
     const now = performance.now();
     const dtSec = lastStepAt === null ? 0 : Math.min(0.1, (now - lastStepAt) / 1000);
     lastStepAt = now;
 
     let heardTime: number | null = null;
-    if (nativeClock) {
-        heardTime = typeof nativeClock.positionSec === 'number' && Number.isFinite(nativeClock.positionSec)
-            ? nativeClock.positionSec
-            : null;
-        if (debug) debug.latencyMs = 0;
-    } else if (audioElement && !audioElement.paused && !audioElement.ended) {
+    if (audioElement && !audioElement.paused && !audioElement.ended) {
         const live = context as (BaseAudioContext & { outputLatency?: number; baseLatency?: number }) | null | undefined;
         const latency = (Number(live?.outputLatency) || 0) + (Number(live?.baseLatency) || 0);
         // What the listener hears lags what the element has decoded by the output latency.
@@ -274,22 +245,6 @@ export const tickBeatFx = (
     heardAt = heardTime;
 
     stepBeatFxClock(state, heardTime, dtSec);
-
-    // 原生保底：没有节拍表（分析不可用 / 没缓存）时，用原生 bass 的上升沿当一拍。
-    // 有节拍表时以事件为准，避免同一个鼓点被触发两次。
-    if (nativeClock && heardTime !== null && state.events.length === 0 && nativeClock.bands) {
-        const bass = Math.max(0, Math.min(255, Number(nativeClock.bands.bass) || 0)) / 255;
-        nativeBassEnvelope = nativeBassEnvelope * 0.85 + bass * 0.15;
-        const rising = bass > nativeBassEnvelope + 0.06 && bass > 0.35;
-        if (rising && now - lastNativePulseAt > 140) {
-            lastNativePulseAt = now;
-            state.beatImpact = Math.max(state.beatImpact, 0.6 * state.trackScale);
-            state.rotationSign = -state.rotationSign;
-            state.firedBeats += 1;
-            state.lastFiredT = heardTime;
-        }
-    }
-
     firedCounts.beats = state.firedBeats;
     firedCounts.downbeats = state.firedDownbeats;
     beatImpact.set(state.beatImpact * intensities.beat);

@@ -355,57 +355,7 @@ AI 合并上游模型发现/预设接口并保留安卓直连运行时；`packag
   liked_songs ids 数、playlist_tracks 条目数、audio 主机等），诊断报告可直接看到车机接口返回了什么
 - 回归测试：`test/unit/qishui/likedPlaylistTracks.test.ts`
 
+### 0.7.22-android.279：回退原生播放模块
 
-### 0.7.22-android.276：原生播放（ExoPlayer）接入，不砍功能
-
-按 `maimai993/folia-sonnet` 的思路把播放从 WebView `<audio>` 换成 ExoPlayer（media3 1.11.1），
-但修正作者停用前留下的两个问题：**不删频谱/智能动感**、**自动回落保住 Web Audio 专属功能**。
-
-- 原生层：`player/FoliaNativePlayer.java`（专用 HandlerThread、250ms tick、位置过桥 500ms、
-  DefaultHttpDataSource 浏览器 UA）、`player/FoliaNativePlayerPlugin.java`（Capacitor 桥）、
-  `audio/NativeAudioSpectrumTap.java`（Visualizer 挂 ExoPlayer session，20fps、128 段、
-  0..255、平滑 0.6；对应作者删掉的 P2 频谱）；`FoliaPlaybackService` 的通知栏/锁屏
-  play/pause 与进度直接走原生；Manifest 加 MODIFY_AUDIO_SETTINGS；build.gradle 加 media3。
-- Web 层：`src/services/playbackEngine/{nativePlayerPlugin,nativePlaybackEngine,nativeFallback,
-  nativeTransportFade,nativeMediaFacade,useNativePlaybackRuntime}.ts`；App/transport/
-  interaction/visualizer/beatFx/设置页/i18n 接线；默认开，设置可关。
-- **自动回落**（功能不删）：均衡器（含 mod 曲线）、音效非中性、automix、ReplayGain 非 off、
-  blob:/data: 源、NowPlaying/PlayerCap 舞台接管 → 这一首回 `<audio>` + Web Audio，界面上
-  功能照常；同一首中途改设置会做位置续接的交接。
-- **频谱**：原生播放时由 Visualizer 事件直接写 `audioBands`（bass/lowMid/mid/vocal/treble/
-  power/spectrum），可视化跳过 analyser 与空闲呼吸；智能动感用原生位置 + 节拍表，没有节拍表
-  时用 bass 上升沿保底。频谱只在原生在播、页面可见、可视化/壁纸需要时开启。
-- **卡顿缓解**：播放循环离开主线程；位置事件 500ms 过桥 + JS 墙钟插值（只进不退、MAX_LEAD 700ms）；
-  频谱事件不写 React、只写 MotionValue，主线程忙时只保留最新帧；诊断新增 native playback
-  小节（接管/回落原因、位置/频谱事件速率、桥命令、hitch）。
-- **卡顿未解风险**：20fps × 128 段的频谱过桥仍是最大变量；真机若顿，先看诊断里的
-  position/spectrum 速率，必要时降频谱到 15fps 或只保留 bands。
-- **已知边界**：ExoPlayer 不共享 WebView Cookie，但在线音源都先经 LocalAudioServer 回环，
-  不受影响；blob（媒体缓存/部分本地歌）必然回网页路径；锁屏拖动 seek 仍未接。
-
-
-### 0.7.22-android.277：均衡器/音效改走原生 DSP
-
-- 新增 `audio/FoliaAudioProcessor.java`（media3 `BaseAudioProcessor`，16-bit PCM）、
-  `FoliaDspSettings.java`（夹紧/不可变）、`FoliaRenderersFactory.java`（
-  `DefaultAudioSink.Builder.setAudioProcessors`）。
-- DSP：10 段 RBJ biquad（31..16k，Q=1.4，lowshelf/peaking/highshelf）+ 音效链
-  （HP/LP、tanh drive、bitcrush、wow、vinyl noise、M/S width、compressor+makeup、
-  Freeverb 空间混响）+ ReplayGain 增益；参数 15ms 平滑、实时生效、关闭后 bit-perfect 直通。
-- Web 侧：`setDsp` 契约；`nativeDsp.ts` 把「实际听到的」均衡器（mod 曲线优先）与音效
-  整理成 payload；接管时/设置变化时立即发；**均衡器、音效不再触发回落**。
-- 回落矩阵只剩：native-disabled、plugin-unavailable、stage-playback、empty/blob/data/
-  unsupported-source、automix、replay-gain。ReplayGain 与 automix 下一轮再搬原生。
-- 近似说明：空间混响是 Freeverb 近似（非 2.2s IR 卷积）、drive 无 4× oversampling、
-  压缩器检波方式不同、输出固定 16-bit；听感需真机校准。
-
-### 0.7.22-android.278：原生频谱权限 + 媒体缓存回环
-
-- 频谱：Manifest 加 RECORD_AUDIO；FoliaNativePlayerPlugin 在 setSpectrumEnabled(true) 时请求运行时权限，
-  授权后才挂 Visualizer；新增 getSpectrumStatus() 暴露 permission/enabled/attached/failed/frames/lastError。
-  Visualizer attach 各失败分支明确记录原因（权限、占用、蓝牙、captureSize 等）。
-- 媒体缓存：LocalAudioServer 增加 /media-cache（GET/HEAD/PUT/DELETE/清空/stats），
-  流式写 .part 再 rename，Range/CORS，id base64url 白名单；Web 侧 nativeMediaCache 优先写私有目录，
-  audioCache 读/写/删/统计与 onlinePlayback 的缓存分支都优先走 loopback URL，
-  已缓存歌曲不再生成 blob:，ExoPlayer 可以直接播。
-- 旧 IndexedDB 缓存在读取时懒迁移到私有目录；设置里的缓存统计/清除同时覆盖原生目录。
+- 按用户要求回退到 0.7.22-android.275 的实现：移除 ExoPlayer 原生播放、原生 DSP、原生频谱与原生媒体缓存，全部回到 <audio> + Web Audio。
+- 版本号仍前进到 0.279 / versionCode 317，保证已安装 0.278 的设备可以正常覆盖升级。

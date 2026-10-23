@@ -45,14 +45,6 @@ export const NETEASE_SCROBBLE_KEY = 'folia_netease_scrobble';
 export const PLAYBACK_FADE_KEY = 'folia_playback_fade_enabled';
 
 /**
- * Android 原生播放（ExoPlayer，见 services/playbackEngine）。默认开。
- * 均衡器与音效由原生 DSP 处理（FoliaNativePlayer.setDsp），不再触发回落；automix 与 ReplayGain
- * 还长在 Web Audio 图上，这两项打开时单首会自动回落。这个开关只决定「可不可以走原生」，
- * 不保证每一首都走。
- */
-export const NATIVE_PLAYBACK_KEY = 'folia_native_playback_enabled';
-
-/**
  * Whether a song that cannot be played for an account restriction or an unknown reason counts down to
  * a skip, like a taken-down one (services/onlineMusic/failure/onlineFailureCase). Off unless asked for.
  */
@@ -215,12 +207,6 @@ export type AudioSettingsState = {
     neteaseScrobbleEnabled: boolean;
     /** Short fade when pausing and resuming instead of cutting the sound. On by default. */
     playbackFadeEnabled: boolean;
-    /**
-     * Android 原生播放（ExoPlayer，services/playbackEngine）。默认开。
-     * 均衡器与音效由原生 DSP 处理，不再触发回落；automix / ReplayGain 打开时单首仍会自动回落。
-     * 这个开关只决定「可不可以走原生」，不保证每一首都走。
-     */
-    nativePlaybackEnabled: boolean;
     /** Count down to a skip when a song is restricted or fails for an unknown reason. Off by default. */
     autoSkipUnplayable: boolean;
     audioOutputDeviceId: string;
@@ -247,7 +233,6 @@ export type AudioSettingsState = {
     handleToggleTranscodeFallback: (enable: boolean) => void;
     handleToggleNeteaseScrobble: (enable: boolean) => void;
     handleTogglePlaybackFade: (enable: boolean) => void;
-    handleToggleNativePlayback: (enable: boolean) => void;
     handleToggleAutoSkipUnplayable: (enable: boolean) => void;
     handleSetAudioOutputDeviceId: (deviceId: string) => void;
     /*
@@ -335,7 +320,6 @@ export const useAudioSettingsStore = create<AudioSettingsState>((set, get) => ({
     // Off unless asked for: it writes to the listener's music account, so it is never a default.
     neteaseScrobbleEnabled: getStoredBoolean(NETEASE_SCROBBLE_KEY, false),
     playbackFadeEnabled: getStoredBoolean(PLAYBACK_FADE_KEY, true),
-    nativePlaybackEnabled: getStoredBoolean(NATIVE_PLAYBACK_KEY, true),
     // Off unless asked for: skipping a song the listener picked is not something to do by default.
     autoSkipUnplayable: getStoredBoolean(AUTO_SKIP_UNPLAYABLE_KEY, false),
     audioOutputDeviceId: readStoredAudioOutputDeviceId(),
@@ -393,10 +377,6 @@ export const useAudioSettingsStore = create<AudioSettingsState>((set, get) => ({
     handleTogglePlaybackFade: (enable) => {
         setStoredBoolean(PLAYBACK_FADE_KEY, enable);
         set({ playbackFadeEnabled: enable });
-    },
-    handleToggleNativePlayback: (enable) => {
-        setStoredBoolean(NATIVE_PLAYBACK_KEY, enable);
-        set({ nativePlaybackEnabled: enable });
     },
     handleToggleAutoSkipUnplayable: (enable) => {
         setStoredBoolean(AUTO_SKIP_UNPLAYABLE_KEY, enable);
@@ -536,7 +516,6 @@ export const selectAudioSettingsSnapshot = (state: AudioSettingsState) => ({
     enableTranscodeFallback: state.enableTranscodeFallback,
     neteaseScrobbleEnabled: state.neteaseScrobbleEnabled,
     playbackFadeEnabled: state.playbackFadeEnabled,
-    nativePlaybackEnabled: state.nativePlaybackEnabled,
     autoSkipUnplayable: state.autoSkipUnplayable,
     audioOutputDeviceId: state.audioOutputDeviceId,
     audioEqualizerSettings: state.audioEqualizerSettings,
@@ -552,7 +531,6 @@ export const selectAudioSettingsSnapshot = (state: AudioSettingsState) => ({
     handleToggleTranscodeFallback: state.handleToggleTranscodeFallback,
     handleToggleNeteaseScrobble: state.handleToggleNeteaseScrobble,
     handleTogglePlaybackFade: state.handleTogglePlaybackFade,
-    handleToggleNativePlayback: state.handleToggleNativePlayback,
     handleToggleAutoSkipUnplayable: state.handleToggleAutoSkipUnplayable,
     handleSetAudioOutputDeviceId: state.handleSetAudioOutputDeviceId,
     handleSetAudioEqualizerSettings: state.handleSetAudioEqualizerSettings,

@@ -5,7 +5,6 @@ import type { MigrationResult } from '../../utils/lyrics/renderHints';
 import { getCachedAudioBlob, hasCachedAudio, removeAudioBlob, saveAudioBlob } from '../audioCache';
 import { getCachedCoverUrl, hasCachedCover, saveCoverBlob } from '../coverCache';
 import { getFromCache, removeFromCache, saveToCache } from '../db';
-import { nativeMediaCache } from '../nativeMediaCache';
 import { getLegacySongResourceCacheKeys, getSongResourceCacheKey, type SongResourceKind } from './resourceKeys';
 
 // src/services/onlineMusic/resourceCache.ts
@@ -114,30 +113,6 @@ export const hasCachedSongAudio = async (song: SongResult, level?: AudioQualityP
         if (await hasCachedAudio(legacyKey)) return true;
     }
     return false;
-};
-
-/**
- * 安卓：这首歌的缓存副本在原生媒体缓存里的回环地址（没有则 null）。
- *
- * 播放走这条而不是 blob：ExoPlayer 读不了 blob:，真机上「有缓存副本就播不了」正是它。level 的
- * 判定和 `getCachedSongAudioBlob` 完全一样，免得「按级别换歌」只在 blob 那条路上生效。
- * legacy key 只查存在性、不迁移：字节是同一份文件，复制到当前 key 只会让缓存占用翻倍，
- * 而写入的永远是当前 key —— legacy 命中只可能来自旧版本写下的副本。
- */
-export const getCachedSongAudioNativeUrl = async (song: SongResult, level?: AudioQualityPreference): Promise<string | null> => {
-    const cacheKey = getSongResourceCacheKey('audio', song);
-    if (await isCopyOfAnotherLevel(song, cacheKey, level)) return null;
-    if (await nativeMediaCache.has(cacheKey)) {
-        const url = await nativeMediaCache.urlFor(cacheKey);
-        if (url) return url;
-    }
-
-    for (const legacyKey of getLegacySongResourceCacheKeys('audio', song)) {
-        if (!await nativeMediaCache.has(legacyKey)) continue;
-        const legacyUrl = await nativeMediaCache.urlFor(legacyKey);
-        if (legacyUrl) return legacyUrl;
-    }
-    return null;
 };
 
 /**

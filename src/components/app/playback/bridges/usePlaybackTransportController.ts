@@ -8,8 +8,6 @@ import { usePlaybackStore } from '../../../../stores/usePlaybackStore';
 import { currentTime } from '../../../../stores/motionSignals';
 import { markProgrammaticPause, playbackFade, type PlaybackFadeSettleReason } from '../../../../services/playbackFade';
 import { getPlaybackSongKey } from '../../../../utils/appPlaybackGuards';
-import { nativePlaybackEngine } from '../../../../services/playbackEngine/nativePlaybackEngine';
-import { nativeTransportFade } from '../../../../services/playbackEngine/nativeTransportFade';
 import type { OnlineRecovery, OnlineRecoveryOptions } from '../restore/createOnlineRecoveryController';
 import type { OnlineFailure } from '../../../../services/onlineMusic/failure/onlineFailureCase';
 import { onlineFailureToast } from '../source/onlineFailureToast';
@@ -46,13 +44,6 @@ type UsePlaybackTransportControllerParams = {
     pauseDuringTransition?: () => boolean;
     /** True while a blend is audible on the deck no control points at. Such a pause still needs the fade. */
     isTransitionAudible?: () => boolean;
-    /**
-     * 这一首由原生播放器在播（nativeFallback.ts 的判定）。播放/暂停、淡入淡出都分岔到引擎。
-     *
-     * 这个分支放在最前面：原生播放时 `audioRef` 是一个没有地址的空 deck，它永远 paused，
-     * 任何走元素的判断都会读成「没在播」。
-     */
-    nativeTakes?: boolean;
 };
 
 // Owns play and pause transport behavior across main playback and Stage lyric-only playback.
@@ -71,7 +62,6 @@ export function usePlaybackTransportController({
     syncStageLyricsClock,
     pauseDuringTransition,
     isTransitionAudible,
-    nativeTakes = false,
 }: UsePlaybackTransportControllerParams) {
     // Read here rather than passed in: store fields, a module-level motion signal, or i18n.
     const { t } = useTranslation();
@@ -96,30 +86,6 @@ export function usePlaybackTransportController({
             const currentSyntheticTime = getSyntheticStageLyricsTime();
             syncStageLyricsClock(currentSyntheticTime, duration, PlayerState.PLAYING, stageLyricsClockRef.current.startTimeSec);
             currentTime.set(currentSyntheticTime);
-            setPlayerState(PlayerState.PLAYING);
-            return;
-        }
-
-        // 原生播放：没有元素可 play，声音在引擎里。淡入用 JS 分几步写音量（原生契约里没有 gain），
-        // 已有的「暂停/播放淡入淡出」开关照旧生效。
-        if (nativeTakes) {
-            nativeTransportFade.cancel();
-            if (nativePlaybackEngine.isPlaying()) {
-                nativePlaybackEngine.setVolume(getTargetPlaybackVolume(), { immediate: true });
-            } else if (!nativeTransportFade.fadeIn(getTargetPlaybackVolume)) {
-                // 淡入淡出关着（或没有源）：直接给目标音量，别让上一次淡出留下的静音带进这一首。
-                nativePlaybackEngine.setVolume(getTargetPlaybackVolume(), { immediate: true });
-            }
-            try {
-                await nativePlaybackEngine.play();
-            } catch (error) {
-                if (revision !== transportRevision.current) return;
-                console.error('[NativePlayer] play failed', error);
-                setStatusMsg({ type: 'error', text: t('status.playbackError') });
-                setPlayerState(PlayerState.PAUSED);
-                return;
-            }
-            if (revision !== transportRevision.current) return;
             setPlayerState(PlayerState.PLAYING);
             return;
         }
@@ -225,7 +191,7 @@ export function usePlaybackTransportController({
             setPlayerState(PlayerState.PAUSED);
             throw error;
         }
-    }, [activePlaybackContext, audioContextRef, audioRef, audioSrc, currentTime, duration, getSyntheticStageLyricsTime, getTargetPlaybackVolume, isNowPlayingStageActive, isTransitionAudible, nativeTakes, recoverOnlinePlaybackSource, setPlayerState, setStatusMsg, setupAudioAnalyzer, shouldRefreshCurrentOnlineAudioSource, stageActiveEntryKind, stageLyricsClockRef, syncOutputGain, syncStageLyricsClock, t]);
+    }, [activePlaybackContext, audioContextRef, audioRef, audioSrc, currentTime, duration, getSyntheticStageLyricsTime, getTargetPlaybackVolume, isNowPlayingStageActive, isTransitionAudible, recoverOnlinePlaybackSource, setPlayerState, setStatusMsg, setupAudioAnalyzer, shouldRefreshCurrentOnlineAudioSource, stageActiveEntryKind, stageLyricsClockRef, syncOutputGain, syncStageLyricsClock, t]);
 
     const pausePlayback = useCallback(() => {
         if (isNowPlayingStageActive) {
@@ -247,27 +213,6 @@ export function usePlaybackTransportController({
             return song ? getPlaybackSongKey(song) : null;
         };
         const songKeyAtPress = readCurrentSongKey();
-
-        // 原生播放：淡出 ~150ms 后真正 pause。淡出期间歌还在响，所以这里立刻把 UI 置为 PAUSED。
-        // 中间换了歌就不暂停了 —— 那一下属于上一首。
-        if (nativeTakes) {
-            const settleNativePause = () => {
-                if (readCurrentSongKey() !== songKeyAtPress) {
-                    nativeTransportFade.cancel();
-                    return;
-                }
-                void nativePlaybackEngine.pause().catch(error => {
-                    console.error('[NativePlayer] pause failed', error);
-                });
-            };
-            if (nativePlaybackEngine.isPlaying() && nativeTransportFade.fadeOutThen(settleNativePause)) {
-                setPlayerState(PlayerState.PAUSED);
-                return;
-            }
-            settleNativePause();
-            setPlayerState(PlayerState.PAUSED);
-            return;
-        }
 
         // Before the element is touched, because mid-blend `audioRef` is the wrong element to touch:
         // it names the deck the next track is arriving on. The cancel pauses the deck that is
@@ -322,7 +267,7 @@ export function usePlaybackTransportController({
         if (settlePause()) {
             setPlayerState(PlayerState.PAUSED);
         }
-    }, [activePlaybackContext, audioRef, audioSrc, currentTime, duration, getSyntheticStageLyricsTime, getTargetPlaybackVolume, isNowPlayingStageActive, isTransitionAudible, nativeTakes, pauseDuringTransition, setPlayerState, stageActiveEntryKind, stageLyricsClockRef, syncOutputGain, syncStageLyricsClock]);
+    }, [activePlaybackContext, audioRef, audioSrc, currentTime, duration, getSyntheticStageLyricsTime, getTargetPlaybackVolume, isNowPlayingStageActive, isTransitionAudible, pauseDuringTransition, setPlayerState, stageActiveEntryKind, stageLyricsClockRef, syncOutputGain, syncStageLyricsClock]);
 
     return {
         resumePlayback,

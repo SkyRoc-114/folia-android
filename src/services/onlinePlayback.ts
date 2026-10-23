@@ -12,8 +12,7 @@ import { omni } from './onlineMusic/omni';
 import { autoRetryDelaysMs, logOnlineFailure, onlineFailureOf, type OnlineFailure } from './onlineMusic/failure/onlineFailureCase';
 import { noteOnlineRequestCooldown, onlineRequestCooldown } from './onlineMusic/failure/onlineRequestCooldown';
 import { getSongResourceCacheKey } from './onlineMusic/resourceKeys';
-import { deleteCachedSongAudio, getCachedSongAudioBlob, getCachedSongAudioNativeUrl, getCachedSongReplayGain, getSongCacheWithLegacyMigration } from './onlineMusic/resourceCache';
-import { nativeMediaCache } from './nativeMediaCache';
+import { deleteCachedSongAudio, getCachedSongAudioBlob, getCachedSongReplayGain, getSongCacheWithLegacyMigration } from './onlineMusic/resourceCache';
 import { measureSongAudio, notTheSongWhy } from './wholeSongCheck';
 import { isCachedSongAudioDistrusted } from './playbackRecovery/mediaCacheGuard';
 import { audioMimeTypeFor, toPlayableAudioUrl } from '../utils/appPlaybackHelpers';
@@ -189,52 +188,26 @@ export async function loadOnlineSongAudioSource(
         console.log(`[Cache] Copy of "${song.name}" ${outcome}: it is ${notTheSongWhy(length)}`);
         return null;
     };
-    // Nothing on the cached paths ever asks the provider again, so the stored gain is the only one
-    // a cached track can have. Without it every cached track reaches the fader at 0dB.
-    const cachedReplayGain = async (): Promise<ReplayGainInfo | undefined> => {
-        const known = song.replayGain ?? prefetched?.replayGain;
-        if (known) return known;
-        const stored = await getCachedSongReplayGain(song);
-        if (stored) console.log(`[Cache] ReplayGain recovered for "${song.name}" from the store, not the provider`);
-        return stored;
-    };
     const playCopy = async (copy: Blob | null) => {
         const blob = await wholeCopy(copy);
         const blobUrl = blob && createSafeObjectUrl(blob);
         if (!blobUrl) return null;
-        return { kind: 'ok' as const, audioSrc: blobUrl, blobUrl, replayGain: await cachedReplayGain() };
-    };
-    // 安卓：缓存副本已经在原生媒体缓存里时，交给播放器的是 127.0.0.1 的 http 地址。ExoPlayer
-    // 读不了 blob:（真机上正是这一条把在线歌打回 <audio> 的），所以命中就直接返回地址：不读
-    // 字节、不造 object URL，也不做 wholeCopy 的时长校验 —— 时长和 Range 由 ExoPlayer 自己处理。
-    // 「不信任这份缓存」的标记仍然优先，那份副本连地址都不给。
-    const playNativeCopy = async (atLevel?: AudioQualityPreference) => {
-        if (!nativeMediaCache.isAvailable()) return null;
-        if (options.bypassMediaCache || isCachedSongAudioDistrusted(song)) return null;
-        let audioSrc: string | null = null;
-        try {
-            audioSrc = await getCachedSongAudioNativeUrl(song, atLevel);
-        } catch (error) {
-            console.warn('[Playback] reading the native media cache URL failed; using the cached bytes', error);
-            return null;
+        // Nothing on this path ever asks the provider again, so the stored gain is the only
+        // one a cached track can have. Without it every cached track reaches the fader at 0dB.
+        let replayGain = song.replayGain ?? prefetched?.replayGain;
+        if (!replayGain) {
+            replayGain = await getCachedSongReplayGain(song);
+            if (replayGain) console.log(`[Cache] ReplayGain recovered for "${song.name}" from the store, not the provider`);
         }
-        if (!audioSrc) return null;
-        console.log(`[Playback] native-cache hit for "${song.name}" (${atLevel ?? 'any level'}): playing the loopback media-cache URL instead of a blob`);
-        return { kind: 'ok' as const, audioSrc, replayGain: await cachedReplayGain() };
+        return { kind: 'ok' as const, audioSrc: blobUrl, blobUrl, replayGain };
     };
     // Where no URL can be had (offline, a sign-in that has ended, a song taken down), the copy that
     // was passed over for its level is what plays: another level is better than no song.
     const playCopyOfAnyLevel = async () => {
-        if (!level) return null;
-        const nativePlayed = await playNativeCopy();
-        if (nativePlayed) return nativePlayed;
-        const played = await playCopy(await readCopy());
+        const played = level ? await playCopy(await readCopy()) : null;
         if (played) console.log(`[Cache] No URL for "${song.name}": its copy of another level plays`);
         return played;
     };
-
-    const fromNativeCopy = await playNativeCopy(level);
-    if (fromNativeCopy) return fromNativeCopy;
 
     const fromCopy = await playCopy(await readCopy(level));
     if (fromCopy) return fromCopy;

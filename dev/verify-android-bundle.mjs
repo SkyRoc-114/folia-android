@@ -41,13 +41,6 @@ const SENTINELS = [
     'LunaOpenSDK/1.0.10',
     'sendCookies',
     'qishuiDeviceId',
-    // 0.7.22 原生播放（ExoPlayer + 原生频谱）
-    'FoliaNativePlayer',
-    'setSpectrumEnabled',
-    'nativePlaybackEnabled',
-    'native playback (android)',
-    'setDsp',
-    'media-cache-stats',
 ];
 
 const extra = [];

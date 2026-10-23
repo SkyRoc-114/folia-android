@@ -9,7 +9,6 @@ import { canAnalyseTracks } from '../../../../services/automix/transitionStrateg
 import { useAudioSettingsStore } from '../../../../stores/useAudioSettingsStore';
 import { useAutomixSettingsStore } from '../../../../stores/useAutomixSettingsStore';
 import { useDesktopSettingsStore } from '../../../../stores/useDesktopSettingsStore';
-import { isNativePlaybackShell } from '../../../../services/playbackEngine/nativePlayerPlugin';
 import { runsOnWindows } from '../../../../utils/platform';
 import { Button, Chips, Group, Reveal, Row, Segmented, Slider, Status, Toggle, option, type SettingsGroupDef, type SettingsOptionDef } from '../kit';
 import AudioOutputDeviceRow from './AudioOutputDeviceRow';
@@ -35,7 +34,6 @@ const O = {
     outputDevice: option(SOUND, 'audioOutputDevice', 'options.audioOutputDevice'),
     replayGain: option(SOUND, 'replayGainSettings', 'options.replayGainMode'),
     fade: option(SOUND, 'playbackFade', 'options.playbackFade'),
-    nativePlayback: option(SOUND, 'nativePlayback', 'options.nativePlayback', { available: () => isNativePlaybackShell() }),
     transcode: option(SOUND, 'transcodeFallback', 'options.transcodeFallback', { electronOnly: true }),
     queueBehavior: option(BEHAVIOR, 'queueDefaultBehavior', 'options.queueDefaultBehavior'),
     autoSkipUnplayable: option(BEHAVIOR, 'autoSkipUnplayable', 'options.autoSkipUnplayable'),
@@ -75,13 +73,11 @@ const PlaybackPage: React.FC = () => {
     const audio = useAudioSettingsStore(useShallow(state => ({
         mediaCache: state.enableMediaCache,
         fade: state.playbackFadeEnabled,
-        nativePlayback: state.nativePlaybackEnabled,
         transcode: state.enableTranscodeFallback,
         queueBehavior: state.queueAddBehavior,
         autoSkipUnplayable: state.autoSkipUnplayable,
         setMediaCache: state.handleToggleMediaCache,
         setFade: state.handleTogglePlaybackFade,
-        setNativePlayback: state.handleToggleNativePlayback,
         setTranscode: state.handleToggleTranscodeFallback,
         setQueueBehavior: state.handleSetQueueAddBehavior,
         setAutoSkipUnplayable: state.handleToggleAutoSkipUnplayable,
@@ -208,11 +204,6 @@ const PlaybackPage: React.FC = () => {
                 <Row option={O.fade} hint={t('options.playbackFadeDesc')}>
                     <Toggle checked={audio.fade} onChange={audio.setFade} />
                 </Row>
-                {isNativePlaybackShell() && (
-                    <Row option={O.nativePlayback} hint={t('options.nativePlaybackDesc')}>
-                        <Toggle checked={audio.nativePlayback} onChange={audio.setNativePlayback} />
-                    </Row>
-                )}
                 {window.electron?.requestTranscodeFallback && (
                     <Row option={O.transcode} hint={t('options.transcodeFallbackDesc')}>
                         <Toggle checked={audio.transcode} onChange={audio.setTranscode} />

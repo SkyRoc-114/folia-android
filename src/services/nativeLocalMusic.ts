@@ -3,12 +3,6 @@ import { saveLocalSongs } from './db';
 import { buildImportedMetadataSnapshot } from '../utils/localSongMetadata';
 import { parseEmbeddedMetadataAsync } from '../utils/localMetadataWorkerClient';
 import { noteLibraryStep } from '../nativeBridge/api/libraryTrace.js';
-import {
-    noteNativeAudioServerPort,
-    resolveNativeAudioServerPort,
-} from './nativeAudioServerPort';
-
-export { resolveNativeAudioServerPort };
 
 // src/services/nativeLocalMusic.ts
 /**
@@ -98,7 +92,28 @@ const titleFromFileName = (fileName: string): string => (
     String(fileName || 'Unknown Song').replace(/\.[^.]+$/, '')
 );
 
-// 端口本身由 nativeAudioServerPort.ts 统一缓存（nativeMediaCache 也从那里取，必须是叶子模块）。
+let resolvedAudioServerPort = 0;
+
+/** 取（并缓存）本机音频服务的端口。拿不到返回 0，调用方据此判定「原生不可用」。 */
+export const resolveNativeAudioServerPort = async (): Promise<number> => {
+    if (resolvedAudioServerPort > 0) return resolvedAudioServerPort;
+    const plugin = getPlugin();
+    if (!plugin?.localAudioServerPort) return 0;
+    try {
+        const response = await plugin.localAudioServerPort();
+        const port = Number(response?.port) || 0;
+        if (port > 0) resolvedAudioServerPort = port;
+        return port;
+    } catch {
+        return 0;
+    }
+};
+
+/** 挑选接口回包里带着端口，顺手记下来，省掉一次往返。 */
+const noteAudioServerPort = (port: unknown): void => {
+    const value = Number(port) || 0;
+    if (value > 0) resolvedAudioServerPort = value;
+};
 
 /**
  * 把 ref 指向的音频**自己复制一份**进 App 私有目录，返回新 ref（失败返回 null）。
@@ -283,7 +298,7 @@ export const pickAndroidLocalMusic = async (): Promise<LocalSong[]> => {
     });
 
     if (response.cancelled) return [];
-    noteNativeAudioServerPort(response.port);
+    noteAudioServerPort(response.port);
 
     const now = Date.now();
     const songs: LocalSong[] = [];

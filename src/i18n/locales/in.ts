@@ -2875,8 +2875,6 @@ export default {
     "transcodeFallbackDesc": "Mengonversi trek yang tidak dapat didekode dengan FFmpeg. Berkas tidak diubah.",
     "playbackFade": "Fade saat jeda dan lanjut",
     "playbackFadeDesc": "Fade keluar sebelum jeda dan masuk kembali saat lanjut.",
-    "nativePlayback": "Pemutaran native (eksperimental)",
-    "nativePlaybackDesc": "Aktif secara bawaan. Equalizer dan efek suara diproses oleh pemutar native, jadi tetap memakai pemutaran native; automix dan ReplayGain masih otomatis kembali ke pemutaran web tanpa ada fitur yang hilang. Saat pemutaran native berjalan, spektrum berasal dari pemutar sistem.",
     "autoSkipUnplayable": "Lewati lagu yang tidak dapat diputar",
     "autoSkipUnplayableDesc": "Bila lagu memerlukan langganan atau pembelian, hanya tersedia pratinjau, diblokir di wilayah Anda, atau gagal diputar tanpa alasan yang jelas, hitung mundur lalu lewati ke lagu berikutnya, seperti lagu yang telah dihapus. Lagu yang memerlukan login dan masalah jaringan tidak pernah dilewati.",
     "audioOutputDevice": "Perangkat Output Saat Ini",

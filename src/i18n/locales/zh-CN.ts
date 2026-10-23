@@ -2875,8 +2875,6 @@ export default {
     "transcodeFallbackDesc": "遇到无法解码的歌曲时用 FFmpeg 转换，不修改原文件。",
     "playbackFade": "暂停/播放淡入淡出",
     "playbackFadeDesc": "暂停前淡出，恢复时淡入。",
-    "nativePlayback": "原生播放（实验）",
-    "nativePlaybackDesc": "默认开启。均衡器与音效由原生播放器处理，打开后仍按原生播放；automix 与 ReplayGain 打开时会自动回到网页播放，功能不变。原生播放时频谱由原生提供。",
     "autoSkipUnplayable": "无法播放时自动跳过",
     "autoSkipUnplayableDesc": "歌曲需要会员或购买、只能试听、所在地区不可播放，或原因不明无法播放时，像已下架的歌曲一样倒计时后跳到下一首。需要登录的歌曲和网络问题不会跳过。",
     "audioOutputDevice": "当前播放声卡",
