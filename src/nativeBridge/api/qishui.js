@@ -643,6 +643,7 @@ function createCatalog({ platform, sessions }, { now } = {}) {
       }
       const unique = [...new Map(items.map(item => [String(item.base_info.id), item])).values()];
       noteLibraryStep('qishui', 'playlists:read', { lists: unique.length,
+        baseKeys: Object.keys(unique[0]?.base_info || {}).join(','),
         sample: unique.slice(0, 8).map(item => `${item.base_info?.name || ''}#${item.base_info?.type ?? ''}:${item.base_info?.track_count ?? item.base_info?.track_cnt ?? item.base_info?.media_count ?? ''}`).join(' | ') });
       return {
         items: unique.slice(offset, offset + limit),
@@ -1132,7 +1133,10 @@ const noteQishuiTrace = (operation, data) => {
     return;
   }
   if (operation === 'login_status') {
-    noteLibraryStep('qishui', 'bridge:result', { operation, signedIn: Boolean(data) });
+    // 诊断：确认车机扫码登的是不是官方 App 同一个账号（昵称/尾部 id/会员），
+    // 车机接口的喜欢/歌单可能属于另一个访问域，账号一致才能排除登错号。
+    noteLibraryStep('qishui', 'bridge:result', { operation, signedIn: Boolean(data),
+      nickname: String(data?.nickname || ''), idTail: String(data?.id || '').slice(-6), vip: data?.isVip === true });
   }
 };
 
