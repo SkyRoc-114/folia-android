@@ -30,6 +30,7 @@ import {
 } from '@/components/visualizer/diorama/dioramaBeatRipples';
 import { DIORAMA_PARTICLE_AUDIO_SCALE_MAX } from '@/components/visualizer/diorama/cameraPath';
 import {
+    holdLatentBeatSpeedDuringTransition,
     resolveLatentBeatFxPulse,
     resolveLatentBeatSpeedTarget,
 } from '@/components/visualizer/backgrounds/latent/LatentBackground';
@@ -422,6 +423,11 @@ describe('Latent beat pulse', () => {
     it('is the larger of the two envelopes', () => {
         expect(resolveLatentBeatFxPulse(0.4, 0.9)).toBe(0.9);
         expect(resolveLatentBeatFxPulse(1.2, 0)).toBe(1.2);
+    });
+
+    it('holds the speed target through an automix transition, including the same song twice', () => {
+        expect(holdLatentBeatSpeedDuringTransition(true, 0.31, 0.9)).toBe(0.31);
+        expect(holdLatentBeatSpeedDuringTransition(false, 0.31, 0.9)).toBe(0.9);
     });
 
     it('lands on the same speed curve as the band onset it replaces', () => {
