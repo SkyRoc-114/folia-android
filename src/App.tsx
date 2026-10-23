@@ -185,6 +185,13 @@ import { runsOnWindows } from './utils/platform';
 import { useNativeBackButton } from './hooks/useNativeBackButton';
 import { useNativeMediaActions } from './hooks/useNativeMediaActions';
 import { useColorOsLyricFeed } from './hooks/useColorOsLyricFeed';
+import { isNativePlayerAvailable } from './services/playbackEngine/nativePlayerPlugin';
+import { nativePlaybackEngine } from './services/playbackEngine/nativePlaybackEngine';
+import { resolveNativeTakeover } from './services/playbackEngine/nativeFallback';
+import { useNativePlaybackRuntime } from './services/playbackEngine/useNativePlaybackRuntime';
+import { nativeTransportFade } from './services/playbackEngine/nativeTransportFade';
+import { getNativeMediaFacade } from './services/playbackEngine/nativeMediaFacade';
+import { isNeutralAudioEffects } from './utils/audioEffects';
 
 const LOCAL_MUSIC_UPDATED_EVENT = 'folia-local-music-updated';
 const DEV_DEBUG_SHORTCUT_LABEL = 'Alt+Shift+D';
@@ -566,6 +573,14 @@ export default function App() {
 
     const syncOutputGain = useCallback((targetVolume: number, smoothing = 0.015) => {
         const clampedVolume = clampMediaVolume(targetVolume);
+
+        // 原生播放没有 Web Audio 图：音量直接写播放器。淡入淡出（`immediate`）要每一步都落到桥上，
+        // 普通音量拖动则由引擎按 60ms 合并，别把桥塞满。
+        // 读引擎而不是渲染期的 nativeTakes：这个回调在 nativeTakes 声明之前就创建了。
+        if (nativePlaybackEngine.ownsPlayback()) {
+            nativePlaybackEngine.setVolume(clampedVolume, { immediate: smoothing <= 0 });
+            return;
+        }
 
         if (gainNodeRef.current && audioContextRef.current) {
             // Volume only. ReplayGain lives on each deck now, because during a blend the two
@@ -1143,13 +1158,42 @@ export default function App() {
         return () => registerLocalTrackFileReader(null);
     }, [getLocalStemBytes]);
 
+    // ---- 原生播放（Android）----
+    // 一条判定，两半：设置开着 + 插件真的在 → nativeActive（这条路「能用」）；
+    // 这一首的源吃得下 + 没有 Web Audio 专属功能 → nativeTakes（这一首真的交给原生）。
+    // 判定本身是纯函数（services/playbackEngine/nativeFallback.ts），组合矩阵在单测里。
+    // 放在 automix 之前：automix 的门控要读 nativeTakes（原生接管时两套 deck 不能同时出声）。
+    const nativePlaybackEnabled = useAudioSettingsStore(state => state.nativePlaybackEnabled);
+    const nativePluginAvailable = isNativePlayerAvailable();
+    const replayGainMode = usePlaybackStore(state => state.replayGainMode);
+    const audioEqualizerSettings = useAudioSettingsStore(state => state.audioEqualizerSettings);
+    const audioEqualizerModCurve = useAudioSettingsStore(state => state.audioEqualizerModCurve);
+    const audioEqualizerModCurveSuspended = useAudioSettingsStore(state => state.audioEqualizerModCurveSuspended);
+    const nativeTakeover = resolveNativeTakeover({
+        nativeEnabled: nativePlaybackEnabled,
+        pluginAvailable: nativePluginAvailable,
+        source: audioSrc,
+        equalizerEnabled: audioEqualizerSettings.enabled,
+        equalizerModCurveActive: Boolean(audioEqualizerModCurve && !audioEqualizerModCurveSuspended),
+        audioEffectsNeutral: isNeutralAudioEffects(audioEqualizerSettings.effects),
+        automixEnabled,
+        replayGainMode,
+        stageActive: isNowPlayingStageActive || isPlayerCapStageActive,
+    });
+    const nativeActive = nativeTakeover.nativeActive;
+    const nativeTakes = nativeTakeover.takes;
+
     const automix = useAutomixDecks({
         audioRef,
         audioContextRef,
         currentSongKeyRef: currentSongRef,
         coverUrl,
         loopMode: effectiveLoopMode,
-        isEnabled: automixEnabled && !isNowPlayingStageActive,
+        // 原生接管这一首时 automix 必须让位（两套 deck 不能同时出声）；automix 开着时
+        // nativeTakes 恒为 false（自动回落），所以这条门控不会把 automix 关掉 ——
+        // 用 nativeTakes 而不是 nativeActive：后者只是「这条路可用」，默认开着，
+        // 拿它当门会把 Android 上的 automix 整个停掉。
+        isEnabled: automixEnabled && !nativeTakes && !isNowPlayingStageActive,
         transition: transitionSettings,
         onAdvanceTrack: () => {
             // Same advance the end of a track would trigger, only early enough for the outgoing
@@ -1202,6 +1246,7 @@ export default function App() {
      * IDLE only. PAUSED during a blend is a listener pressing pause and has to be shown.
      */
     const displayPlayerState = usePlaybackStore(selectDisplayPlayerState);
+
     // The bar is driven by the tail deck for the length of a blend, so at BOTH edges of the hold
     // it briefly reads one track's position against the other's length. One write at each edge
     // rather than waiting up to a quarter second for the next timeupdate to correct it.
@@ -1398,21 +1443,33 @@ export default function App() {
         syncStageLyricsClock,
         pauseDuringTransition: handlePauseDuringTransition,
         isTransitionAudible: automix.isTransitionAudible,
+        nativeTakes,
     });
+    /**
+     * 打卡 / scrobble / 最近播放这三处只听 `audioRef` 上的媒体事件，原生播放时那个元素是空的。
+     * 换成一个形状相同的替身（nativeMediaFacade），位置读引擎的插值时钟 —— 原生播放不在
+     * 「记录听过」这件事上打折。换代时 ref 的标识也换，三处的监听才会重新绑。
+     */
+    const reportingMediaRef = useMemo(
+        () => (nativeTakes
+            ? { current: getNativeMediaFacade() as unknown as HTMLAudioElement }
+            : audioRef),
+        [audioRef, nativeTakes],
+    );
     useNavidromeScrobbleReporter({
-        audioRef,
+        audioRef: reportingMediaRef,
         currentSong,
-        activeDeck: automix.activeDeck,
+        activeDeck: nativeTakes ? `native-${audioSrc ?? ''}` : automix.activeDeck,
     });
     usePlaybackReporter({
-        audioRef,
+        audioRef: reportingMediaRef,
         currentSong,
-        activeDeck: automix.activeDeck,
+        activeDeck: nativeTakes ? `native-${audioSrc ?? ''}` : automix.activeDeck,
     });
     useRecentPlaysRecorder({
-        audioRef,
+        audioRef: reportingMediaRef,
         currentSong,
-        activeDeck: automix.activeDeck,
+        activeDeck: nativeTakes ? `native-${audioSrc ?? ''}` : automix.activeDeck,
     });
 
     const {
@@ -1542,6 +1599,7 @@ export default function App() {
         pausePlayback,
         resumePlayback,
         syncStageLyricsClock,
+        nativeTakes,
     });
 
     const { personalFmSelection, personalFmSelectionLabel, isPersonalFmModeSupported, setPersonalFmSelection } = usePersonalFmModeController({
@@ -2041,6 +2099,24 @@ export default function App() {
         return true;
     };
     const seekMainAudio = useCallback((time: number) => {
+        // 原生播放时位置只存在于引擎里：写元素是写到一个空 deck 上，什么也不会发生。
+        if (nativeTakes) {
+            nativeTransportFade.cancel();
+            nativePlaybackEngine.seek(time);
+            currentTime.set(time);
+            if (!nativePlaybackEngine.isPlaying()) {
+                // 上一次暂停可能停在淡出后的 0 音量：继续播放前把音量淡回来（关掉淡入淡出时直接给值）。
+                if (!nativeTransportFade.fadeIn(getTargetPlaybackVolume)) {
+                    nativePlaybackEngine.setVolume(getTargetPlaybackVolume(), { immediate: true });
+                }
+                void nativePlaybackEngine.play().catch(error => {
+                    console.error('[NativePlayer] resume after seek failed', error);
+                });
+                setPlayerState(PlayerState.PLAYING);
+            }
+            void publishStagePlayerPlaybackUpdate();
+            return;
+        }
         // A seek is a statement that playback should go on, same as it is on a paused track. If a
         // pause is still fading out, take it back (the audio never stopped) so the pending pause
         // cannot land after the seek.
@@ -2059,7 +2135,7 @@ export default function App() {
             }
             void publishStagePlayerPlaybackUpdate();
         }
-    }, [publishStagePlayerPlaybackUpdate]);
+    }, [getTargetPlaybackVolume, nativeTakes, publishStagePlayerPlaybackUpdate]);
 
     const handleMonetLyricLineSeek = useCallback((lyricTimeSec: number) => {
         if (isNowPlayingControlDisabled) {
@@ -2438,6 +2514,68 @@ export default function App() {
     const libraryBackdropBlur = useLibraryPlayerOcclusionStore(state => selectLibraryPlayerBackdrop(state).blur);
     const blursVisualizerBackdrop = resolveVisualizerBackdropBlur({ shouldRevealHomeSurface, backdropBlur: libraryBackdropBlur });
 
+    // 原生播放：接管/回落、播放器事件 → 现有状态机、频谱开关。时钟不在这里写 —— 进度条与歌词
+    // 由 usePlaybackVisualizerBridge 的 rAF 统一从引擎读，这里只在页面隐藏时补一次。
+    useNativePlaybackRuntime({
+        enabled: nativeActive,
+        takes: nativeTakes,
+        fallbackReason: nativeTakeover.reason,
+        audioSrc,
+        shouldAutoPlayRef: shouldAutoPlay,
+        isLyricsLoading,
+        getTargetPlaybackVolume,
+        getResumePositionSec: () => currentTime.get(),
+        repeatOne: effectiveLoopMode === 'one',
+        // 可视化不在屏幕上（或没有壁纸在画）就不向原生要频谱：这是卡顿缓解的一半。
+        spectrumWanted: shouldMountVisualizer || wallpaperMode,
+        onEnded: () => {
+            if (effectiveLoopMode === 'one') {
+                // ExoPlayer 的 repeatMode=ONE 正常不会发 ended（Java 侧自己重复）。真收到就说明
+                // 这一首是在播到一半才切的单曲循环、prepare 时的模式还是 OFF：Web 侧兜底重播，
+                // 否则循环模式一按，歌放完就静音了。
+                if (audioSrc && !audioSrc.startsWith('blob:') && currentSong && !isStagePlaybackSong(currentSong)) {
+                    cacheSongAssets();
+                }
+                currentTime.set(0);
+                void nativePlaybackEngine.seek(0)
+                    .then(() => nativePlaybackEngine.play())
+                    .catch(error => {
+                        console.error('[NativePlayer] loop restart failed', error);
+                    });
+                return;
+            }
+            if (audioSrc && !audioSrc.startsWith('blob:') && currentSong && !isStagePlaybackSong(currentSong)) {
+                cacheSongAssets();
+            }
+            void handleNextTrack({ allowStopOnMissing: true, shouldNavigateToPlayer: false });
+        },
+        onError: () => skipAfterPlaybackFailure(),
+    });
+
+    /**
+     * 播放中途改设置（开均衡器、开 automix、换 ReplayGain 模式）会把 nativeTakes 翻过来：
+     * 同一首必须在两条路径之间交接，不能停在半路。换歌引起的翻转交给 playSong 自己的自动播放，
+     * 这里只管「同一首」。位置从引擎的 stop 快照续，不是从头再来。
+     */
+    const nativeHandoffRef = useRef({ takes: nativeTakes, src: audioSrc });
+    useEffect(() => {
+        const previous = nativeHandoffRef.current;
+        nativeHandoffRef.current = { takes: nativeTakes, src: audioSrc };
+        if (previous.takes === nativeTakes) return;
+        if (!audioSrc || previous.src !== audioSrc) return;
+        if (nativeTakes) {
+            console.info('[NativePlayer] 同一首切到原生播放', { src: audioSrc.slice(-32) });
+            if (audioRef.current && !audioRef.current.paused) audioRef.current.pause();
+            if (playerState === PlayerState.PLAYING) void resumePlayback();
+            return;
+        }
+        const resumeAt = nativePlaybackEngine.lastStoppedPositionSec();
+        pendingResumeTimeRef.current = resumeAt > 0 ? resumeAt : null;
+        currentTime.set(resumeAt);
+        console.info(`[NativePlayer] 同一首切回网页播放（${nativeTakeover.reason ?? 'unknown'}）`, { resumeAt });
+        if (playerState === PlayerState.PLAYING) void resumePlayback();
+    }, [audioSrc, audioRef, nativeTakeover.reason, nativeTakes, pendingResumeTimeRef, playerState, resumePlayback]);
+
     // The two automix decks are identical and interchangeable. Every handler below ignores the
     // deck that is not currently active, so a track fading out in the background can never drive
     // the progress bar, the duration, the queue, or the player state.
@@ -2445,11 +2583,14 @@ export default function App() {
         <audio
             key={deck}
             ref={register}
-            src={automix.deckSrc(deck)}
-            preload="auto"
+            // 原生接管这一首时把两个 deck 的地址清空：两处同时出声就是双份音频。
+            // React 对空串只写不加载（preload=none 再加一道），下面的媒体处理器也都提前退出。
+            src={nativeTakes ? '' : automix.deckSrc(deck)}
+            preload={nativeTakes ? 'none' : 'auto'}
             crossOrigin="anonymous"
             loop={effectiveLoopMode === 'one' && automix.activeDeck === deck}
             onLoadStart={(e) => {
+                if (nativeTakes) return;
                 // Silent unless the invariant breaks. A deck is only ever handed the source the
                 // app is currently on, so the active deck loading anything else means the ref and
                 // audioSrc have drifted apart - the state that once had a deck "start playing"
@@ -2498,6 +2639,9 @@ export default function App() {
                 automix.handleActiveDeckPlaying();
             }}
             onPause={(e) => {
+                // 切到原生时 React 会把地址清空，元素中止播放会带来一个 pause 事件；
+                // 那不是「听众按了暂停」，不能把 transport 拉回 PAUSED。
+                if (nativeTakes) return;
                 // A pause that flushing a fade-out made, while a new song is already being set up:
                 // the transport state and play intent belong to that song now.
                 if (consumeProgrammaticPause(e.currentTarget)) return;
@@ -2643,6 +2787,9 @@ export default function App() {
                 currentTime.set(0); // Ensure currentTime is reset when new audio loads
             }}
             onError={(e) => {
+                // 原生接管时这个 deck 只有一个空地址；它带来的 error 不是歌坏了，
+                // 不能走「恢复/跳过」那条路（否则会莫名其妙跳到下一首）。
+                if (nativeTakes) return;
                 const audioElement = e.currentTarget;
                 const isActiveDeck = automix.isActiveDeck(audioElement);
                 // 诊断：播放失败时记下媒体错误码和地址种类（blob/远端+主机），

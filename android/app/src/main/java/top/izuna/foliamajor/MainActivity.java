@@ -40,6 +40,9 @@ public class MainActivity extends BridgeActivity {
         CrashDiagnostics.install(getApplicationContext());
         clearWebViewCachesAfterAppUpdate();
         registerPlugin(FoliaNativePlugin.class);
+        // 原生播放（ExoPlayer）桥：插件名 FoliaNativePlayer，事件 foliaNativePlayer。
+        // 必须在这里登记，Web 侧 Capacitor.isPluginAvailable('FoliaNativePlayer') 才会是 true。
+        registerPlugin(top.izuna.foliamajor.player.FoliaNativePlayerPlugin.class);
         registerPlugin(top.izuna.foliamajor.coloros.FoliaColorOsLyricsPlugin.class);
         super.onCreate(savedInstanceState);
         CrashDiagnostics.recordText(

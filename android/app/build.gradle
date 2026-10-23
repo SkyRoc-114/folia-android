@@ -24,7 +24,7 @@ android {
         applicationId "top.izuna.foliamajor"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 313
+        versionCode 314
         versionName packageJson.version
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -68,6 +68,9 @@ dependencies {
     implementation project(':capacitor-android')
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'androidx.media:media:1.7.0'
+    // 原生播放（FoliaNativePlayer 插件）的播放内核。改版本前先看 media3 的 release notes
+    // （1.x 之间 API 会移动），不要为了编译过而降级。
+    implementation "androidx.media3:media3-exoplayer:1.11.1"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

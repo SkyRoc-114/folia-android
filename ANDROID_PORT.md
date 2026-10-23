@@ -354,3 +354,31 @@ AI 合并上游模型发现/预设接口并保留安卓直连运行时；`packag
 - 桥内新增 `qishui:bridge:request` / `qishui:bridge:result` 留痕（search 条目数、
   liked_songs ids 数、playlist_tracks 条目数、audio 主机等），诊断报告可直接看到车机接口返回了什么
 - 回归测试：`test/unit/qishui/likedPlaylistTracks.test.ts`
+
+
+### 0.7.22-android.276：原生播放（ExoPlayer）接入，不砍功能
+
+按 `maimai993/folia-sonnet` 的思路把播放从 WebView `<audio>` 换成 ExoPlayer（media3 1.11.1），
+但修正作者停用前留下的两个问题：**不删频谱/智能动感**、**自动回落保住 Web Audio 专属功能**。
+
+- 原生层：`player/FoliaNativePlayer.java`（专用 HandlerThread、250ms tick、位置过桥 500ms、
+  DefaultHttpDataSource 浏览器 UA）、`player/FoliaNativePlayerPlugin.java`（Capacitor 桥）、
+  `audio/NativeAudioSpectrumTap.java`（Visualizer 挂 ExoPlayer session，20fps、128 段、
+  0..255、平滑 0.6；对应作者删掉的 P2 频谱）；`FoliaPlaybackService` 的通知栏/锁屏
+  play/pause 与进度直接走原生；Manifest 加 MODIFY_AUDIO_SETTINGS；build.gradle 加 media3。
+- Web 层：`src/services/playbackEngine/{nativePlayerPlugin,nativePlaybackEngine,nativeFallback,
+  nativeTransportFade,nativeMediaFacade,useNativePlaybackRuntime}.ts`；App/transport/
+  interaction/visualizer/beatFx/设置页/i18n 接线；默认开，设置可关。
+- **自动回落**（功能不删）：均衡器（含 mod 曲线）、音效非中性、automix、ReplayGain 非 off、
+  blob:/data: 源、NowPlaying/PlayerCap 舞台接管 → 这一首回 `<audio>` + Web Audio，界面上
+  功能照常；同一首中途改设置会做位置续接的交接。
+- **频谱**：原生播放时由 Visualizer 事件直接写 `audioBands`（bass/lowMid/mid/vocal/treble/
+  power/spectrum），可视化跳过 analyser 与空闲呼吸；智能动感用原生位置 + 节拍表，没有节拍表
+  时用 bass 上升沿保底。频谱只在原生在播、页面可见、可视化/壁纸需要时开启。
+- **卡顿缓解**：播放循环离开主线程；位置事件 500ms 过桥 + JS 墙钟插值（只进不退、MAX_LEAD 700ms）；
+  频谱事件不写 React、只写 MotionValue，主线程忙时只保留最新帧；诊断新增 native playback
+  小节（接管/回落原因、位置/频谱事件速率、桥命令、hitch）。
+- **卡顿未解风险**：20fps × 128 段的频谱过桥仍是最大变量；真机若顿，先看诊断里的
+  position/spectrum 速率，必要时降频谱到 15fps 或只保留 bands。
+- **已知边界**：ExoPlayer 不共享 WebView Cookie，但在线音源都先经 LocalAudioServer 回环，
+  不受影响；blob（媒体缓存/部分本地歌）必然回网页路径；锁屏拖动 seek 仍未接。

@@ -2875,6 +2875,8 @@ export default {
     "transcodeFallbackDesc": "Converts tracks that cannot be decoded with FFmpeg. The file is not changed.",
     "playbackFade": "Fade on pause and resume",
     "playbackFadeDesc": "Fades out before pausing and back in on resume.",
+    "nativePlayback": "Native playback (experimental)",
+    "nativePlaybackDesc": "On by default. With the equalizer, sound effects, automix or ReplayGain on, a song falls back to web playback automatically, with nothing dropped; while native playback runs, the spectrum comes from the system player.",
     "autoSkipUnplayable": "Skip songs that can't be played",
     "autoSkipUnplayableDesc": "When a song needs a membership or purchase, is preview-only, is blocked in your region or fails for an unknown reason, count down and skip to the next one, as with a taken-down song. Songs that need you to sign in, and network problems, are never skipped.",
     "audioOutputDevice": "Current Output Device",

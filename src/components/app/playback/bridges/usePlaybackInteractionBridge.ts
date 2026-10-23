@@ -17,6 +17,8 @@ import { setIsDevDebugOverlayVisible, setIsMemoryMonitorVisible } from '../../..
 import { useAudioSettingsStore } from '../../../../stores/useAudioSettingsStore';
 import { currentTime } from '../../../../stores/motionSignals';
 import { errorFields } from '../../../../utils/errorText';
+import { nativePlaybackEngine } from '../../../../services/playbackEngine/nativePlaybackEngine';
+import { nativeTransportFade } from '../../../../services/playbackEngine/nativeTransportFade';
 
 // src/components/app/playback/bridges/usePlaybackInteractionBridge.ts
 
@@ -77,6 +79,8 @@ type UsePlaybackInteractionBridgeParams = {
     pausePlayback: () => void;
     resumePlayback: () => Promise<void>;
     syncStageLyricsClock: (timeSec: number, endTimeSec: number, nextPlayerState: PlayerState, startTimeSec?: number) => void;
+    /** 这一首由原生播放器在播：播放/暂停与方向键跳转都不能看那个空的 `<audio>`。 */
+    nativeTakes?: boolean;
 };
 
 // Bridges playback-related keyboard and click interactions without leaving them inline in App.tsx.
@@ -94,6 +98,7 @@ export function usePlaybackInteractionBridge({
     pausePlayback,
     resumePlayback,
     syncStageLyricsClock,
+    nativeTakes = false,
 }: UsePlaybackInteractionBridgeParams) {
     // Read here rather than passed in: all store fields or a module-level motion signal.
     const currentView = useAppViewStore(state => state.view);
@@ -155,6 +160,17 @@ export function usePlaybackInteractionBridge({
             return;
         }
 
+        // 原生播放时元素是空的（paused 永远 true），只能问引擎「在不在响」。
+        // 淡出期间歌还在响，这一下按的是「继续」—— 和上面 Web 路径同一条规则。
+        if (nativeTakes) {
+            if (nativeTransportFade.isFadingOut() || !nativePlaybackEngine.isPlaying()) {
+                startPlaybackFromInteraction();
+            } else {
+                pausePlayback();
+            }
+            return;
+        }
+
         if (isTransitionAudible?.()) {
             pausePlayback();
             return;
@@ -167,7 +183,7 @@ export function usePlaybackInteractionBridge({
                 startPlaybackFromInteraction();
             }
         }
-    }, [activePlaybackContext, audioRef, audioSrc, isNowPlayingStageActive, isTransitionAudible, pausePlayback, playerState, startPlaybackFromInteraction, stageActiveEntryKind]);
+    }, [activePlaybackContext, audioRef, audioSrc, isNowPlayingStageActive, isTransitionAudible, nativeTakes, pausePlayback, playerState, startPlaybackFromInteraction, stageActiveEntryKind]);
 
     const toggleLoop = useCallback((event?: React.MouseEvent) => {
         event?.stopPropagation();
@@ -299,7 +315,10 @@ export function usePlaybackInteractionBridge({
                         // Off the motion value, not the element: during a blend that value is driven
                         // by the deck on screen, which is the track this key is meant to move.
                         const nextTime = Math.max(0, currentTime.get() - 5);
-                        if (!seekDuringTransition?.(nextTime) && audioRef.current) {
+                        if (nativeTakes) {
+                            nativePlaybackEngine.seek(nextTime);
+                            currentTime.set(nextTime);
+                        } else if (!seekDuringTransition?.(nextTime) && audioRef.current) {
                             audioRef.current.currentTime = nextTime;
                         }
                     }
@@ -335,7 +354,10 @@ export function usePlaybackInteractionBridge({
                         // the element holds the ARRIVING track's length, and clamping this track's
                         // position against it lands past its end.
                         const nextTime = Math.min(duration || 0, currentTime.get() + 5);
-                        if (!seekDuringTransition?.(nextTime) && audioRef.current) {
+                        if (nativeTakes) {
+                            nativePlaybackEngine.seek(nextTime);
+                            currentTime.set(nextTime);
+                        } else if (!seekDuringTransition?.(nextTime) && audioRef.current) {
                             audioRef.current.currentTime = nextTime;
                         }
                     }
@@ -370,6 +392,7 @@ export function usePlaybackInteractionBridge({
         isNowPlayingStageActive,
         isPanelOpen,
         navigateBackFromPlayer,
+        nativeTakes,
         pausePlayback,
         playerState,
         resumePlayback,

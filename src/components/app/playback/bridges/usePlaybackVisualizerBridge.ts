@@ -20,6 +20,7 @@ import {
 import { getTransitionHandoffProgress } from '../../../../services/automix/transitionCue';
 import { omni } from '../../../../services/onlineMusic/omni';
 import { tickBeatFx } from '../../../../services/beatFx/beatFxLive';
+import { nativePlaybackEngine } from '../../../../services/playbackEngine/nativePlaybackEngine';
 import { useBeatFxTrack } from '../../../../hooks/useBeatFxTrack';
 import { readIncomingLyricClock } from './incomingLyricClock';
 import { isBackgroundLyricHeld, setHeldLyricTime, useBackgroundLyricHoldStore } from '../../backgroundThrottling/backgroundLyricHoldStore';
@@ -128,8 +129,7 @@ export function usePlaybackVisualizerBridge({
     // that start. Cached per URL until the registry changes, since the frame loop asks every frame.
     const clipStartSecRef = useRef(new Map<string, number>());
     const clipStartVersionRef = useRef(-1);
-    const lyricClipStartSec = useCallback((element: HTMLAudioElement | null | undefined): number => {
-        const src = element?.currentSrc;
+    const clipStartSecOfSource = useCallback((src: string | null | undefined): number => {
         if (!src) return 0;
         const version = omni.audioSourceMetadataVersion();
         if (clipStartVersionRef.current !== version) {
@@ -147,6 +147,13 @@ export function usePlaybackVisualizerBridge({
         }
         return seconds;
     }, []);
+    const lyricClipStartSec = useCallback((element: HTMLAudioElement | null | undefined): number => (
+        clipStartSecOfSource(element?.currentSrc)
+    ), [clipStartSecOfSource]);
+    /** 原生播放时当前那一首的试听起点：位置来自播放器，片头偏移仍按源的元数据补。 */
+    const nativeClipStartSec = useCallback((): number => (
+        clipStartSecOfSource(nativePlaybackEngine.activeUrl())
+    ), [clipStartSecOfSource]);
 
     // The ends of a blend, written as the store changes rather than on the next frame: the visualizer
     // renders from that same change, and a frame late it would draw the incoming track's lyrics from
@@ -243,6 +250,10 @@ export function usePlaybackVisualizerBridge({
         // the track it is finishing, so that clock and picture never describe different songs.
         const audioElement = getDisplayElement?.() ?? audioRef.current;
         const isActuallyPlaying = Boolean(audioElement && !audioElement.paused && !audioElement.ended);
+        // 原生播放时元素是空的，声音和频谱都在播放器那边：频谱由引擎的 `spectrum` 事件直接
+        // 写进 audioBands（不经过 React），这里不读 analyser，也不要用「空闲呼吸」把它盖掉。
+        const nativeOwns = nativePlaybackEngine.ownsPlayback();
+        const nativePlaying = nativeOwns && nativePlaybackEngine.isPlaying();
         // Mid-handover a deck can be loading while the other one is still sounding. The analyser
         // is downstream of both, so it has real signal: dropping to the idle breath here would put
         // a visible stutter at exactly the moment meant to be seamless.
@@ -250,6 +261,8 @@ export function usePlaybackVisualizerBridge({
 
         if (backgroundHold) {
             // The bands keep their last values: nothing draws from them while held.
+        } else if (nativePlaying) {
+            // 原生频谱自己写；暂停/停止后落到下面的呼吸分支，和网页路径收尾一致。
         } else if (hasAudibleSignal && analyserRef.current) {
             const bufferLength = analyserRef.current.frequencyBinCount;
             let dataArray: Uint8Array<ArrayBuffer> | null = frequencyDataRef.current;
@@ -300,7 +313,18 @@ export function usePlaybackVisualizerBridge({
             audioBands.spectrum?.set(EMPTY_FREQUENCY_DATA);
         }
 
-        if (isActuallyPlaying && audioElement) {
+        if (nativeOwns) {
+            // 原生：位置来自引擎的墙钟插值（只进不退、夹 duration）。暂停时也给同一个数，
+            // 进度条不会在暂停那一帧跳回上一次采样。
+            const nativeTime = nativePlaybackEngine.getPositionSec();
+            currentTime.set(nativeTime);
+
+            const effectiveLyricTime = nativeTime + nativeClipStartSec() - displayOffsetMsRef.current / 1000;
+            showLyricTime(effectiveLyricTime);
+            if (lyrics) {
+                showLine(findLatestActiveLineIndex(lyrics.lines, effectiveLyricTime));
+            }
+        } else if (isActuallyPlaying && audioElement) {
             const time = audioElement.currentTime;
             currentTime.set(time);
 
@@ -362,7 +386,16 @@ export function usePlaybackVisualizerBridge({
         }
 
         if (beatFxWantedRef.current && !backgroundHold) {
-            tickBeatFx(isActuallyPlaying ? audioElement : null, analyserRef.current?.context);
+            if (nativeOwns) {
+                // 原生：把插值位置喂给同一个节拍时钟（事件表照常驱动 beatImpact / downbeatImpact），
+                // 没有 AnalyserNode 时由 tickBeatFx 用原生 bass 做一层瞬态保底。
+                tickBeatFx(null, null, {
+                    positionSec: nativePlaying ? nativePlaybackEngine.getPositionSec() : null,
+                    bands: nativePlaybackEngine.getLatestBands(),
+                });
+            } else {
+                tickBeatFx(isActuallyPlaying ? audioElement : null, analyserRef.current?.context);
+            }
         }
 
         // While a blend holds the picture, the active deck is the incoming track: its hand-off, clock
@@ -408,6 +441,7 @@ export function usePlaybackVisualizerBridge({
         syncStageLyricsClock,
         lyricCurrentTime,
         lyricClipStartSec,
+        nativeClipStartSec,
         isTransitionAudible,
         getDisplayElement,
     ]);

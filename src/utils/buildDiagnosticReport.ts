@@ -12,6 +12,8 @@ import { getOnlineMutationDiagnosticLines } from './onlineMutationDiagnostics';
 import { getOnlinePlaybackDiagnosticLines } from './onlinePlaybackDiagnostics';
 import { getLyricsDiagnosticLines } from './lyricsDiagnostics';
 import { getLocalLibraryDiagnosticLines } from './localLibraryDiagnostics';
+import { nativePlaybackEngine } from '../services/playbackEngine/nativePlaybackEngine';
+import { isNativePlaybackShell, isNativePlayerAvailable } from '../services/playbackEngine/nativePlayerPlugin';
 import {
     canPersistVideoLayerFile,
     loadVideoLayerFileHandle,
@@ -190,12 +192,75 @@ const readPlaybackContinuityLines = (): string[] => {
 };
 
 /**
+ * 原生播放（Android ExoPlayer）。真机上「开原生播放后偶尔卡一下」要能分出三种情况：
+ * 桥太密（位置/频谱事件间隔）、频谱要得太勤（开关次数与速率）、主线程自身卡（帧探针）。
+ * 所以这里把接管/回落次数与原因、最近事件、位置事件间隔、频谱速率/长度一起导出。
+ */
+const readNativePlaybackLines = (): string[] => {
+    const native = nativePlaybackEngine.getDiagnostics();
+    const audioSettings = useAudioSettingsStore.getState();
+    const frames = readFrameTimingSnapshot();
+    const when = (value: number | null): string => (
+        value === null ? '(not recorded)' : new Date(value).toISOString()
+    );
+    const decision = native.decision;
+    const fallbackHistory = native.fallbackReasons.length
+        ? native.fallbackReasons.map(entry => `${entry.reason}@${when(entry.at)}`).join(', ')
+        : '(none)';
+    const recentEvents = native.recentEvents.length
+        ? native.recentEvents.map(entry => `${entry.type}@${when(entry.at)}`).join(', ')
+        : '(none)';
+    const bands = native.spectrum.lastBands;
+    const bandsLine = bands
+        ? `bass=${bands.bass.toFixed(0)} lowMid=${bands.lowMid.toFixed(0)} mid=${bands.mid.toFixed(0)}`
+            + ` vocal=${bands.vocal.toFixed(0)} treble=${bands.treble.toFixed(0)} power=${bands.power.toFixed(0)}`
+        : '(none)';
+    return [
+        `  module: shell=${isNativePlaybackShell() ? 'yes' : 'no'}`
+            + ` plugin=${isNativePlayerAvailable() ? 'yes' : 'no'}`
+            + ` switch=${audioSettings.nativePlaybackEnabled ? 'on' : 'off'}`,
+        `  current track: takes=${decision?.takes ? 'yes' : 'no'}`
+            + ` reason=${decision?.reason ?? '(none)'}`
+            + ` url=${native.url ? native.url.slice(-48) : '(none)'}`
+            + ` owns=${native.hasSource ? 'yes' : 'no'} playing=${native.playing ? 'yes' : 'no'}`,
+        `  clock: position=${native.positionSec.toFixed(2)}s duration=${native.durationSec.toFixed(2)}s`
+            + ` rate=${native.rate} volume=${native.volume.toFixed(2)}`,
+        `  takeovers: ${native.takeovers} fallbacks: ${native.fallbacks}`
+            + ` last reason: ${native.lastFallbackReason ?? '(none)'}`,
+        `  fallback history: ${fallbackHistory}`,
+        `  last native event: ${native.lastEventType ?? '(none)'} at=${when(native.lastEventAt)}`,
+        `  recent native events: ${recentEvents}`,
+        // 位置事件就是桥的节拍：原生把位置降频到 500ms 一档，avg 明显偏大或 max 抖动，
+        // 说明桥被别的操作堵过。
+        `  position feed: events=${native.positionEvents}`
+            + ` interval avg=${formatMilliseconds(native.positionIntervalAvgMs)}`
+            + ` min=${formatMilliseconds(native.positionIntervalMinMs)}`
+            + ` max=${formatMilliseconds(native.positionIntervalMaxMs)}`,
+        `  spectrum: enabled=${native.spectrum.enabled ? 'yes' : 'no'}`
+            + ` events=${native.spectrum.events}`
+            + ` rate=${native.spectrum.ratePerSec.toFixed(1)}/s`
+            + ` length=${native.spectrum.lastLength}`
+            + ` sampleRate=${native.spectrum.lastSampleRate ?? 'n/a'}`
+            + ` lastAt=${when(native.spectrum.lastAt)}`,
+        `  spectrum enable requests: on=${native.spectrumEnableOn} off=${native.spectrumEnableOff}`
+            + ` last60s=${native.spectrumEnableRecent}`
+            + ` lastAt=${when(native.spectrumEnabledAt)}`,
+        `  spectrum bands: ${bandsLine}`,
+        `  bridge commands: count=${native.commandCount} last=${native.lastCommand ?? '(none)'}`
+            + ` at=${when(native.lastCommandAt)}`,
+        `  native error: ${native.lastError ?? '(none)'}`,
+        // 与 frame timing 同一份探针：原生播放时的主线程卡顿要和桥上事件分开看。
+        `  main-thread hitches (frame probe): longTasks=${frames.longTasks.count}`
+            + ` max=${formatMilliseconds(frames.longTasks.maxMs)}`,
+    ];
+};
+
+/**
  * 帧耗时与卡顿归属。用户报「卡顿」时先看这一段：
  * 单帧阻塞 100ms 以上（loafHeavy）即使整体统计看着平滑，也算我们这边的卡 —— 现场那次
  * 150ms 阻塞（脚本 198ms、样式布局 0ms、出处在 LatticeLyrics 的 rAF 回调）就是这么被抓到的。
  */
-export type StutterAttributionInput = {
-    renderHealth: 'smooth' | 'mild' | 'heavy' | 'unknown';
+export type StutterAttributionInput = {    renderHealth: 'smooth' | 'mild' | 'heavy' | 'unknown';
     loafHeavy: boolean;
     scriptHeavy: boolean;
     audioStalled: boolean;
@@ -637,6 +702,9 @@ export const buildDiagnosticReport = async (): Promise<string> => {
         '',
         'playback continuity:',
         ...readPlaybackContinuityLines(),
+        '',
+        'native playback (android):',
+        ...readNativePlaybackLines(),
         '',
         'playback heartbeat:',
         `  previous: ${formatPlaybackHeartbeat(heartbeats.playback.previous)}`,
