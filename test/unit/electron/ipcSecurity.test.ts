@@ -178,4 +178,15 @@ describe('main.cjs wiring', () => {
             expect(site?.[0], channel).toContain('createSenderGuardedHandler({');
         }
     });
+
+    it('registers the HiFi channels with the main-window check', () => {
+        // 通道逐个的守卫和校验由 hifiIpc.test.ts 对产品代码测；这里只钉 main.cjs 交进去的是主窗口的判定。
+        const hifiIpc = readFileSync(path.join(rootDir, 'electron/hifi/hifiIpc.cjs'), 'utf8');
+        expect(mainCjs).toContain("require('./hifi/hifiIpc.cjs')");
+        const site = mainCjs.match(/registerHifiIpc\(\{[\s\S]{0,400}/);
+        expect(site, 'no registerHifiIpc call').not.toBeNull();
+        expect(site?.[0]).toContain('isTrustedSender: event => isTrustedMainWindowContents(event.sender)');
+        expect(hifiIpc).toContain("require('../ipcAccessGuard.cjs')");
+        expect(hifiIpc).toContain('createSenderGuardedHandler({');
+    });
 });

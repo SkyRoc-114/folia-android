@@ -1,0 +1,463 @@
+import { EventEmitter } from 'events';
+import { createRequire } from 'module';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { HifiLoadRequest, HifiReadResponse } from '../../../src/types/hifi';
+
+// 钉住 HiFi 的 IPC 层：通道全集、只认主窗口、载荷校验、读请求按源的所属页面路由并只收那个页面的回应、10 秒超时。
+
+type Handler = (event: unknown, ...args: unknown[]) => unknown;
+type InstallOutcome = { ok: boolean; errorCode: string | null; version: string | null; executablePath: string | null };
+
+const require = createRequire(import.meta.url);
+const {
+    INVOKE_CHANNELS,
+    READ_RESULT_CHANNEL,
+    registerHifiIpc,
+    validateLoadRequest,
+    validateEngineConfig,
+    resolvePickedRuntimePath,
+} = require('../../../electron/hifi/hifiIpc.cjs') as {
+    INVOKE_CHANNELS: readonly string[];
+    READ_RESULT_CHANNEL: string;
+    registerHifiIpc: (options: Record<string, unknown>) => {
+        requestRead: (ownerId: number | null, request: { sourceKey: string; offset: number; length: number }) => Promise<HifiReadResponse>;
+        resolveRuntime: () => Promise<{ path: string; version: string | null } | null>;
+        broadcastState: (state: unknown) => void;
+        broadcastClock: (update: unknown) => void;
+        broadcastError: (event: unknown) => void;
+        broadcastInstallProgress: (progress: unknown) => void;
+    };
+    validateLoadRequest: (request: unknown) => HifiLoadRequest | null;
+    validateEngineConfig: (config: unknown) => Record<string, unknown> | null;
+    resolvePickedRuntimePath: (picked: string, platform: string) => string;
+};
+
+class FakeContents extends EventEmitter {
+    sent: Array<[string, unknown]> = [];
+    destroyed = false;
+
+    constructor(public id: number) {
+        super();
+    }
+
+    send(channel: string, payload: unknown) {
+        this.sent.push([channel, payload]);
+    }
+
+    isDestroyed() {
+        return this.destroyed;
+    }
+
+    destroy() {
+        this.destroyed = true;
+        this.emit('destroyed');
+    }
+}
+
+const createWindow = (id: number) => {
+    const webContents = new FakeContents(id);
+    return { webContents, destroyed: false, isDestroyed() { return this.destroyed; } };
+};
+
+const status = (overrides: Record<string, unknown> = {}) => ({
+    available: true,
+    path: '/usr/bin/mpv',
+    version: '0.41.0',
+    source: 'system',
+    errorCode: null,
+    manualPathRejected: false,
+    platform: 'linux',
+    arch: 'x64',
+    download: { supported: false, version: null, installedVersion: null, updateAvailable: false, installing: false },
+    dopCapable: false,
+    ...overrides,
+});
+
+const validRequest = (overrides: Record<string, unknown> = {}) => ({
+    trackKey: 'local:abc#f00d',
+    songKey: 'local:abc',
+    source: { kind: 'local', sourceKey: 'a1b2c3d4e5f60718293a4b5c6d7e8f90', size: 1234, mimeType: 'audio/flac', fileName: 'Song.flac' },
+    startSec: 0,
+    paused: true,
+    loopFile: false,
+    ...overrides,
+});
+
+const validConfig = (overrides: Record<string, unknown> = {}) => ({
+    mpvPath: null,
+    audioDevice: 'auto',
+    exclusive: true,
+    dsdMode: 'pcm',
+    softwareVolume: false,
+    volume: 100,
+    ...overrides,
+});
+
+const createHarness = (overrides: Record<string, unknown> = {}) => {
+    const handlers = new Map<string, Handler>();
+    const ipcMain = { handle: vi.fn((channel: string, handler: Handler) => handlers.set(channel, handler)) };
+    let mainWindow: ReturnType<typeof createWindow> | null = createWindow(1);
+    const contents = new Map<number, FakeContents>();
+    const register = (item: FakeContents) => contents.set(item.id, item);
+    register(mainWindow.webContents);
+    let cached: ReturnType<typeof status> | null = null;
+    const runtime = {
+        detect: vi.fn(async ({ manualPath }: { manualPath: string | null }) => {
+            cached = status({ path: manualPath ?? '/usr/bin/mpv' });
+            return cached;
+        }),
+        getCachedStatus: vi.fn(() => cached),
+    };
+    const session = {
+        configure: vi.fn(async () => {}),
+        listDevices: vi.fn(async () => [{ name: 'auto', description: 'Autoselect device', driver: 'auto', direct: false }]),
+        load: vi.fn(async () => ({ ok: true, state: { status: 'paused' } })),
+        play: vi.fn(async () => {}),
+        pause: vi.fn(async () => {}),
+        seek: vi.fn(async () => {}),
+        stop: vi.fn(async () => {}),
+        setLoopFile: vi.fn(async () => {}),
+        preloadNext: vi.fn(async () => true),
+        clearNext: vi.fn(async () => {}),
+        getSnapshot: vi.fn(() => ({ status: 'idle', seq: 3 })),
+    };
+    const installer = {
+        install: vi.fn(async (): Promise<InstallOutcome> => ({ ok: true, errorCode: null, version: '0.41.0', executablePath: '/data/mpv' })),
+        cancel: vi.fn(),
+    };
+    const dialog = { showOpenDialog: vi.fn(async () => ({ canceled: false, filePaths: ['/opt/mpv/bin/mpv'] })) };
+    const onRuntimeChanged = vi.fn();
+    let readCounter = 0;
+    const api = registerHifiIpc({
+        ipcMain,
+        isTrustedSender: (event: { sender: { id: number } }) => Boolean(mainWindow && event.sender.id === mainWindow.webContents.id),
+        session,
+        runtime,
+        installer,
+        dialog,
+        getMainWindow: () => mainWindow,
+        webContentsFromId: (id: number) => contents.get(id),
+        onRuntimeChanged,
+        platform: 'linux',
+        randomUUID: () => `read-${++readCounter}-0000-0000-0000-000000000000`,
+        logWarn: () => {},
+        ...overrides,
+    });
+    const invokeAs = (senderId: number, channel: string, ...args: unknown[]) => {
+        const handler = handlers.get(channel);
+        if (!handler) throw new Error(`no handler for ${channel}`);
+        return handler({ sender: { id: senderId } }, ...args);
+    };
+    return {
+        api,
+        handlers,
+        session,
+        runtime,
+        installer,
+        dialog,
+        onRuntimeChanged,
+        contents,
+        register,
+        invoke: (channel: string, ...args: unknown[]) => invokeAs(1, channel, ...args),
+        invokeAs,
+        getMainWindow: () => mainWindow,
+        setMainWindow: (win: ReturnType<typeof createWindow> | null) => {
+            mainWindow = win;
+            if (win) register(win.webContents);
+        },
+    };
+};
+
+beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+});
+
+afterEach(() => {
+    vi.useRealTimers();
+});
+
+describe('hifi ipc: channels and trust', () => {
+    it('registers exactly the HiFi channels', () => {
+        const harness = createHarness();
+        expect([...harness.handlers.keys()].sort()).toEqual([...INVOKE_CHANNELS, READ_RESULT_CHANNEL].sort());
+        expect(INVOKE_CHANNELS).toEqual([
+            'hifi:get-runtime-status',
+            'hifi:detect-runtime',
+            'hifi:pick-runtime-path',
+            'hifi:install-runtime',
+            'hifi:cancel-install',
+            'hifi:configure',
+            'hifi:list-devices',
+            'hifi:load',
+            'hifi:play',
+            'hifi:pause',
+            'hifi:seek',
+            'hifi:stop',
+            'hifi:set-loop-file',
+            'hifi:preload-next',
+            'hifi:clear-next',
+            'hifi:get-snapshot',
+        ]);
+    });
+
+    it('an untrusted sender gets null from the two getters and an exception everywhere else, and nothing runs', async () => {
+        const harness = createHarness();
+        await expect(Promise.resolve(harness.invokeAs(99, 'hifi:get-runtime-status'))).resolves.toBeNull();
+        await expect(Promise.resolve(harness.invokeAs(99, 'hifi:get-snapshot'))).resolves.toBeNull();
+        const args: Record<string, unknown[]> = {
+            'hifi:configure': [validConfig()],
+            'hifi:load': [validRequest()],
+            'hifi:seek': [3],
+            'hifi:set-loop-file': [true],
+            'hifi:preload-next': [validRequest()],
+        };
+        for (const channel of INVOKE_CHANNELS) {
+            if (channel === 'hifi:get-runtime-status' || channel === 'hifi:get-snapshot') continue;
+            expect(() => harness.invokeAs(99, channel, ...(args[channel] ?? [])), channel).toThrow(/Untrusted renderer/);
+        }
+        for (const method of Object.values(harness.session)) expect(method).not.toHaveBeenCalled();
+        expect(harness.runtime.detect).not.toHaveBeenCalled();
+        expect(harness.installer.install).not.toHaveBeenCalled();
+        expect(harness.dialog.showOpenDialog).not.toHaveBeenCalled();
+    });
+
+    it('trusted calls reach the session; load and preload carry the sender as owner', async () => {
+        const harness = createHarness();
+        await expect(harness.invoke('hifi:load', validRequest())).resolves.toMatchObject({ ok: true });
+        expect(harness.session.load).toHaveBeenCalledWith(validRequest(), { ownerId: 1 });
+        await expect(harness.invoke('hifi:preload-next', validRequest())).resolves.toBe(true);
+        expect(harness.session.preloadNext).toHaveBeenCalledWith(validRequest(), { ownerId: 1 });
+        await expect(harness.invoke('hifi:play')).resolves.toBeUndefined();
+        await harness.invoke('hifi:pause');
+        await harness.invoke('hifi:seek', 12.5);
+        await harness.invoke('hifi:stop');
+        await harness.invoke('hifi:set-loop-file', true);
+        await harness.invoke('hifi:clear-next');
+        expect(harness.session.seek).toHaveBeenCalledWith(12.5);
+        expect(harness.session.setLoopFile).toHaveBeenCalledWith(true);
+        for (const method of ['play', 'pause', 'stop', 'clearNext'] as const) expect(harness.session[method]).toHaveBeenCalledTimes(1);
+        await expect(Promise.resolve(harness.invoke('hifi:get-snapshot'))).resolves.toEqual({ status: 'idle', seq: 3 });
+        await expect(harness.invoke('hifi:list-devices')).resolves.toHaveLength(1);
+    });
+
+    it('list-devices answers [] when mpv cannot be started', async () => {
+        const harness = createHarness();
+        harness.session.listDevices.mockRejectedValueOnce(new Error('MPV_NOT_FOUND'));
+        await expect(harness.invoke('hifi:list-devices')).resolves.toEqual([]);
+    });
+});
+
+describe('hifi ipc: payload validation', () => {
+    it('accepts a valid local and navidrome request, keeping only known fields', () => {
+        expect(validateLoadRequest({ ...validRequest(), extra: 1 })).toEqual(validRequest());
+        const navidrome = validRequest({
+            trackKey: 'navidrome:tr-1#9a',
+            songKey: 'navidrome:tr-1',
+            source: { kind: 'navidrome', url: 'https://music.example.com/rest/stream?id=1&u=me&t=x&s=y&format=raw', fileName: 'a.flac' },
+        });
+        expect(validateLoadRequest(navidrome)).toEqual(navidrome);
+    });
+
+    it('rejects malformed requests', () => {
+        const bad: unknown[] = [
+            null,
+            'load',
+            validRequest({ trackKey: '' }),
+            validRequest({ trackKey: 'a\nb' }),
+            validRequest({ songKey: 'x'.repeat(257) }),
+            validRequest({ startSec: Number.NaN }),
+            validRequest({ startSec: -1 }),
+            validRequest({ startSec: Number.POSITIVE_INFINITY }),
+            validRequest({ paused: 'yes' }),
+            validRequest({ loopFile: undefined }),
+            validRequest({ source: { kind: 'local', sourceKey: '../etc', size: 1, mimeType: '', fileName: '' } }),
+            validRequest({ source: { kind: 'local', sourceKey: 'k'.repeat(257), size: 1, mimeType: '', fileName: '' } }),
+            validRequest({ source: { kind: 'local', sourceKey: 'abc', size: -1, mimeType: '', fileName: '' } }),
+            validRequest({ source: { kind: 'local', sourceKey: 'abc', size: 1.5, mimeType: '', fileName: '' } }),
+            validRequest({ source: { kind: 'local', sourceKey: 'abc', size: 1, mimeType: 'x'.repeat(4097), fileName: '' } }),
+            validRequest({ source: { kind: 'navidrome', url: 'file:///etc/passwd', fileName: 'a' } }),
+            validRequest({ source: { kind: 'navidrome', url: 'ftp://host/a', fileName: 'a' } }),
+            validRequest({ source: { kind: 'navidrome', url: `https://h/${'a'.repeat(4096)}`, fileName: 'a' } }),
+            validRequest({ source: { kind: 'online', url: 'https://h/a', fileName: 'a' } }),
+        ];
+        for (const request of bad) expect(validateLoadRequest(request), JSON.stringify(request)?.slice(0, 80)).toBeNull();
+    });
+
+    it('invalid load answers INVALID_REQUEST, invalid preload answers false, and neither reaches the session', async () => {
+        const harness = createHarness();
+        await expect(harness.invoke('hifi:load', validRequest({ startSec: 'soon' }))).resolves.toEqual({ ok: false, errorCode: 'INVALID_REQUEST' });
+        await expect(harness.invoke('hifi:preload-next', { trackKey: 'x' })).resolves.toBe(false);
+        expect(harness.session.load).not.toHaveBeenCalled();
+        expect(harness.session.preloadNext).not.toHaveBeenCalled();
+    });
+
+    it('void calls throw INVALID_REQUEST on a bad payload', async () => {
+        const harness = createHarness();
+        await expect(harness.invoke('hifi:seek', Number.NaN)).rejects.toThrow(/INVALID_REQUEST/);
+        await expect(harness.invoke('hifi:seek', -2)).rejects.toThrow(/INVALID_REQUEST/);
+        await expect(harness.invoke('hifi:set-loop-file', 'inf')).rejects.toThrow(/INVALID_REQUEST/);
+        await expect(harness.invoke('hifi:configure', validConfig({ volume: 101 }))).rejects.toThrow(/INVALID_REQUEST/);
+        await expect(harness.invoke('hifi:configure', validConfig({ dsdMode: 'native' }))).rejects.toThrow(/INVALID_REQUEST/);
+        expect(harness.session.seek).not.toHaveBeenCalled();
+        expect(harness.session.setLoopFile).not.toHaveBeenCalled();
+        expect(harness.session.configure).not.toHaveBeenCalled();
+    });
+
+    it('validates the engine config', () => {
+        expect(validateEngineConfig(validConfig())).toEqual(validConfig());
+        expect(validateEngineConfig(validConfig({ mpvPath: '   ' }))).toEqual(validConfig({ mpvPath: null }));
+        for (const config of [
+            validConfig({ mpvPath: 42 }),
+            validConfig({ mpvPath: '/bin/mpv\u0000' }),
+            validConfig({ audioDevice: 3 }),
+            validConfig({ exclusive: 'yes' }),
+            validConfig({ softwareVolume: 1 }),
+            validConfig({ volume: Number.NaN }),
+            validConfig({ volume: -1 }),
+            [],
+        ]) {
+            expect(validateEngineConfig(config)).toBeNull();
+        }
+    });
+});
+
+describe('hifi ipc: runtime', () => {
+    it('configure stores the manual mpv path; detect and the getter use it', async () => {
+        const harness = createHarness();
+        await harness.invoke('hifi:configure', validConfig({ mpvPath: '/opt/mpv/mpv' }));
+        expect(harness.session.configure).toHaveBeenCalledWith(validConfig({ mpvPath: '/opt/mpv/mpv' }));
+        await expect(harness.invoke('hifi:detect-runtime')).resolves.toMatchObject({ path: '/opt/mpv/mpv' });
+        expect(harness.runtime.detect).toHaveBeenLastCalledWith({ manualPath: '/opt/mpv/mpv' });
+        expect(harness.onRuntimeChanged).toHaveBeenCalledTimes(1);
+
+        // 缓存是按同一个路径测的：直接用。
+        await harness.invoke('hifi:get-runtime-status');
+        expect(harness.runtime.detect).toHaveBeenCalledTimes(1);
+        // 路径换了：重新测。
+        await harness.invoke('hifi:configure', validConfig({ mpvPath: null }));
+        await expect(harness.invoke('hifi:get-runtime-status')).resolves.toMatchObject({ path: '/usr/bin/mpv' });
+        expect(harness.runtime.detect).toHaveBeenLastCalledWith({ manualPath: null });
+    });
+
+    it('resolveRuntime re-detects and hands the session a path, or null when nothing was found', async () => {
+        const harness = createHarness();
+        await expect(harness.api.resolveRuntime()).resolves.toEqual({ path: '/usr/bin/mpv', version: '0.41.0' });
+        harness.runtime.detect.mockResolvedValueOnce(status({ available: false, path: null, version: null, errorCode: 'MPV_NOT_FOUND' }));
+        await expect(harness.api.resolveRuntime()).resolves.toBeNull();
+    });
+
+    it('install runs the installer, then re-detects', async () => {
+        const harness = createHarness();
+        await expect(harness.invoke('hifi:install-runtime')).resolves.toMatchObject({ ok: true, errorCode: null, status: { available: true } });
+        harness.installer.install.mockResolvedValueOnce({ ok: false, errorCode: 'INSTALL_CHECKSUM_MISMATCH', version: '0.41.0', executablePath: null });
+        await expect(harness.invoke('hifi:install-runtime')).resolves.toMatchObject({ ok: false, errorCode: 'INSTALL_CHECKSUM_MISMATCH' });
+        expect(harness.runtime.detect).toHaveBeenCalledTimes(2);
+        await harness.invoke('hifi:cancel-install');
+        expect(harness.installer.cancel).toHaveBeenCalledTimes(1);
+    });
+
+    it('pick-runtime-path opens a file dialog on the main window; cancel answers null', async () => {
+        const harness = createHarness();
+        await expect(harness.invoke('hifi:pick-runtime-path')).resolves.toBe('/opt/mpv/bin/mpv');
+        expect(harness.dialog.showOpenDialog).toHaveBeenCalledWith(harness.getMainWindow(), { properties: ['openFile'] });
+        harness.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] });
+        await expect(harness.invoke('hifi:pick-runtime-path')).resolves.toBeNull();
+    });
+
+    it('a picked mpv.app on macOS resolves to the executable inside it', () => {
+        expect(resolvePickedRuntimePath('/Applications/mpv.app', 'darwin')).toBe('/Applications/mpv.app/Contents/MacOS/mpv');
+        expect(resolvePickedRuntimePath('/Applications/mpv.app/', 'darwin')).toBe('/Applications/mpv.app/Contents/MacOS/mpv');
+        expect(resolvePickedRuntimePath('/opt/homebrew/bin/mpv', 'darwin')).toBe('/opt/homebrew/bin/mpv');
+        expect(resolvePickedRuntimePath('C:\\mpv\\mpv.app', 'win32')).toBe('C:\\mpv\\mpv.app');
+    });
+});
+
+describe('hifi ipc: pushes and reads', () => {
+    it('pushes go to the main window of the moment and skip a destroyed one', () => {
+        const harness = createHarness();
+        const first = harness.getMainWindow()!;
+        harness.api.broadcastState({ seq: 1 });
+        harness.api.broadcastClock({ seq: 1 });
+        harness.api.broadcastError({ code: 'MPV_CRASHED' });
+        harness.api.broadcastInstallProgress({ phase: 'downloading' });
+        expect(first.webContents.sent.map(([channel]) => channel)).toEqual(['hifi:state', 'hifi:clock', 'hifi:error', 'hifi:install-progress']);
+
+        // 窗口重建：mainWindow 换成新窗口，旧窗口还活着但收不到了。
+        const rebuilt = createWindow(2);
+        harness.setMainWindow(rebuilt);
+        harness.api.broadcastState({ seq: 2 });
+        expect(rebuilt.webContents.sent).toEqual([['hifi:state', { seq: 2 }]]);
+        expect(first.webContents.sent).toHaveLength(4);
+
+        rebuilt.destroyed = true;
+        expect(() => harness.api.broadcastState({ seq: 3 })).not.toThrow();
+        harness.setMainWindow(null);
+        expect(() => harness.api.broadcastState({ seq: 4 })).not.toThrow();
+    });
+
+    it('sends a read to the owner page and accepts the answer only from that page', async () => {
+        const harness = createHarness();
+        const owner = harness.getMainWindow()!.webContents;
+        const read = harness.api.requestRead(1, { sourceKey: 'src', offset: 1024, length: 4 });
+        expect(owner.sent).toEqual([['hifi:read', { readId: 'read-1-0000-0000-0000-000000000000', sourceKey: 'src', offset: 1024, length: 4 }]]);
+
+        const other = new FakeContents(5);
+        harness.register(other);
+        expect(() => harness.invokeAs(5, 'hifi:read-result', 'read-1-0000-0000-0000-000000000000', { status: 'ok', data: new Uint8Array([9, 9, 9, 9]) }))
+            .toThrow(/Untrusted renderer/);
+        // 多给的字节截掉。
+        await harness.invokeAs(1, 'hifi:read-result', 'read-1-0000-0000-0000-000000000000', { status: 'ok', data: new Uint8Array([1, 2, 3, 4, 5]) });
+        await expect(read).resolves.toEqual({ status: 'ok', data: new Uint8Array([1, 2, 3, 4]) });
+        // 已经答过的 readId 再来一次：什么都不做。
+        await expect(Promise.resolve(harness.invokeAs(1, 'hifi:read-result', 'read-1-0000-0000-0000-000000000000', { status: 'failed' }))).resolves.toBeUndefined();
+    });
+
+    it('keeps reading from the old window during a rebuild, then falls back to the new main window', async () => {
+        const harness = createHarness();
+        const oldContents = harness.getMainWindow()!.webContents;
+        const rebuilt = createWindow(2);
+        harness.setMainWindow(rebuilt);
+
+        // 旧窗口还活着：仍然问它，它的回应照收（它不是主窗口了也一样）。
+        const fromOld = harness.api.requestRead(1, { sourceKey: 'src', offset: 0, length: 2 });
+        expect(oldContents.sent).toHaveLength(1);
+        await harness.invokeAs(1, 'hifi:read-result', 'read-1-0000-0000-0000-000000000000', { status: 'ok', data: new Uint8Array([7, 7]) });
+        await expect(fromOld).resolves.toMatchObject({ status: 'ok' });
+
+        // 旧窗口在读的途中没了：这次读算 unknown-source，来源桥会再问。
+        const interrupted = harness.api.requestRead(1, { sourceKey: 'src', offset: 2, length: 2 });
+        oldContents.destroy();
+        await expect(interrupted).resolves.toEqual({ status: 'unknown-source' });
+
+        const fromNew = harness.api.requestRead(1, { sourceKey: 'src', offset: 2, length: 2 });
+        expect(rebuilt.webContents.sent).toEqual([['hifi:read', expect.objectContaining({ sourceKey: 'src', offset: 2 })]]);
+        await harness.invokeAs(2, 'hifi:read-result', 'read-3-0000-0000-0000-000000000000', { status: 'unknown-source' });
+        await expect(fromNew).resolves.toEqual({ status: 'unknown-source' });
+    });
+
+    it('a read nobody answers fails after 10 s; with no page at all it is unknown-source', async () => {
+        const harness = createHarness();
+        const read = harness.api.requestRead(1, { sourceKey: 'src', offset: 0, length: 2 });
+        await vi.advanceTimersByTimeAsync(9999);
+        let settled = false;
+        void read.then(() => {
+            settled = true;
+        });
+        await Promise.resolve();
+        expect(settled).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(read).resolves.toEqual({ status: 'failed' });
+
+        harness.setMainWindow(null);
+        harness.contents.get(1)!.destroyed = true;
+        await expect(harness.api.requestRead(1, { sourceKey: 'src', offset: 0, length: 2 })).resolves.toEqual({ status: 'unknown-source' });
+    });
+
+    it('a malformed answer counts as failed', async () => {
+        const harness = createHarness();
+        const read = harness.api.requestRead(1, { sourceKey: 'src', offset: 0, length: 2 });
+        await harness.invokeAs(1, 'hifi:read-result', 'read-1-0000-0000-0000-000000000000', { status: 'ok', data: 'AAAA' });
+        await expect(read).resolves.toEqual({ status: 'failed' });
+        expect(() => harness.invokeAs(1, 'hifi:read-result', 42, { status: 'failed' })).toThrow(/INVALID_REQUEST/);
+    });
+});
