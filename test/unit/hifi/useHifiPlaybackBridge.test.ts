@@ -16,9 +16,9 @@ import type { HifiApi } from '@/services/hifi/hifiEngine';
 
 // test/unit/hifi/useHifiPlaybackBridge.test.ts
 // HiFi 播放桥挂在真的 hifiPlayback 服务上，主进程换成假的 window.electron.hifi：配置和循环的下发、载入就绪后的自动播放
-// （等歌词、恢复成暂停）、引擎状态写回播放 store、放完换歌和队尾放开设备、失败时只提示一次并回到 Web 引擎、熔断只提示一次，
-// 以及给传输控制用的跳转。后半是回落和关掉 HiFi 时带着位置和播放状态挪到 Web 引擎、手动开播用掉意图、载入落定时补发
-// loop-file、队尾停下后跳转再播放，以及停着的恢复延后载入。
+// （等歌词、恢复成暂停）、引擎状态写回播放 store、放完换歌（同一首又放起来再放完时照样换）和队尾放开设备、失败时只提示一次并
+// 回到 Web 引擎、熔断只提示一次，以及给传输控制用的跳转。后半是回落和关掉 HiFi 时带着位置和播放状态挪到 Web 引擎（之后开始的
+// 播放没放成就放弃了时照样挪）、手动开播用掉意图、载入落定时补发 loop-file、队尾停下后跳转再播放，以及停着的恢复延后载入。
 
 vi.hoisted(() => {
     const values = new Map<string, string>();
@@ -302,6 +302,27 @@ describe('useHifiPlaybackBridge', () => {
         expect(handleNextTrack).toHaveBeenCalledTimes(1);
     });
 
+    it('moves on again when the song that ended plays again under the same track and ends once more', async () => {
+        // The next song did not start (its file could not be read): handleNextTrack leaves the player as it was.
+        const handleNextTrack = vi.fn(async () => undefined);
+        mount({ handleNextTrack });
+        const trackKey = await startTrack();
+        await pushState({ trackKey, status: 'playing', paused: false, durationSec: 180 });
+        await pushState({ trackKey, status: 'ended', paused: true, durationSec: 180 });
+        expect(handleNextTrack).toHaveBeenCalledTimes(1);
+
+        // The listener presses play: mpv plays the ended song again from 0 under the same trackKey.
+        act(() => { expect(resumeHifiPlayback()).toBe(true); });
+        await pushState({ trackKey, status: 'playing', paused: false, durationSec: 180, positionSec: 0 });
+        await pushState({ trackKey, status: 'ended', paused: true, durationSec: 180 });
+        expect(handleNextTrack).toHaveBeenCalledTimes(2);
+
+        // Paused on the way (a seek back after the end) releases it as well.
+        await pushState({ trackKey, status: 'paused', paused: true, durationSec: 180, positionSec: 30 });
+        await pushState({ trackKey, status: 'ended', paused: true, durationSec: 180 });
+        expect(handleNextTrack).toHaveBeenCalledTimes(3);
+    });
+
     it('stops mpv at the end of the queue, and replays the song from the top on the next play', async () => {
         const handleNextTrack = vi.fn(async () => {
             // stopAtQueueEnd
@@ -459,7 +480,7 @@ describe('moving a HiFi song to the Web engine', () => {
         const playSong = vi.fn(async () => undefined);
         mount({ playSong });
         usePlaybackStore.setState({ currentSong: song });
-        const stillWanted = startPlay();
+        const stillWanted = startPlay().onceShown;
         let begun!: Promise<unknown>;
         act(() => {
             begun = beginHifiTrack({ song, source: { kind: 'local', localSong, file: new Blob([new Uint8Array([1])]) }, startSec: 0, stillWanted });
@@ -476,6 +497,33 @@ describe('moving a HiFi song to the Web engine', () => {
         expect(toast()).toEqual({ type: 'error', text: 'hifi.errors.DEVICE_BUSY' });
         expect(hifiEngine.isSongForcedWeb(SONG_KEY)).toBe(true);
         expect(playSong).not.toHaveBeenCalled();
+    });
+
+    it('replays a song that dies mid-song, or moves it when HiFi is switched off, once the newer play after it gave up', async () => {
+        useHifiSettingsStore.setState({ enabled: true });
+        const playSong = vi.fn(async () => undefined);
+        mount({ playSong });
+        // As onPlayLocalSong hands it over: the answer for what the play leaves running once its song shows.
+        const trackKey = await startTrack({ stillWanted: startPlay().onceShown });
+        await pushState({ trackKey, status: 'playing', paused: false, durationSec: 180 });
+        // The listener clicked a song whose file could not be read: that play started and gave up; this song plays on.
+        startPlay().abandon();
+
+        await act(async () => {
+            push.error?.({ code: 'MPV_CRASHED', trackKey, fatal: true });
+            await flush();
+        });
+        expect(playSong).toHaveBeenCalledTimes(1);
+
+        // The same for HiFi switched off, on a song of its own.
+        playSong.mockClear();
+        const second = await startTrack({ stillWanted: startPlay().onceShown });
+        await pushState({ trackKey: second, status: 'playing', paused: false, durationSec: 180 });
+        startPlay().abandon();
+        act(() => useHifiSettingsStore.getState().setEnabled(false));
+        expect(playSong).toHaveBeenCalledTimes(1);
+        // Back on for the tests after this one.
+        useHifiSettingsStore.setState({ enabled: true });
     });
 
     it('does not fall back on an engine error pushed while the load is still deciding (a busy device being retried)', async () => {
@@ -674,6 +722,37 @@ describe('a restore that defers its load', () => {
         expect(api.play).toHaveBeenCalledTimes(1);
         expect(shouldAutoPlayRef.current).toBe(false);
         expect(usePlaybackStore.getState().playerState).toBe(PlayerState.PLAYING);
+    });
+
+    it('starts from the top a song restored within half a second of its end, as an ended <audio> plays again', async () => {
+        // After the queue ended on HiFi the position handed to a rebuilt window is the song's length.
+        mount({ shouldAutoPlayRef: { current: false } });
+        await restore(239.6);
+        expect(getHifiPosition()).toBe(0);
+        await act(async () => {
+            expect(resumeHifiPlayback()).toBe(false);
+            await flush();
+        });
+        expect(api.load.mock.calls[0][0].startSec).toBe(0);
+
+        // Further from the end it starts where it was.
+        api.load.mockClear();
+        await restore(239);
+        await act(async () => {
+            resumeHifiPlayback();
+            await flush();
+        });
+        expect(api.load.mock.calls[0][0].startSec).toBe(239);
+    });
+
+    it('loads from the top when the first thing the listener does is a seek to the very end', async () => {
+        mount({ shouldAutoPlayRef: { current: false } });
+        await restore(50);
+        await act(async () => {
+            seekHifiRoute(239.8);
+            await flush();
+        });
+        expect(api.load.mock.calls[0][0].startSec).toBe(0);
     });
 
     it('loads at the place sought when the first thing the listener does is a seek, and stays paused', async () => {

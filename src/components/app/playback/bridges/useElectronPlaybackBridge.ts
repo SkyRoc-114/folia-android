@@ -32,7 +32,7 @@ import { useRemoteControlActions } from '../../../../hooks/useRemoteControlActio
 import { subscribeRemoteActions } from '../../../../mods/folium/registries/remoteActions';
 import { errorMessage } from '../../../../utils/errorText';
 import { getObservedMedia, hifiMediaShim } from '../../../../services/hifi/hifiMediaShim';
-import { seekHifiRoute } from '../../../hifi/useHifiPlaybackBridge';
+import { seekHifiRoute } from '../../../hifi/hifiRouteTransport';
 
 // Bridges Electron-specific shell features without coupling to UI components.
 const DISCORD_PRESENCE_SNAPSHOT_INTERVAL_MS = 1000;

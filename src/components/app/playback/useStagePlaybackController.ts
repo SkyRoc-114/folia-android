@@ -50,6 +50,7 @@ import { useAudioSettingsStore } from '../../../stores/useAudioSettingsStore';
 import type { PlaybackRoute } from '../../../types/hifi';
 import { getHifiPosition, isHifiRoute } from '../../../services/hifi/hifiPlayback';
 import { restorePlaybackSourceForSong } from './restore/restorePlaybackSource';
+import { findPlaybackDecks } from '../../hifi/useWebEngineYield';
 
 // src/components/app/playback/useStagePlaybackController.ts
 
@@ -239,6 +240,17 @@ export function useStagePlaybackController({
         shouldAutoPlayRef.current = snapshot?.playerState === PlayerState.PLAYING;
         lastAudioRecoverySourceRef.current = null;
         currentOnlineAudioUrlFetchedAtRef.current = null;
+        if (restoresSource) {
+            // Nothing of this snapshot plays from a deck, and a null audioSrc does not stop one: the
+            // deck that sounded the stage's media is paused and emptied here, or it keeps sounding
+            // (and its timeupdate and ended drive the main player) until the restore moves the route,
+            // or for good when the restore fails.
+            findPlaybackDecks(audioRef.current).forEach((deck) => {
+                deck.pause();
+                deck.removeAttribute('src');
+                deck.load();
+            });
+        }
         makeSongCurrent(song);
         const stillWanted = restoresSource ? startRestore() : null;
         setLyrics(snapshot?.lyrics ?? null);
@@ -266,6 +278,7 @@ export function useStagePlaybackController({
             pendingResumeTimeRef,
         }).catch(error => console.warn('[Stage] Failed to restore the main song\'s source after the stage', error));
     }, [
+        audioRef,
         blobUrlRef,
         currentOnlineAudioUrlFetchedAtRef,
         currentTime,

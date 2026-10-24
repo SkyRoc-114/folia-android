@@ -20,10 +20,12 @@ import { applyHifiClock, applyHifiEngineState } from './hifiTrackDriver';
 import {
     deferHifiLoad,
     dropDeferredHifiLoad,
+    hifiLoadStartSec,
     loadSourceSpec,
     noteWebEngineLeft,
     retireHifiSourceKey,
     runHifiLoad,
+    songDurationSec,
     type BeginHifiTrackOutcome,
     type HifiLoadJob,
     type HifiTrackSource,
@@ -62,7 +64,7 @@ export type BeginHifiTrackOptions = {
      * 由 loadDeferredHifiTrack 从那时的位置载入。
      */
     deferLoad?: boolean;
-    /** 起播时 startPlay()（恢复时 startRestore()）给的答案，记在曲目上，见 HifiTrack.stillWanted。不给时一直答是。 */
+    /** 起播时 startPlay() 的 onceShown（恢复时 startRestore()）给的答案，记在曲目上，见 HifiTrack.stillWanted。不给时一直答是。 */
     stillWanted?: () => boolean;
 };
 
@@ -201,7 +203,8 @@ export const beginHifiTrack = async ({
     const trackKey = `${songKey}#${createSourceKey().slice(0, 12)}`;
     const localSourceKey = source.kind === 'local' ? createSourceKey() : null;
     if (source.kind === 'local' && localSourceKey) hifiEngine.responder.register(localSourceKey, source.file);
-    const safeStartSec = Number.isFinite(startSec) && startSec > 0 ? startSec : 0;
+    // 停在结尾的那一首（放完之后恢复）从头载入，见 hifiLoadStartSec。
+    const safeStartSec = hifiLoadStartSec(startSec, songDurationSec(song.durationMs));
     const job: HifiLoadJob = { attempt, track: { trackKey, songKey, origin: source.kind, song, localSourceKey, stillWanted }, source };
     if (deferLoad) {
         deferHifiLoad(job, safeStartSec, snapshot ?? useHifiEngineStore.getState().engine);

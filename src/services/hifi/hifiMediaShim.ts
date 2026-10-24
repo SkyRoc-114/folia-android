@@ -107,6 +107,16 @@ export class HifiMediaShim extends EventTarget {
         this.startTimeupdates();
     }
 
+    /**
+     * 播放器那一侧换到了一首 mpv 早已在放的歌（无缝接上的那首被 playSong 认领）：像新源开播那样再派发一次 play 和 playing。
+     * 换歌时才开始的观察者会话（Navidrome 的 now-playing）由此知道新歌在放；mpv 接上时那一次派发，播放器还停在上一首。停着时不派发。
+     */
+    announceStart() {
+        if (this.trackKey === null || this.pausedFlag) return;
+        this.fire('play');
+        this.fire('playing');
+    }
+
     /** 按 HTML 的暂停步骤：paused 置真，补一次 timeupdate，再派发 pause。 */
     markPaused() {
         if (this.pausedFlag) return;

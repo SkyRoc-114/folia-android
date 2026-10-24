@@ -314,6 +314,20 @@ describe('beginHifiTrack', () => {
         expect(api.respondRead).toHaveBeenCalledWith('read-1', { status: 'ok', data: new Uint8Array([2, 3, 4]) });
     });
 
+    it('loads from the top a start within half a second of the song\'s length, and anywhere else where asked', async () => {
+        const { playback, api } = await setup();
+        const song = { ...localPlaybackSong(), durationMs: 20_004 } as SongResult;
+        await playback.beginHifiTrack({ song, source: localSource(), startSec: 20 });
+        expect(api.load.mock.calls.at(-1)?.[0].startSec).toBe(0);
+        expect(playback.getHifiPosition()).toBe(0);
+
+        await playback.beginHifiTrack({ song, source: localSource(), startSec: 19.4 });
+        expect(api.load.mock.calls.at(-1)?.[0].startSec).toBe(19.4);
+        // A song with no length of its own starts where it was asked.
+        await playback.beginHifiTrack({ song: localPlaybackSong(), source: localSource(), startSec: 20 });
+        expect(api.load.mock.calls.at(-1)?.[0].startSec).toBe(20);
+    });
+
     it('asks mpv to loop the file only in loop-one outside Personal FM', async () => {
         const { playback, playbackStore, api } = await setup();
         audio.state.loopMode = 'one';

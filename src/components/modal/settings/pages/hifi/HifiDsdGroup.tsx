@@ -42,7 +42,9 @@ export const HifiDsdGroup: React.FC = () => {
     if (isDop && !IS_WINDOWS) {
         lines.push({ tone: 'warn', key: 'hifi.settings.dopNotOnThisSystem' });
     }
-    if (isDop && !settings.exclusive) {
+    // Only Windows can turn exclusive mode into DoP; elsewhere the line above already says DoP is not
+    // there, and Linux has no exclusive switch to point at.
+    if (isDop && IS_WINDOWS && !settings.exclusive) {
         lines.push({ tone: 'warn', key: 'hifi.settings.dopNeedsExclusive' });
     }
 

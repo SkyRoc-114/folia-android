@@ -5,6 +5,9 @@ import { option, type SettingsGroupDef } from '../../kit';
 // names the same ones. The group ids are the anchors other code opens the settings on
 // (settingsAnchorModel). The whole page is the desktop app's: mpv runs under its main process.
 
+/** The desktop build's OS, from the preload; null on the web. */
+export const HIFI_PLATFORM: string | null = typeof window !== 'undefined' ? window.electron?.platform ?? null : null;
+
 export const ENGINE: SettingsGroupDef = { id: 'hifiEngine', titleKey: 'hifi.settings.groupEngine', electronOnly: true };
 export const OUTPUT: SettingsGroupDef = { id: 'hifiOutput', titleKey: 'hifi.settings.groupOutput', electronOnly: true };
 export const DSD: SettingsGroupDef = { id: 'hifiDsd', titleKey: 'hifi.settings.groupDsd', electronOnly: true };
@@ -17,7 +20,9 @@ export const O = {
     runtime: option(ENGINE, 'hifiRuntime', 'hifi.settings.runtime'),
     mpvPath: option(ENGINE, 'hifiMpvPath', 'hifi.settings.mpvPath'),
     device: option(OUTPUT, 'hifiAudioDevice', 'hifi.settings.device'),
-    exclusive: option(OUTPUT, 'hifiExclusive', 'hifi.settings.exclusive'),
+    // Linux has no exclusive mode: mpv's PipeWire and PulseAudio outputs always mix, so mpv is started
+    // with --audio-exclusive=no there and the page does not draw the switch (the saved value stays).
+    exclusive: option(OUTPUT, 'hifiExclusive', 'hifi.settings.exclusive', { available: () => HIFI_PLATFORM !== 'linux' }),
     dsdMode: option(DSD, 'hifiDsdMode', 'hifi.settings.dsdMode'),
     navidrome: option(SCOPE, 'hifiNavidrome', 'hifi.settings.navidrome'),
     softwareVolume: option(VOLUME, 'hifiSoftwareVolume', 'hifi.settings.softwareVolume'),
@@ -27,6 +32,3 @@ export const O = {
     videoExport: option(LIMITS, 'hifiLimitVideoExport', 'hifi.settings.limitVideoExport'),
     mediaControls: option(LIMITS, 'hifiLimitMediaControls', 'hifi.settings.limitMediaControls'),
 };
-
-/** The desktop build's OS, from the preload; null on the web. */
-export const HIFI_PLATFORM: string | null = typeof window !== 'undefined' ? window.electron?.platform ?? null : null;

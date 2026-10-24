@@ -35,10 +35,8 @@ import { useHifiGaplessPreload } from './useHifiGaplessPreload';
 // src/components/hifi/useHifiPlaybackBridge.ts
 // HiFi 路线在 React 这一侧的接线：装上推送驱动、把设置和循环推给主进程、载入就绪后自动播放、引擎状态写回播放 store、
 // 放完换下一首（队尾放开设备）、失败或关掉 HiFi 时让这首在 Web 引擎上接着放。
-// 传输控制和跳转用的两个函数，连同播放意图和队尾重放，在 hifiRouteTransport；那两个函数经这里导出。
+// 传输控制和跳转用的两个函数（resumeHifiPlayback、seekHifiRoute），连同播放意图和队尾重放，在 hifiRouteTransport，调用方直接从那里导入。
 // 无缝接播（预载下一首、mpv 接上后换过去）在 useHifiGaplessPreload，由这里挂上。
-
-export { resumeHifiPlayback, seekHifiRoute } from './hifiRouteTransport';
 
 type UseHifiPlaybackBridgeParams = {
     handleNextTrack: (options?: NextTrackOptions) => Promise<void> | void;
@@ -162,6 +160,8 @@ export function useHifiPlaybackBridge({
         let lastSeen: { trackKey: string; status: HifiPlaybackStatus } | null = null;
         // 已经交给 Web 引擎的那一首（失败回落，或关掉了 HiFi）：只交一次，只提示一次。
         let handedOverTrackKey: string | null = null;
+        // 已经换过下一首的那一首：同一次放完只换一次。它又放起来或停在中途（下一首没起播，听的人按了播放、跳了一下）就放开，
+        // 再放完时照样换。
         let endedTrackKey: string | null = null;
 
         // 挪到 Web 引擎时用的是那一刻最新的 playSong。
@@ -209,6 +209,7 @@ export function useHifiPlaybackBridge({
             }
             if (lastSeen?.trackKey === track.trackKey && lastSeen.status === engine.status) return;
             lastSeen = { trackKey: track.trackKey, status: engine.status };
+            if (endedTrackKey === track.trackKey && (engine.status === 'playing' || engine.status === 'paused')) endedTrackKey = null;
             if (engine.status === 'error') {
                 // 还在载入时的 'error' 归载入的结果管（刚离开 Web 引擎时的 DEVICE_BUSY 还在重试）；落定是失败时走 loadState。
                 if (useHifiTrackStore.getState().loadState !== 'loading') fail(track, engine.errorCode ?? 'UNKNOWN');

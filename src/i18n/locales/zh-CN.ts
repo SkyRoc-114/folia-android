@@ -4133,8 +4133,7 @@ export default {
       "devicesNeedMpv": "需要先有 mpv 才能列出设备。",
       "exclusive": "独占模式",
       "exclusiveDesc": "Folia 独占设备，系统混音器不会重采样或混音。期间其他程序在这个设备上没有声音。",
-      "exclusiveLinuxDesc": "在 Linux 上它不改变声音的路径。要绕过 PipeWire 和 PulseAudio，请选标着「直连」的设备。",
-      "exclusiveLinuxNote": "mpv 的 PipeWire 和 PulseAudio 输出没有独占模式：不管这里开不开，声音服务都会混音，也可能重采样。「直连」（ALSA hw:）设备则无论如何都只归 Folia 用。",
+      "exclusiveLinuxNote": "Linux 上 HiFi 没有独占模式：PipeWire 和 PulseAudio 总会把声音和其他程序混在一起，也可能重采样。只有标着「直连」的设备（ALSA hw:）才是原生直通。",
       "dsdMode": "DSD 输出方式",
       "dsdModeDesc": "DoP 把 DSD 原样装进 PCM 帧发送。",
       "dsdPcm": "转为 PCM",
@@ -4160,8 +4159,9 @@ export default {
       "limitBypassedDesc": "走 HiFi 的歌曲不经过智能过渡（automix）、均衡器、音效、ReplayGain、淡入淡出和频谱。",
       "limitVideoExport": "不能导出视频",
       "limitVideoExportDesc": "歌词视频导出依赖原来的音频引擎，歌曲走 HiFi 时无法导出。",
-      "limitMediaControls": "独占模式下没有系统媒体控制",
-      "limitMediaControlsDesc": "歌曲在独占模式下走 HiFi 播放时，系统媒体控制（Windows 的 SMTC、macOS 的「正在播放」、Linux 的 MPRIS）不显示也控制不了 Folia。共享模式下照常可用。"
+      "limitMediaControls": "系统媒体控制只在共享输出时有",
+      "limitMediaControlsDesc": "歌曲在独占模式下走 HiFi 播放时，系统媒体控制（Windows 的 SMTC、macOS 的「正在播放」）不显示也控制不了 Folia。独占模式关着时照常可用。",
+      "limitMediaControlsLinuxDesc": "歌曲经标着「直连」的设备（ALSA hw:）走 HiFi 播放时，系统媒体控制（MPRIS）不显示也控制不了 Folia。用其他设备时照常可用。"
     },
     "player": {
       "badge": "HiFi · {{verdict}}",

@@ -6,7 +6,9 @@ import { hifiMediaShim } from './hifiMediaShim';
 import type { HifiTrackSource } from './hifiTrackLoad';
 
 // src/services/hifi/hifiTrackStore.ts
-// HiFi 路线上的当前曲目：是哪一首、载入到哪一步、源是什么格式，以及按 mpv 推来的位置外推的播放时钟。只有 hifiPlayback 写它。
+// HiFi 路线上的当前曲目：是哪一首、载入到哪一步、源是什么格式，以及按 mpv 推来的位置外推的播放时钟。写它的只有 services/hifi 里的
+// 几处：hifiPlayback（起播、接管、认领无缝接上的那首）、hifiTrackLoad（载入结果、延后载入、源格式）、hifiGapless（排着的下一首、
+// 接上时换成当前曲目）和 hifiRouteGuard（离开路线时清空），都经下面的 showHifiTrack / clearHifiTrack 或直接 setState。
 
 export type HifiTrack = {
     /** 这一次起播的键（songKey + 随机后缀）；接管窗口重建前的播放时是主进程那份的键。 */
@@ -17,7 +19,8 @@ export type HifiTrack = {
     /** 本地歌曲登记在 hifiEngine.responder 的键；Navidrome 为 null。 */
     localSourceKey: string | null;
     /**
-     * 起播（或恢复）拿到的“还要不要这一首”：之后又有一次播放开始了就答否。失败回落时先问它，答否就不在 Web 引擎上重放，
+     * 起播（或恢复）拿到的“还要不要这一首”：之后又有一次播放开始了、还在路上就答否；那次播放没放成、放弃了，就又答是
+     * （起播给的是 startPlay() 的 onceShown，见 currentSong.ts）。失败回落、关掉 HiFi 和无缝接上时先问它，答否就不动，
      * 免得把那次更新的播放顶掉。没有时算一直要。
      */
     stillWanted?: () => boolean;

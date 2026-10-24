@@ -5,8 +5,9 @@ import { PlayerState, type SongResult } from '@/types';
 // A Stage round trip from a song mpv was playing (findings #2, #10). Entering the stage stops mpv, so the
 // main snapshot has to say which engine sounded the song and where mpv was; leaving the stage then restores
 // that song's source (which routes it to HiFi again at that position) instead of putting back a null
-// address under a PLAYING player. The hook runs without a renderer, as in currentSongStageRoutes.test.ts;
-// the source restore is a stub that records what it was asked.
+// address under a PLAYING player, and first pauses and empties the deck the stage's media played on. The hook
+// runs without a renderer, as in currentSongStageRoutes.test.ts; the source restore is a stub that records
+// what it was asked.
 
 const env = vi.hoisted(() => ({
     effects: [] as Array<() => unknown>,
@@ -115,6 +116,18 @@ const render = () => {
 };
 
 /** The main player as it stands on a route: the song current, the idle deck at 3 s, mpv at 90 s. */
+/** A deck as the hook touches it, with what was done to it in order. */
+const fakeDeck = (currentTime: number) => {
+    const calls: string[] = [];
+    return {
+        calls,
+        currentTime,
+        pause: vi.fn(() => { calls.push('pause'); }),
+        load: vi.fn(() => { calls.push('load'); }),
+        removeAttribute: vi.fn((name: string) => { calls.push(`removeAttribute:${name}`); }),
+    };
+};
+
 const playingMain = (song: SongResult, route: 'hifi' | 'web', playerState = PlayerState.PLAYING) => {
     makeSongCurrent(song);
     usePlaybackStore.setState({
@@ -126,7 +139,7 @@ const playingMain = (song: SongResult, route: 'hifi' | 'web', playerState = Play
         playerState,
         duration: 200,
     });
-    refs.audioRef.current = { currentTime: 3, pause: vi.fn() } as unknown as HTMLAudioElement;
+    refs.audioRef.current = fakeDeck(3) as unknown as HTMLAudioElement;
     // Frozen at 90 s so the assertions do not chase the extrapolating clock.
     hifiPlaybackClock.sync({ positionSec: 90, paused: true, durationSec: 200 });
 };
@@ -223,6 +236,28 @@ describe('leaving the stage back to a song mpv was playing', () => {
         expect(options.stillWanted()).toBe(false);
     });
 
+    it('pauses and empties the deck the stage\'s media played on before the restore, which may fail and leave it so', async () => {
+        const deck = fakeDeck(42);
+        let deckAtRestore: string[] | null = null;
+        vi.mocked(restorePlaybackSourceForSong).mockImplementationOnce(async () => {
+            deckAtRestore = [...deck.calls];
+            return 'failed';
+        });
+        playingMain(localSong, 'hifi');
+        await render().openStagePlayer();
+        usePlaybackStore.setState({ playbackRoute: 'web' });
+        // The stage's media plays on the deck (loadStageSessionIntoPlayback writes audioSrc).
+        usePlaybackStore.setState({ audioSrc: 'https://stage/media.mp3', playerState: PlayerState.PLAYING });
+        refs.audioRef.current = deck as unknown as HTMLAudioElement;
+        render().leaveStagePlayback();
+        await Promise.resolve();
+
+        // A null audioSrc stops no deck (usePlaybackAudioBridge loads only a new address): the hook does.
+        expect(usePlaybackStore.getState()).toMatchObject({ audioSrc: null, playbackRoute: 'web' });
+        expect(deck.calls).toEqual(['pause', 'removeAttribute:src', 'load']);
+        expect(deckAtRestore).toEqual(['pause', 'removeAttribute:src', 'load']);
+    });
+
     it('restores the source too when a main play is interrupted by a play from the stage', async () => {
         playingMain(localSong, 'hifi');
         const main = render();
@@ -239,6 +274,8 @@ describe('leaving the stage back to a web song', () => {
         playingMain(localSong, 'web');
         await roundTrip();
         expect(restorePlaybackSourceForSong).not.toHaveBeenCalled();
+        // The deck plays that address again: it is not emptied.
+        expect(refs.audioRef.current?.load).not.toHaveBeenCalled();
         const state = usePlaybackStore.getState();
         expect(state.audioSrc).toBe('blob:main');
         expect(state.playerState).toBe(PlayerState.PLAYING);

@@ -4,7 +4,8 @@ import { HIFI_TIMEUPDATE_INTERVAL_MS, HifiMediaShim, getObservedMedia, hifiMedia
 
 // test/unit/hifi/hifiMediaShim.test.ts
 // The stand-in <audio> the read-only observers watch while mpv plays: read-only properties, the
-// native event order, the 250 ms timeupdate cadence, and the route switch in getObservedMedia.
+// native event order, the 250 ms timeupdate cadence, the start announced again for a song the player
+// took over while mpv already played it, and the route switch in getObservedMedia.
 
 const playback = vi.hoisted(() => ({ state: { playbackRoute: 'web' as PlaybackRoute } }));
 vi.mock('@/stores/usePlaybackStore', () => ({ usePlaybackStore: { getState: () => playback.state } }));
@@ -198,6 +199,25 @@ describe('HifiMediaShim', () => {
         expect(shim.paused).toBe(false);
         // Only one play: the element never paused.
         expect(events).not.toContain('play');
+    });
+
+    it('announces a start again only while playing, without touching the cadence', () => {
+        const events = record(shim);
+        shim.announceStart();
+        shim.beginTrack('t1');
+        shim.setDuration(100);
+        events.length = 0;
+        // Paused: there is no start to announce.
+        shim.announceStart();
+        expect(events).toEqual([]);
+
+        shim.markPlaying();
+        events.length = 0;
+        shim.announceStart();
+        expect(events).toEqual(['play', 'playing']);
+        vi.advanceTimersByTime(HIFI_TIMEUPDATE_INTERVAL_MS);
+        // One cadence, not a second one started by the announcement.
+        expect(events.filter(type => type === 'timeupdate')).toHaveLength(1);
     });
 
     it('throws when something assigns currentTime', () => {

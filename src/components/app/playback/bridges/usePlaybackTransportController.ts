@@ -12,7 +12,7 @@ import type { OnlineRecovery, OnlineRecoveryOptions } from '../restore/createOnl
 import type { OnlineFailure } from '../../../../services/onlineMusic/failure/onlineFailureCase';
 import { onlineFailureToast } from '../source/onlineFailureToast';
 import { hifiTransport, isHifiRoute } from '../../../../services/hifi/hifiPlayback';
-import { resumeHifiPlayback } from '../../../hifi/useHifiPlaybackBridge';
+import { resumeHifiPlayback } from '../../../hifi/hifiRouteTransport';
 
 // src/components/app/playback/bridges/usePlaybackTransportController.ts
 

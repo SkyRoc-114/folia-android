@@ -649,6 +649,9 @@ export function usePlaybackQueueController({
         // quality, the stage and the queue of the moment they are pressed).
         const presentOnlineFailure = (shown: OnlineFailure) => {
             restoreFmModeIfNotLanded();
+            // Whatever is shown below, this play gave up: the song before it, still playing, is no longer
+            // overtaken (`onceShown` in currentSong.ts). Its own answer stays, for the countdown's skip and its cancel.
+            isLatestPlaybackRequest.abandon();
             setIsLyricsLoading(false);
             const said = onlineFailureToast(shown, t);
             const stopHere = () => {
@@ -724,10 +727,16 @@ export function usePlaybackQueueController({
                 console.error('[App] Failed to load replacement song before dialog:', error);
                 lookupFailure = onlineFailureOf({ operation: 'audio', providerId }, { error });
             }
-            if (!isLatestPlaybackRequest()) return;
+            if (!isLatestPlaybackRequest()) {
+                isLatestPlaybackRequest.abandon();
+                return;
+            }
 
             if (replacement?.song && !isSongUnavailable(replacement.song)) {
                 restoreFmModeIfNotLanded();
+                // The other version, if the listener takes it, is a play of its own: this one ends here,
+                // and the dialog closed leaves the song before it playing.
+                isLatestPlaybackRequest.abandon();
                 setStatusMsg(null);
                 setPendingUnavailableReplacement({
                     originalSong: song,
@@ -763,10 +772,14 @@ export function usePlaybackQueueController({
             const localData = (await getLocalSong(song.localRef.songId))
                 ?? localSongs.find(ls => ls.id === song.localRef.songId)
                 ?? null;
-            if (!isLatestPlaybackRequest()) return;
+            if (!isLatestPlaybackRequest()) {
+                isLatestPlaybackRequest.abandon();
+                return;
+            }
 
             if (!localData) {
                 restoreFmModeIfNotLanded();
+                isLatestPlaybackRequest.abandon();
                 setStatusMsg({ type: 'error', text: t('status.localFilePlaybackError') });
                 tellFailure(null, false);
                 return;
@@ -780,6 +793,9 @@ export function usePlaybackQueueController({
                 })
                 .filter((queuedSong): queuedSong is LocalSong => Boolean(queuedSong));
             fmModeBeforePendingPlayRef.current = null;
+            // Handed over: onPlayLocalSong takes a play of its own, and whether the song before it is
+            // overtaken is that play's to say now.
+            isLatestPlaybackRequest.abandon();
             await onPlayLocalSong(resolvedLocalData, localQueue, {
                 ...startOptions,
                 shouldNavigateToPlayer,
@@ -793,6 +809,7 @@ export function usePlaybackQueueController({
             const navidromeSong = resolveNavidromePlaybackCarrier(song);
             if (!navidromeSong) {
                 restoreFmModeIfNotLanded();
+                isLatestPlaybackRequest.abandon();
                 setStatusMsg({ type: 'error', text: t('status.playbackError') });
                 tellFailure(null, false);
                 return;
@@ -802,6 +819,8 @@ export function usePlaybackQueueController({
                 .map(queuedSong => resolveNavidromePlaybackCarrier(queuedSong))
                 .filter((queuedSong): queuedSong is NavidromeSong => Boolean(queuedSong));
             fmModeBeforePendingPlayRef.current = null;
+            // Handed over, as to onPlayLocalSong above.
+            isLatestPlaybackRequest.abandon();
             await onPlayNavidromeSong(navidromeSong, navidromeQueue, {
                 ...startOptions,
                 shouldNavigateToPlayer,
@@ -821,7 +840,10 @@ export function usePlaybackQueueController({
             ? null
             : await hasCachedSongAudio(song);
 
-        if (!isLatestPlaybackRequest()) return;
+        if (!isLatestPlaybackRequest()) {
+            isLatestPlaybackRequest.abandon();
+            return;
+        }
 
         if (!hasImmediatePrefetchedAudio && !hasCachedAudioBlob) {
             setStatusMsg({ type: 'info', text: t('status.loadingSong') });
@@ -842,6 +864,7 @@ export function usePlaybackQueueController({
             });
             if (!isLatestPlaybackRequest()) {
                 giveBackUnusedCopy();
+                isLatestPlaybackRequest.abandon();
                 return;
             }
 
@@ -852,7 +875,10 @@ export function usePlaybackQueueController({
                 return;
             }
         } catch (error) {
-            if (!isLatestPlaybackRequest()) return;
+            if (!isLatestPlaybackRequest()) {
+                isLatestPlaybackRequest.abandon();
+                return;
+            }
             console.error('[App] Failed to fetch song URL:', error);
             presentOnlineFailure(onlineFailureOf({ operation: 'audio', providerId }, { error }));
             return;
@@ -873,6 +899,7 @@ export function usePlaybackQueueController({
             // The play that overtook this one may end without asking for a song of its own.
             withdrawAsk(song);
             giveBackUnusedCopy();
+            isLatestPlaybackRequest.abandon();
             return;
         }
         // The song before may have failed while this one loaded (its countdown, its toast that stays):

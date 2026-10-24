@@ -89,7 +89,8 @@ import { useLibraryAccountProviders } from './library/core/account/useLibraryAcc
 import { resolveActiveProviderSummary } from './library/core/account/accountRules';
 import { useAppPreferences } from './hooks/useAppPreferences';
 import { useElectronPlaybackBridge } from './components/app/playback/bridges/useElectronPlaybackBridge';
-import { seekHifiRoute, useHifiPlaybackBridge } from './components/hifi/useHifiPlaybackBridge';
+import { useHifiPlaybackBridge } from './components/hifi/useHifiPlaybackBridge';
+import { seekHifiRoute } from './components/hifi/hifiRouteTransport';
 import { useHifiAutomixGate } from './components/hifi/useHifiAutomixGate';
 import { useWebEngineYield } from './components/hifi/useWebEngineYield';
 import { useHifiMediaSessionKeepAlive } from './components/hifi/useHifiMediaSessionKeepAlive';

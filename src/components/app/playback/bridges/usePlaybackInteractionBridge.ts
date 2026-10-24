@@ -18,7 +18,7 @@ import { useAudioSettingsStore } from '../../../../stores/useAudioSettingsStore'
 import { currentTime } from '../../../../stores/motionSignals';
 import { errorFields } from '../../../../utils/errorText';
 import { hifiTransport, isHifiRoute } from '../../../../services/hifi/hifiPlayback';
-import { seekHifiRoute } from '../../../hifi/useHifiPlaybackBridge';
+import { seekHifiRoute } from '../../../hifi/hifiRouteTransport';
 
 // src/components/app/playback/bridges/usePlaybackInteractionBridge.ts
 

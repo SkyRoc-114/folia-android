@@ -13,8 +13,9 @@ import { HIFI_PLATFORM, O, OUTPUT } from './options';
 // exclusive mode. Reading the devices starts mpv, so the list is only read once it is opened or
 // refreshed; until then the saved device keeps the name it was chosen under. On Linux the ALSA
 // hw: devices, the ones that skip the sound server, are marked, and the texts say that choosing
-// one of them is the bit-perfect path there: mpv's PipeWire and PulseAudio outputs have no
-// exclusive mode, so the switch does not change the sound path on Linux.
+// one of them is the bit-perfect path there. Linux has no exclusive switch: mpv's PipeWire and
+// PulseAudio outputs always mix, so mpv runs with --audio-exclusive=no there. The group says so in
+// its foot instead, and leaves the saved value alone.
 
 const IS_LINUX = HIFI_PLATFORM === 'linux';
 
@@ -52,9 +53,11 @@ export const HifiOutputGroup: React.FC = () => {
         }
     };
 
+    // The marker goes first: a long card name is cut off at the end in the narrow menu, and the
+    // marker is what the device hint tells the listener to look for.
     const deviceLabel = (device: HifiDevice) => {
         const name = device.description || device.name;
-        return IS_LINUX && device.direct ? `${name} · ${t('hifi.settings.deviceDirect')}` : name;
+        return IS_LINUX && device.direct ? `${t('hifi.settings.deviceDirect')} · ${name}` : name;
     };
 
     // mpv lists 'auto' itself; it is drawn once, first, under the app's own name.
@@ -86,19 +89,16 @@ export const HifiOutputGroup: React.FC = () => {
     const deviceHint = state ?? (IS_LINUX ? t('hifi.settings.deviceLinuxHint') : undefined);
 
     return (
-        <Group def={OUTPUT}>
+        <Group def={OUTPUT} foot={IS_LINUX ? t('hifi.settings.exclusiveLinuxNote') : undefined}>
             <Row option={O.device} hint={deviceHint} note={IS_LINUX ? t('hifi.settings.deviceDirectNote') : undefined} disabled={!supported}>
                 <Button icon={RefreshCw} tip={t('hifi.settings.devicesRefresh')} onClick={() => void refresh()} disabled={listState === 'loading' || noMpv} />
                 <Select value={settings.audioDevice} options={options} onChange={chooseDevice} onOpen={ensureLoaded} />
             </Row>
-            <Row
-                option={O.exclusive}
-                hint={t(IS_LINUX ? 'hifi.settings.exclusiveLinuxDesc' : 'hifi.settings.exclusiveDesc')}
-                note={IS_LINUX ? t('hifi.settings.exclusiveLinuxNote') : undefined}
-                disabled={!supported}
-            >
-                <Toggle checked={settings.exclusive} onChange={settings.setExclusive} />
-            </Row>
+            {!IS_LINUX && (
+                <Row option={O.exclusive} hint={t('hifi.settings.exclusiveDesc')} disabled={!supported}>
+                    <Toggle checked={settings.exclusive} onChange={settings.setExclusive} />
+                </Row>
+            )}
         </Group>
     );
 };

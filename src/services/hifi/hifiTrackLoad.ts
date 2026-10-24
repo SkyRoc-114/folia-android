@@ -10,8 +10,8 @@ import { hifiPlaybackClock, isCurrentHifiAttempt, showHifiTrack, useHifiTrackSto
 import { navidromeSourceSpec, readLocalSourceSpec } from './sourceSpec';
 
 // src/services/hifi/hifiTrackLoad.ts
-// 一首 HiFi 曲目怎么交给主进程载入：拼载入请求、刚离开 Web 引擎时 DEVICE_BUSY 的重试、停着的恢复先不载入（延后到第一次播放），
-// 以及被换下的曲目登记的文件什么时候撤。判路由、起播和接管在 hifiPlayback；这里对外的函数和类型经它导出。
+// 一首 HiFi 曲目怎么交给主进程载入：拼载入请求、从哪里开始（结尾附近从头）、刚离开 Web 引擎时 DEVICE_BUSY 的重试、
+// 停着的恢复先不载入（延后到第一次播放），以及被换下的曲目登记的文件什么时候撤。判路由、起播和接管在 hifiPlayback；这里对外的函数和类型经它导出。
 
 export type HifiTrackSource =
     | { kind: 'local'; localSong: LocalSong; file: Blob }
@@ -27,6 +27,24 @@ export type HifiLoadJob = { attempt: number; track: HifiTrack; source: HifiTrack
 const isLoopOne = () => (
     useAudioSettingsStore.getState().loopMode === 'one' && !usePlaybackStore.getState().isFmMode
 );
+
+// 离结尾不到这么多秒的起点从头放：mpv 暂停着载入在结尾、再开播时会停在结尾，既不出声也不报放完。
+const START_NEAR_END_SEC = 0.5;
+
+/** 歌曲自己记的时长（秒），没有时为 null。 */
+export const songDurationSec = (durationMs: number | null | undefined): number | null => (
+    typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs > 0 ? durationMs / 1000 : null
+);
+
+/**
+ * 载入的起点：不是正数时从头；离已知时长的结尾不到 0.5 秒时也从头（放完之后恢复的、交给重建的窗口的那一首，起点就是时长），
+ * 和 <audio> 放完之后再按播放一样。
+ */
+export const hifiLoadStartSec = (startSec: number, durationSec: number | null): number => {
+    if (!Number.isFinite(startSec) || startSec <= 0) return 0;
+    if (durationSec !== null && Number.isFinite(durationSec) && startSec >= durationSec - START_NEAR_END_SEC) return 0;
+    return startSec;
+};
 
 // 被换下的曲目登记的文件：等下一次载入落定再撤，主进程换源那一下可能还在读旧的。
 const retiredSourceKeys = new Set<string>();
@@ -144,7 +162,7 @@ export const runHifiLoad = async ({ attempt, track, source }: HifiLoadJob, start
  * （上一个窗口留下、没接管成的，或停在结尾的）一并停掉：这首停着的恢复不该让设备继续被占着。
  */
 export const deferHifiLoad = (job: HifiLoadJob, startSec: number, held: HifiEngineState | null) => {
-    const durationSec = job.track.song.durationMs > 0 ? job.track.song.durationMs / 1000 : null;
+    const durationSec = songDurationSec(job.track.song.durationMs);
     showHifiTrack(job.track, { positionSec: startSec, paused: true, durationSec }, { loadState: 'deferred' });
     if (durationSec !== null) hifiMediaShim.setDuration(durationSec);
     loadSourceSpec(job.attempt, job.source);
@@ -165,6 +183,8 @@ export const loadDeferredHifiTrack = async (): Promise<BeginHifiTrackOutcome | n
     if (!job || loadState !== 'deferred' || current?.trackKey !== job.track.trackKey || !isCurrentHifiAttempt(job.attempt)) return null;
     deferredJob = null;
     useHifiTrackStore.setState({ loadState: 'loading' });
-    console.info('[HiFi] loading the restored track', { trackKey: job.track.trackKey });
-    return runHifiLoad(job, hifiPlaybackClock.read());
+    // 跳到结尾附近再按播放，也从头载入（见 hifiLoadStartSec）。
+    const startSec = hifiLoadStartSec(hifiPlaybackClock.read(), hifiPlaybackClock.state().durationSec);
+    console.info('[HiFi] loading the restored track', { trackKey: job.track.trackKey, startSec });
+    return runHifiLoad(job, startSec);
 };

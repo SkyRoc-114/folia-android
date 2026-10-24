@@ -6,6 +6,7 @@ import type { HifiPlaybackStatus, PlaybackRoute } from '../../types/hifi';
 import { useHifiSettingsStore } from '../../stores/useHifiSettingsStore';
 import { setPlayerState, usePlaybackStore } from '../../stores/usePlaybackStore';
 import { hifiEngine, useHifiEngineStore } from '../../services/hifi/hifiEngine';
+import { hifiMediaShim } from '../../services/hifi/hifiMediaShim';
 import { playbackKindOfSong } from '../../services/hifi/hifiEligibility';
 import {
     clearNextHifiTrack,
@@ -96,14 +97,19 @@ const followGaplessSwitch = async (track: HifiTrack, previous: HifiTrack | null,
     void hifiEngine.stop();
 };
 
-/** playSong 认领了无缝接上的那一首：onPlay* 刚把播放器写成“载入中”，按 mpv 实际的样子摆回在放（或停着），用掉这次播放的意图。 */
+/**
+ * playSong 认领了无缝接上的那一首：onPlay* 刚把播放器写成“载入中”，按 mpv 实际的样子摆回在放（或停着），用掉这次播放的意图。
+ * 在放时 shim 再报一次开播：mpv 接上时的那次 play / playing 派发在播放器换歌之前，换歌时才开始的上报会话没听到。
+ */
 const settleAdoptedTrack = (trackKey: string) => {
     if (!isHifiRoute() || useHifiTrackStore.getState().current?.trackKey !== trackKey) return;
     // 认领之前它已经放完或出错了：那归桥的放完和回落。
     const engine = useHifiEngineStore.getState().engine;
     if (engine?.trackKey === trackKey && engine.status !== 'playing' && engine.status !== 'paused') return;
     spendAdoptedPlayIntent(trackKey);
-    setPlayerState(hifiTransport.isPaused() ? PlayerState.PAUSED : PlayerState.PLAYING);
+    const paused = hifiTransport.isPaused();
+    setPlayerState(paused ? PlayerState.PAUSED : PlayerState.PLAYING);
+    if (!paused) hifiMediaShim.announceStart();
 };
 
 type UseHifiGaplessPreloadParams = GaplessFollowParams & {
