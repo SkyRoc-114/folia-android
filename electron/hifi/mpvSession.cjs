@@ -2,6 +2,7 @@
 
 const { spawn: childSpawn } = require('child_process');
 const { randomBytes: cryptoRandomBytes } = require('crypto');
+const { promises: fsPromises } = require('fs');
 const { createHifiError, isHifiErrorCode, toHifiErrorCode, sanitizeDetail, classifyEndFile } = require('./hifiErrors.cjs');
 const { buildMpvArgs, buildPipeName, buildLoadfileCommand, sanitizeAudioDevice } = require('./mpvArgs.cjs');
 const { createMpvIpcClient, connectNamedPipe } = require('./mpvIpcClient.cjs');
@@ -29,6 +30,15 @@ const STDERR_TAIL_CHARS = 2000;
 const FAILURE_LOG_LEVELS = new Set(['fatal', 'error', 'warn']);
 // Linux 上绕过混音器直连声卡的 ALSA 设备名；plughw 会在 mpv 背后转采样率和格式，不算直连。
 const DIRECT_ALSA_DEVICE = /^alsa\/hw:/i;
+// 内核列声卡和 PCM 的地方：mpv 的 audio-device-list 把 hw: 设备都滤掉了，直连设备从这里补。
+const ALSA_CARDS_PATH = '/proc/asound/cards';
+const ALSA_PCM_PATH = '/proc/asound/pcm';
+// ` 0 [NVidia         ]: HDA-Intel - HDA NVidia`：编号、id、驱动 - 名字。
+const ALSA_CARD_LINE = /^\s*(\d+)\s+\[([^\]]+)\]:\s*(.*)$/;
+// `00-03: HDMI 0 : HDMI 0 : playback 1`：声卡-设备号，后面是 id : 名字 : 各方向的子设备数。
+const ALSA_PCM_LINE = /^(\d+)-(\d+):\s?(.*)$/;
+// ALSA 的声卡 id 只有这些字符；别的不拿来拼设备名。
+const ALSA_CARD_ID = /^[A-Za-z0-9_-]{1,32}$/;
 // 桥记着源的错时，停在离时长这么远之外的“放完”算源中途断了，不算正常放到底。
 const END_TOLERANCE_SEC = 2;
 
@@ -40,6 +50,7 @@ const DEFAULT_CONFIG = Object.freeze({
     dsdMode: 'pcm',
     softwareVolume: false,
     volume: 100,
+    muted: false,
 });
 
 const numberOrNull = value => (typeof value === 'number' && Number.isFinite(value) ? value : null);
@@ -87,6 +98,68 @@ const toDevice = (platform, item) => {
     };
 };
 
+/** /proc/asound/cards 换成 编号 → { id, name }；认不出的行跳过（每块卡的第二行是长名字）。 */
+const parseAlsaCards = text => {
+    const cards = new Map();
+    for (const line of String(text).split('\n')) {
+        const match = ALSA_CARD_LINE.exec(line);
+        if (!match) continue;
+        const id = match[2].trim();
+        if (!ALSA_CARD_ID.test(id)) continue;
+        const rest = match[3].trim();
+        const dash = rest.indexOf(' - ');
+        const name = (dash === -1 ? rest : rest.slice(dash + 3)).trim();
+        cards.set(Number(match[1]), { id, name: name || id });
+    }
+    return cards;
+};
+
+/** /proc/asound/pcm 里能放音的 PCM：[{ card, device, label }]；只能录音的跳过。 */
+const parseAlsaPlaybackPcms = text => {
+    const pcms = [];
+    for (const line of String(text).split('\n')) {
+        const match = ALSA_PCM_LINE.exec(line.trimEnd());
+        if (!match) continue;
+        const [id = '', name = '', ...streams] = match[3].split(' : ');
+        if (!streams.some(stream => /^playback\s+\d+$/.test(stream.trim()))) continue;
+        // SOF 的 PCM 名后面带个 (*)，不是名字的一部分。
+        const label = (name.trim() || id.trim()).replace(/\s*\(\*\)$/, '').trim();
+        pcms.push({ card: Number(match[1]), device: Number(match[2]), label });
+    }
+    return pcms;
+};
+
+/** 两份 /proc 文本拼出 alsa/hw:CARD=<id>,DEV=<n> 设备（直连，不过混音器也不转换）。 */
+const listAlsaHwDevices = (cardsText, pcmText) => {
+    const cards = parseAlsaCards(cardsText);
+    const devices = [];
+    for (const pcm of parseAlsaPlaybackPcms(pcmText)) {
+        const card = cards.get(pcm.card);
+        if (!card) continue;
+        devices.push({
+            name: `alsa/hw:CARD=${card.id},DEV=${pcm.device}`,
+            description: pcm.label ? `${card.name}, ${pcm.label}` : card.name,
+            driver: 'alsa',
+            direct: true,
+        });
+    }
+    return devices;
+};
+
+/**
+ * mpv 的设备列表里补上 hw: 直连设备，排在 'auto' 后面，mpv 自己列了的不重复。mpv 一个 alsa/ 设备都没列时
+ * 不补（它没编进 ALSA 输出，或连不上 ALSA，选了也开不了）。
+ */
+const mergeAlsaHwDevices = (devices, hwDevices) => {
+    if (hwDevices.length === 0 || !devices.some(device => device.driver === 'alsa')) return devices;
+    const known = new Set(devices.map(device => device.name.toLowerCase()));
+    const added = hwDevices.filter(device => !known.has(device.name.toLowerCase()));
+    if (added.length === 0) return devices;
+    const autoIndex = devices.findIndex(device => device.name === 'auto');
+    const at = autoIndex === -1 ? 0 : autoIndex + 1;
+    return [...devices.slice(0, at), ...added, ...devices.slice(at)];
+};
+
 const normalizeConfig = (config, previous) => {
     const source = config && typeof config === 'object' ? config : {};
     const volume = typeof source.volume === 'number' && Number.isFinite(source.volume)
@@ -99,6 +172,7 @@ const normalizeConfig = (config, previous) => {
         dsdMode: source.dsdMode === 'dop' ? 'dop' : 'pcm',
         softwareVolume: source.softwareVolume === true,
         volume,
+        muted: source.muted === true,
     };
 };
 
@@ -151,6 +225,7 @@ const createMpvSession = ({
     crashLimit = 3,
     loadTimeoutMs = 20000,
     clockIntervalMs = 250,
+    readFileFn = file => fsPromises.readFile(file, 'utf8'),
     ao,
 } = {}) => {
     if (typeof resolveRuntime !== 'function') throw new TypeError('HiFi mpv session needs resolveRuntime');
@@ -180,7 +255,7 @@ const createMpvSession = ({
 
     let mpv = createMpvProps();
     let track = null;
-    let applied = { audioDevice: config.audioDevice, exclusive: config.exclusive, spdif: spdifFor(config), volume: 100 };
+    let applied = { audioDevice: config.audioDevice, exclusive: config.exclusive, spdif: spdifFor(config), volume: 100, mute: false };
     let loopFile = false;
     let errorCode = null;
     let circuitOpen = false;
@@ -424,6 +499,20 @@ const createMpvSession = ({
         scheduleState();
     };
 
+    /**
+     * 载入成功记一行，带上输出驱动。输出刚开时 current-ao 的变化常常晚于 audio-out-params 才推到，
+     * 这时当场问 mpv 一次（输出已经开着，它答得上来），这一行就总是同一个样子。
+     */
+    const logLoaded = (record, entry, out) => {
+        const write = currentAo => logInfo(`[HiFi] loaded ${entry.sourceKind} ${entry.trackKey}`
+            + (out ? ` -> ${currentAo ? `${currentAo} ` : ''}${out.samplerate} Hz ${out.format} ${out.channels}` : ''));
+        if (!out || mpv.currentAo || !record) {
+            write(mpv.currentAo);
+            return;
+        }
+        void getProperty(record, 'current-ao').then(value => write(stringOrNull(value) ?? (owns(record) ? mpv.currentAo : null)));
+    };
+
     const resolveAttempt = attempt => {
         if (!attempt || attempt.done) return;
         attempt.done = true;
@@ -432,9 +521,7 @@ const createMpvSession = ({
         const { entry } = attempt;
         entry.loaded = true;
         flushRetired();
-        const out = mpv.audioOutParams;
-        logInfo(`[HiFi] loaded ${entry.sourceKind} ${entry.trackKey}`
-            + (out ? ` -> ${mpv.currentAo ? `${mpv.currentAo} ` : ''}${out.samplerate} Hz ${out.format} ${out.channels}` : ''));
+        logLoaded(proc, entry, mpv.audioOutParams);
         if (entry.seekAfterLoad !== null && proc) {
             const target = entry.seekAfterLoad;
             entry.seekAfterLoad = null;
@@ -882,9 +969,11 @@ const createMpvSession = ({
             exclusive: spawnConfig.exclusive,
             spdif: spdifFor(spawnConfig),
             volume: 100,
+            // 启动参数里没有 --mute：mpv 起来时不静音。
+            mute: false,
         };
         logInfo(`[HiFi] ${runtime.version ? `mpv ${runtime.version}` : 'mpv'} started (pid ${child.pid ?? '?'})`);
-        // 启动期间设置又变了，或开着软件音量：补发和启动参数不同的那几项。
+        // 启动期间设置又变了，或开着软件音量、静音：补发和启动参数不同的那几项（在任何 loadfile 之前到 mpv）。
         void applyConfig(record);
         return record;
     };
@@ -964,8 +1053,8 @@ const createMpvSession = ({
         await bridge.start();
         if (pending !== attempt || proc !== record) return;
         const url = registerSource(attempt.entry, request.source);
-        loopFile = request.loopFile === true;
         await send(record, ['set_property', 'pause', request.paused === true]);
+        // 用会话眼下的值，不用请求里的：load() 已经当场记下请求的值，拉起 mpv 期间 setLoopFile 改过的以后者为准。
         await send(record, ['set_property', 'loop-file', loopFile ? 'inf' : 'no']);
         if (pending !== attempt || proc !== record) return;
         await sendLoadfile(record, attempt.entry, url, 'replace', attempt.entry.startSec);
@@ -994,6 +1083,8 @@ const createMpvSession = ({
         }
         pending = attempt;
         current = entry;
+        // 当场记下：之后（mpv 还在拉起时）的 setLoopFile 能盖过它，runLoad 发的是那时的值。
+        loopFile = request.loopFile === true;
         errorCode = null;
         recentLogs = [];
         track = null;
@@ -1158,18 +1249,21 @@ const createMpvSession = ({
     };
 
     // 运行中的 mpv 和设置对不上的项逐个 set_property；只发变了的，audio-device / audio-exclusive / audio-spdif 一改 mpv 就重开输出。
+    // 静音不看软件音量开没开（应用里静音了就得没声）；没静音时 mute 关着，样本照旧原样出去。
     const applyConfig = async record => {
         const target = {
             audioDevice: config.audioDevice,
             exclusive: config.exclusive,
             spdif: spdifFor(config),
             volume: volumeFor(config),
+            mute: config.muted,
         };
         const commands = [];
         if (target.audioDevice !== applied.audioDevice) commands.push(['set_property', 'audio-device', target.audioDevice]);
         if (target.exclusive !== applied.exclusive) commands.push(['set_property', 'audio-exclusive', target.exclusive]);
         if (target.spdif !== applied.spdif) commands.push(['set_property', 'audio-spdif', target.spdif]);
         if (target.volume !== applied.volume) commands.push(['set_property', 'volume', target.volume]);
+        if (target.mute !== applied.mute) commands.push(['set_property', 'mute', target.mute]);
         applied = target;
         await Promise.all(commands.map(command => runCommand(record, command)));
     };
@@ -1180,12 +1274,25 @@ const createMpvSession = ({
         if (proc) await applyConfig(proc);
     };
 
+    // Linux：从 /proc/asound 读出能放音的 hw: 设备；读不到（没有声卡、容器里）就没有，只用 mpv 自己列的。
+    const readAlsaHwDevices = async () => {
+        try {
+            const [cardsText, pcmText] = await Promise.all([readFileFn(ALSA_CARDS_PATH), readFileFn(ALSA_PCM_PATH)]);
+            return listAlsaHwDevices(cardsText, pcmText);
+        } catch (error) {
+            logWarn('[HiFi] could not read the ALSA devices, listing only what mpv lists', error);
+            return [];
+        }
+    };
+
     const listDevices = async () => {
         if (disposed || circuitOpen) return [];
         const record = await ensureProcess();
         try {
             const list = await send(record, ['get_property', 'audio-device-list']);
-            return Array.isArray(list) ? list.map(item => toDevice(platform, item)).filter(Boolean) : [];
+            const devices = Array.isArray(list) ? list.map(item => toDevice(platform, item)).filter(Boolean) : [];
+            // mpv 的 ALSA 设备表把 hw: 都滤掉了（只留 plughw、dmix 这些），可 --audio-device=alsa/hw:... 照样开得了。
+            return platform === 'linux' ? mergeAlsaHwDevices(devices, await readAlsaHwDevices()) : devices;
         } finally {
             armIdleTimer();
         }
@@ -1255,5 +1362,9 @@ module.exports = {
     toAudioParams,
     toTrackInfo,
     toDevice,
+    parseAlsaCards,
+    parseAlsaPlaybackPcms,
+    listAlsaHwDevices,
+    mergeAlsaHwDevices,
     createMpvSession,
 };

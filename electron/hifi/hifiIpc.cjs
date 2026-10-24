@@ -91,10 +91,10 @@ const validateLoadRequest = request => {
 /** HifiEngineConfig 的校验；不合格时为 null。 */
 const validateEngineConfig = config => {
     if (!isPlainObject(config)) return null;
-    const { mpvPath, audioDevice, exclusive, dsdMode, softwareVolume, volume } = config;
+    const { mpvPath, audioDevice, exclusive, dsdMode, softwareVolume, volume, muted } = config;
     if (mpvPath !== null && !(isText(mpvPath) && !CONTROL_CHARS.test(mpvPath))) return null;
     if (!isText(audioDevice)) return null;
-    if (typeof exclusive !== 'boolean' || typeof softwareVolume !== 'boolean') return null;
+    if (typeof exclusive !== 'boolean' || typeof softwareVolume !== 'boolean' || typeof muted !== 'boolean') return null;
     if (dsdMode !== 'pcm' && dsdMode !== 'dop') return null;
     if (!isFiniteNumber(volume) || volume < 0 || volume > 100) return null;
     return {
@@ -104,6 +104,7 @@ const validateEngineConfig = config => {
         dsdMode,
         softwareVolume,
         volume,
+        muted,
     };
 };
 
@@ -188,8 +189,9 @@ const registerHifiIpc = ({
     };
 
     /**
-     * 主进程自己从系统文件框拿到的手动 mpv 路径（存在 electron-store，跨重启保留）。渲染端经 configure 只能
-     * 选用它或清掉它，不能自己指定一个路径让主进程去运行：主窗口里被注入的脚本也拿不到执行任意程序的能力。
+     * 主进程自己从系统文件框拿到的手动 mpv 路径（主进程单独存的一个文件，跨重启保留，通用的 save-settings
+     * 写不到）。渲染端经 configure 只能选用它或清掉它，不能自己指定一个路径让主进程去运行：主窗口里被注入的
+     * 脚本也拿不到执行任意程序的能力。
      */
     let approvedPath = readApprovedPath();
     /** 检测和拉起实际用的手动路径：null，或 configure 时与 approvedPath 一致的那个。启动时先按已批准的路径测。 */

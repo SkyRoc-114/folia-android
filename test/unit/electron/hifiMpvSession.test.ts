@@ -33,9 +33,10 @@ interface MpvSession {
 }
 
 const require = createRequire(import.meta.url);
-const { createMpvSession, OBSERVED_PROPERTIES } = require('../../../electron/hifi/mpvSession.cjs') as {
+const { createMpvSession, OBSERVED_PROPERTIES, listAlsaHwDevices } = require('../../../electron/hifi/mpvSession.cjs') as {
     createMpvSession: (options: Record<string, unknown>) => MpvSession;
     OBSERVED_PROPERTIES: readonly string[];
+    listAlsaHwDevices: (cardsText: string, pcmText: string) => HifiDevice[];
 };
 
 const OUT_PARAMS = { samplerate: 96000, 'channel-count': 2, channels: 'stereo', 'hr-channels': 'stereo', format: 's32' };
@@ -203,6 +204,10 @@ const createHarness = ({ onSpawn, ...overrides }: HarnessOptions = {}) => {
         onError: (event: HifiErrorEvent) => errors.push(event),
         logInfo: () => {},
         logWarn: () => {},
+        // 不碰这台机器真的 /proc/asound：要 ALSA 设备的测试自己给。
+        readFileFn: async (file: string) => {
+            throw Object.assign(new Error(`ENOENT: ${file}`), { code: 'ENOENT' });
+        },
         ...overrides,
     });
     const child = () => children[children.length - 1];
@@ -345,6 +350,81 @@ describe('mpv session: spawn and load', () => {
         expect(harness.lastState()).toMatchObject({ status: 'error', errorCode: 'DEVICE_BUSY', trackKey: 'local:a#1', processRunning: true });
         // 载入的失败经结果报，不再另推 hifi:error。
         expect(harness.errors).toEqual([]);
+    });
+
+    // 输出开不起来：mpv 先报 playback-restart，再报两行错，最后 end-file error。
+    const failToOpenOutput = async (harness: Harness, id: number, busy: boolean) => {
+        const mpv = harness.mpv();
+        mpv.event('start-file', { playlist_entry_id: id });
+        mpv.event('file-loaded');
+        mpv.event('playback-restart');
+        if (busy) mpv.event('log-message', { prefix: 'ao/wasapi', level: 'error', text: 'Error opening device: AUDCLNT_E_DEVICE_IN_USE\n' });
+        mpv.event('log-message', { prefix: 'cplayer', level: 'error', text: 'Could not open/initialize audio device -> no sound.\n' });
+        mpv.event('end-file', { reason: 'error', playlist_entry_id: id, file_error: 'audio output initialization failed' });
+        await flush();
+    };
+
+    it('a quick second load right after DEVICE_BUSY plays, with nothing left over from the failed one', async () => {
+        // Windows：渲染端刚从 Web 引擎切过来，Chromium 隔几秒才放开它的共享流，渲染端过一会儿重试同一首。
+        const harness = createHarness({ idleExitMs: 1000 });
+        const first = harness.session.load(localRequest('local:a#1'), { ownerId: 7 });
+        await flush();
+        await failToOpenOutput(harness, 1, true);
+        expect(await first).toMatchObject({ ok: false, errorCode: 'DEVICE_BUSY' });
+        expect(harness.lastState()).toMatchObject({ status: 'error', audioOutParams: null, processRunning: true });
+
+        await vi.advanceTimersByTimeAsync(500);
+        const retry = harness.session.load(localRequest('local:a#2'), { ownerId: 7 });
+        await flush();
+        expect(harness.lastState()).toMatchObject({ status: 'loading', errorCode: null, trackKey: 'local:a#2', audioOutParams: null });
+        expect(harness.mpv().commands('loadfile').map(command => command.slice(0, 3))).toEqual([
+            ['loadfile', 'http://127.0.0.1:9/tok1/song.flac', 'replace'],
+            ['loadfile', 'http://127.0.0.1:9/tok2/song.flac', 'replace'],
+        ]);
+        await startEntry(harness, 2);
+        expect(await retry).toMatchObject({ ok: true, state: { status: 'playing', trackKey: 'local:a#2', errorCode: null, circuitOpen: false } });
+        // 同一个 mpv 接着用；失败不算崩溃，也没另推 hifi:error；失败后起的空闲计时被这次载入取消了。
+        expect(harness.spawnFn).toHaveBeenCalledTimes(1);
+        expect(harness.errors).toEqual([]);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(harness.mpv().commands('quit')).toEqual([]);
+        expect(harness.lastState()).toMatchObject({ status: 'playing', trackKey: 'local:a#2' });
+    });
+
+    it('the busy log lines of a failed load do not decide the next one', async () => {
+        const harness = createHarness();
+        const first = harness.session.load(localRequest('local:a#1'), { ownerId: 7 });
+        await flush();
+        await failToOpenOutput(harness, 1, true);
+        expect(await first).toMatchObject({ errorCode: 'DEVICE_BUSY' });
+        const second = harness.session.load(localRequest('local:a#2'), { ownerId: 7 });
+        await flush();
+        await failToOpenOutput(harness, 2, false);
+        expect(await second).toMatchObject({ ok: false, errorCode: 'DEVICE_UNAVAILABLE' });
+    });
+
+    it('the loaded line names the output driver even when current-ao has not been pushed yet', async () => {
+        const logInfo = vi.fn();
+        const harness = createHarness({ logInfo });
+        const loadedLines = () => logInfo.mock.calls.map(args => String(args[0])).filter(line => line.startsWith('[HiFi] loaded'));
+        const first = harness.session.load(localRequest('local:a#1'), { ownerId: 7 });
+        await flush();
+        // mpv 的输出已经开着，只是 current-ao 的变化还没推到。
+        harness.mpv().props['current-ao'] = 'pipewire';
+        await startEntry(harness, 1);
+        expect(await first).toMatchObject({ ok: true });
+        await flush();
+        expect(loadedLines()).toEqual(['[HiFi] loaded local local:a#1 -> pipewire 96000 Hz s32 stereo']);
+
+        // 已经知道了：照样写，不再问。
+        harness.mpv().prop('current-ao', 'pipewire');
+        await loadAndStart(harness, localRequest('local:b#2'), 2);
+        await flush();
+        expect(loadedLines()).toEqual([
+            '[HiFi] loaded local local:a#1 -> pipewire 96000 Hz s32 stereo',
+            '[HiFi] loaded local local:b#2 -> pipewire 96000 Hz s32 stereo',
+        ]);
+        expect(harness.mpv().commands('get_property').filter(command => command[1] === 'current-ao')).toHaveLength(1);
     });
 
     it('the bridge\'s recorded source error wins over mpv\'s file_error', async () => {
@@ -586,6 +666,27 @@ describe('mpv session: transport and clock', () => {
             ['set_property', 'loop-file', 'inf'],
             ['set_property', 'loop-file', 'no'],
         ]);
+    });
+
+    it('a loop change made while mpv is still starting wins over the value in the load request', async () => {
+        let releaseRuntime: (runtime: { path: string; version: string }) => void = () => {};
+        const harness = createHarness({
+            resolveRuntime: () => new Promise(resolve => {
+                releaseRuntime = resolve;
+            }),
+        });
+        const result = harness.session.load(localRequest('local:a#1', { loopFile: false }), { ownerId: 7 });
+        await flush();
+        expect(harness.spawnFn).not.toHaveBeenCalled();
+        // 用户在 mpv 拉起期间切到单曲循环。
+        await harness.session.setLoopFile(true);
+        releaseRuntime({ path: '/usr/bin/mpv', version: '0.41.0' });
+        await flush();
+        expect(harness.mpv().commands('set_property').filter(command => command[1] === 'loop-file')).toEqual([
+            ['set_property', 'loop-file', 'inf'],
+        ]);
+        await startEntry(harness, 1);
+        expect(await result).toMatchObject({ ok: true, state: { loopFile: true } });
     });
 });
 
@@ -1074,5 +1175,123 @@ describe('mpv session: configure and devices', () => {
         // 只为列设备拉起的进程空闲后退出。
         await vi.advanceTimersByTimeAsync(1000);
         expect(harness.mpv().commands('quit')).toEqual([['quit']]);
+    });
+
+    it('sends the app\'s mute to mpv after spawn and live, whatever software volume says, and leaves volume at 100', async () => {
+        const harness = createHarness();
+        const config = { mpvPath: null, audioDevice: 'auto', exclusive: false, dsdMode: 'pcm' as const, softwareVolume: false, volume: 40 };
+        await harness.session.configure({ ...config, muted: true });
+        const result = harness.session.load(localRequest('local:a#1'), { ownerId: 7 });
+        await flush();
+        // 启动参数里没有静音：拉起后头一条 set_property 就是它，排在 loadfile 前面。
+        const sent = harness.mpv().requests.map(entry => entry.command)
+            .filter(command => command[0] === 'set_property' || command[0] === 'loadfile');
+        expect(sent[0]).toEqual(['set_property', 'mute', true]);
+        expect(sent.at(-1)?.[0]).toBe('loadfile');
+        expect(sent.filter(command => command[1] === 'volume')).toEqual([]);
+        await startEntry(harness, 1);
+        await result;
+
+        const mpv = harness.mpv();
+        const before = mpv.commands('set_property').length;
+        await harness.session.configure({ ...config, muted: false });
+        expect(mpv.commands('set_property').slice(before)).toEqual([['set_property', 'mute', false]]);
+        await harness.session.configure({ ...config, softwareVolume: true, muted: true });
+        expect(mpv.commands('set_property').slice(before + 1)).toEqual([
+            ['set_property', 'volume', 40],
+            ['set_property', 'mute', true],
+        ]);
+        await harness.session.configure({ ...config, softwareVolume: true, muted: true });
+        expect(mpv.commands('set_property').length).toBe(before + 3);
+    });
+});
+
+// 这台机器（Linux，HDA NVidia + SOF）上的 /proc/asound 原样，外加一块 USB DAC。
+const ALSA_CARDS = [
+    ' 0 [NVidia         ]: HDA-Intel - HDA NVidia',
+    '                      HDA NVidia at 0x84080000 irq 17',
+    ' 1 [sofhdadsp      ]: sof-hda-dsp - sof-hda-dsp',
+    '                      Razer-Blade152022_RZ09_0421-8.04-CH580',
+    ' 2 [D10            ]: USB-Audio - Topping D10',
+    '                      Topping D10 at usb-0000:00:14.0-2, high speed',
+    '',
+].join('\n');
+const ALSA_PCM = [
+    '00-03: HDMI 0 : HDMI 0 : playback 1',
+    '00-07: HDMI 1 : HDMI 1 : playback 1',
+    '01-00: HDA Analog (*) :  : playback 1 : capture 1',
+    '01-03: HDMI1 (*) : HDMI 1 : playback 1',
+    '01-06: DMIC (*) :  : capture 1',
+    '02-00: USB Audio : USB Audio : playback 1',
+    '',
+].join('\n');
+
+describe('mpv session: ALSA hw: devices on Linux', () => {
+    const hw = (name: string, description: string) => ({ name, description, driver: 'alsa', direct: true });
+
+    it('reads the playback PCMs of /proc/asound into direct alsa/hw: devices named after card and PCM', () => {
+        expect(listAlsaHwDevices(ALSA_CARDS, ALSA_PCM)).toEqual([
+            hw('alsa/hw:CARD=NVidia,DEV=3', 'HDA NVidia, HDMI 0'),
+            hw('alsa/hw:CARD=NVidia,DEV=7', 'HDA NVidia, HDMI 1'),
+            hw('alsa/hw:CARD=sofhdadsp,DEV=0', 'sof-hda-dsp, HDA Analog'),
+            hw('alsa/hw:CARD=sofhdadsp,DEV=3', 'sof-hda-dsp, HDMI 1'),
+            hw('alsa/hw:CARD=D10,DEV=0', 'Topping D10, USB Audio'),
+        ]);
+        expect(listAlsaHwDevices('', ALSA_PCM)).toEqual([]);
+        expect(listAlsaHwDevices(' 0 [bad id!]: x - y\n', '00-00: a : b : playback 1\n')).toEqual([]);
+    });
+
+    const MPV_LIST = [
+        { name: 'auto', description: 'Autoselect device' },
+        { name: 'pipewire', description: 'Default (pipewire)' },
+        { name: 'alsa/plughw:CARD=D10,DEV=0', description: 'Topping D10, USB Audio/Hardware device with all software conversions' },
+        { name: 'alsa/hw:CARD=D10,DEV=0', description: 'Topping D10, USB Audio/Direct hardware device without any conversions' },
+    ];
+
+    const harnessWith = (files: Record<string, string> | null, list: Json[] = MPV_LIST, platform = 'linux') => {
+        const readFileFn = vi.fn(async (file: string) => {
+            if (!files || !(file in files)) throw Object.assign(new Error(`ENOENT: ${file}`), { code: 'ENOENT' });
+            return files[file];
+        });
+        const logWarn = vi.fn();
+        const harness = createHarness({
+            platform,
+            readFileFn,
+            logWarn,
+            onSpawn: child => {
+                child.socket.props['audio-device-list'] = list;
+            },
+        });
+        return { ...harness, readFileFn, logWarn };
+    };
+
+    it('adds them right after auto and skips the ones mpv listed itself', async () => {
+        const harness = harnessWith({ '/proc/asound/cards': ALSA_CARDS, '/proc/asound/pcm': ALSA_PCM });
+        expect((await harness.session.listDevices()).map(device => [device.name, device.direct])).toEqual([
+            ['auto', false],
+            ['alsa/hw:CARD=NVidia,DEV=3', true],
+            ['alsa/hw:CARD=NVidia,DEV=7', true],
+            ['alsa/hw:CARD=sofhdadsp,DEV=0', true],
+            ['alsa/hw:CARD=sofhdadsp,DEV=3', true],
+            ['pipewire', false],
+            ['alsa/plughw:CARD=D10,DEV=0', false],
+            ['alsa/hw:CARD=D10,DEV=0', true],
+        ]);
+        expect(harness.readFileFn.mock.calls.map(([file]) => file).sort()).toEqual(['/proc/asound/cards', '/proc/asound/pcm']);
+    });
+
+    it('unreadable /proc/asound leaves mpv\'s own list', async () => {
+        const harness = harnessWith(null);
+        expect((await harness.session.listDevices()).map(device => device.name)).toEqual(MPV_LIST.map(device => device.name));
+        expect(harness.logWarn).toHaveBeenCalledWith(expect.stringMatching(/^\[HiFi\] could not read the ALSA devices/), expect.any(Error));
+    });
+
+    it('adds nothing when mpv lists no ALSA device at all (no ALSA output in this mpv), nor off Linux', async () => {
+        const files = { '/proc/asound/cards': ALSA_CARDS, '/proc/asound/pcm': ALSA_PCM };
+        const withoutAlsa = [{ name: 'auto', description: 'Autoselect device' }, { name: 'pipewire', description: 'Default (pipewire)' }];
+        expect((await harnessWith(files, withoutAlsa).session.listDevices()).map(device => device.name)).toEqual(['auto', 'pipewire']);
+        const mac = harnessWith(files, [{ name: 'auto', description: 'Autoselect device' }, { name: 'coreaudio/BuiltIn', description: 'Speakers' }], 'darwin');
+        expect((await mac.session.listDevices()).map(device => device.name)).toEqual(['auto', 'coreaudio/BuiltIn']);
+        expect(mac.readFileFn).not.toHaveBeenCalled();
     });
 });

@@ -92,6 +92,7 @@ const validConfig = (overrides: Record<string, unknown> = {}) => ({
     dsdMode: 'pcm',
     softwareVolume: false,
     volume: 100,
+    muted: false,
     ...overrides,
 });
 
@@ -331,10 +332,24 @@ describe('hifi ipc: payload validation', () => {
             validConfig({ softwareVolume: 1 }),
             validConfig({ volume: Number.NaN }),
             validConfig({ volume: -1 }),
+            validConfig({ muted: 'yes' }),
+            validConfig({ muted: undefined }),
             [],
         ]) {
             expect(validateEngineConfig(config)).toBeNull();
         }
+    });
+
+    it('passes the app\'s mute through to the session, whatever software volume says', async () => {
+        const harness = createHarness();
+        await harness.invoke('hifi:configure', validConfig({ muted: true }));
+        expect(harness.session.configure).toHaveBeenLastCalledWith(validConfig({ muted: true }));
+        expect(validateEngineConfig(validConfig({ muted: true, softwareVolume: true, volume: 40 })))
+            .toEqual(validConfig({ muted: true, softwareVolume: true, volume: 40 }));
+        // 没带 muted 的旧载荷不猜：整条拒掉。
+        const { muted: _muted, ...withoutMuted } = validConfig();
+        await expect(harness.invoke('hifi:configure', withoutMuted)).rejects.toThrow(/INVALID_REQUEST/);
+        expect(harness.session.configure).toHaveBeenCalledTimes(1);
     });
 });
 

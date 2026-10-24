@@ -105,6 +105,7 @@ const { createMpvRuntimeInstaller } = require('./hifi/mpvRuntimeInstaller.cjs');
 const { createSourceBridge } = require('./hifi/sourceBridge.cjs');
 const { createMpvSession } = require('./hifi/mpvSession.cjs');
 const { registerHifiIpc } = require('./hifi/hifiIpc.cjs');
+const { createApprovedMpvPathStore, isReservedHifiSettingKey } = require('./hifi/approvedMpvPath.cjs');
 const { sanitizeDualTheme: sanitizeGeneratedDualTheme } = require('../shared/themeSanitizer.cjs');
 const {
   aiProviderLabel,
@@ -307,8 +308,9 @@ const hifiSession = createMpvSession({
   onError: event => hifiIpc?.broadcastError(event),
 });
 // The manual mpv path main itself got from the system file dialog. The renderer can only use or
-// clear it through hifi:configure, never name a program for main to run.
-const HIFI_MPV_MANUAL_PATH_KEY = 'hifi_mpv_manual_path';
+// clear it through hifi:configure, never name a program for main to run. It lives in a file of its
+// own under userData/hifi-runtime/, out of the shared store that save-settings writes.
+const hifiApprovedMpvPath = createApprovedMpvPathStore({ getUserDataPath: getHifiUserDataPath });
 hifiIpc = registerHifiIpc({
   ipcMain,
   isTrustedSender: event => isTrustedMainWindowContents(event.sender),
@@ -318,11 +320,16 @@ hifiIpc = registerHifiIpc({
   dialog,
   getMainWindow: () => mainWindow,
   webContentsFromId: id => electronWebContents.fromId(id),
-  getApprovedMpvPath: () => store.get(HIFI_MPV_MANUAL_PATH_KEY, null),
-  setApprovedMpvPath: value => (value === null ? store.delete(HIFI_MPV_MANUAL_PATH_KEY) : store.set(HIFI_MPV_MANUAL_PATH_KEY, value)),
+  getApprovedMpvPath: () => hifiApprovedMpvPath.get(),
+  setApprovedMpvPath: value => hifiApprovedMpvPath.set(value),
 });
 // Last resort for every way out, app.exit() included: an mpv left behind would keep playing.
 process.on('exit', () => hifiSession.killSync());
+// Partial mpv downloads and half-extracted runtimes that an exit cut off (app.exit, a crash, a
+// forced kill) go once per launch, also for someone who never downloads again.
+app.whenReady()
+  .then(() => hifiInstaller.pruneLeftovers())
+  .catch(error => console.warn('[HiFi] could not remove leftover mpv downloads', error));
 // KuGou credentials stay inside the main process and are encrypted lazily after Electron is ready.
 // The bridge refuses Linux's plaintext `basic_text` fallback and degrades to an in-memory session.
 const kugouApiBridge = createKugouApiBridge({ store, safeStorage });
@@ -5705,6 +5712,12 @@ function createWindow(options = {}) {
     const macWallpaperCrash = process.platform === 'darwin' && isMacWallpaperMode();
     if ((useWindowsWallpaper || macWallpaperCrash) && crashed) {
       win.webContents.reload();
+      return;
+    }
+    // The main page is gone and nothing loads it again (killed, out of memory, crashed past the
+    // reload limit): mpv must not play on behind a dead window. A reloaded page (above) adopts it.
+    if (win === mainWindow) {
+      void hifiSession.stop();
     }
   });
 
@@ -5794,6 +5807,12 @@ function createWindow(options = {}) {
         }
       }
       displaySleepBlocker.stop();
+      // HiFi: mpv plays on in its own process, with no page left to pause it, move to the next
+      // song or let the device go (macOS keeps the app running here). A window rebuild hands mpv
+      // over to the new page and has replaced mainWindow before the old one closes, so this only
+      // runs when the page that drove it is gone for good: stop it, as the Web engine stops with
+      // its page.
+      void hifiSession.stop();
       mainWindowClickThroughUnlockHover = false;
       stopMainWindowClickThroughUnlockHoverMonitor();
       if (remoteControlWindow && !remoteControlWindow.isDestroyed()) {
@@ -6419,7 +6438,9 @@ ipcMain.handle('save-settings', (event, key, value) => {
   if (typeof key !== 'string') {
     return getPublicSettings();
   }
-  if (key === 'DISCORD_RICH_PRESENCE_APPLICATION_ID' || isReservedAiCredentialKey(key)) {
+  // The HiFi key is the old home of the approved mpv path (now in a file of main's own): nothing
+  // reads it any more, and the renderer has no business writing it.
+  if (key === 'DISCORD_RICH_PRESENCE_APPLICATION_ID' || isReservedAiCredentialKey(key) || isReservedHifiSettingKey(key)) {
     return getPublicSettings();
   }
   if (isAiCredentialKey(key)) {
