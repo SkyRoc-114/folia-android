@@ -4,6 +4,13 @@
 
 const MAX_AUDIO_DEVICE_CHARS = 512;
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+// mpv 列出的设备名只用到这些字符：WASAPI 的 {…} id、PipeWire / PulseAudio 的节点名、Core Audio 的 UID（聚合设备的带 ~）、
+// ALSA 的 PCM 名。引号、|、$、;、反引号一律不收。
+const AUDIO_DEVICE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 ._:=,/+{}~-]*$/;
+// ALSA 的设备：mpv 原样交给 snd_pcm_open。这里只收插件名加 CARD=…,DEV=… 这样的参数：不收路径、空格和花括号（花括号能在参数里写一段配置）。
+const ALSA_DEVICE_PATTERN = /^alsa(\/[A-Za-z0-9._:=,+-]*)?$/i;
+// 会写文件、跑命令或加载代码的 ALSA 插件：file / tee 把声音写进文件，文件名以 | 开头时交给 shell 执行；其余几个连外部程序或库。
+const ALSA_UNSAFE_PLUGIN = /(^|[/:,=])(file|tee|pipe|shm|ladspa|hooks|meter|exec|shell)(?=$|[:,=])/i;
 const AO_OVERRIDE_PATTERN = /^[a-z0-9_,-]+$/i;
 const PIPE_HEX_PATTERN = /^[0-9a-f]+$/i;
 const LOADFILE_MODES = new Set(['replace', 'append']);
@@ -37,12 +44,24 @@ const BASE_ARGS = Object.freeze([
     '--audio-fallback-to-null=no',
 ]);
 
-/** 设置里存的设备名；空、不是字符串、过长或带控制字符时回落到 'auto'。 */
+/**
+ * 设置里存的设备名；空、不是字符串、过长、带控制字符或 mpv 列出的设备名里不会有的字符时回落到 'auto'。
+ * ALSA 设备再挡掉会写文件或跑命令的插件（alsa/file:|… 会被 ALSA 当成命令执行）。这只是第一道：
+ * 会话只把这个 mpv 自己列出的设备交给它（见 mpvSession.cjs 的 resolveDevice）。
+ */
 const sanitizeAudioDevice = value => {
     if (typeof value !== 'string') return 'auto';
     if (value.trim() === '' || value.length > MAX_AUDIO_DEVICE_CHARS || CONTROL_CHARS.test(value)) return 'auto';
+    if (!AUDIO_DEVICE_PATTERN.test(value)) return 'auto';
+    if (/^alsa(\/|$)/i.test(value) && (!ALSA_DEVICE_PATTERN.test(value) || ALSA_UNSAFE_PLUGIN.test(value.slice(5)))) return 'auto';
     return value;
 };
+
+/**
+ * 实际交给 mpv 的独占开关。Linux 上总是关：ALSA 的 hw: 设备不论开关都直连，PipeWire / PulseAudio 是混音器，
+ * 开着独占只会把 mpv 的流节点标成独占，声卡上已经连着别的流时 mpv 的流连不上，它丢帧快进到结尾，像是放完了。
+ */
+const effectiveExclusive = (platform, exclusive) => exclusive === true && platform !== 'linux';
 
 /** Windows 上 mpv 的 IPC 命名管道，hex 是随机串。 */
 const buildPipeName = hex => {
@@ -67,12 +86,15 @@ const buildIpcArg = (platform, ipc) => {
     throw new TypeError('HiFi IPC kind must be fd or pipe');
 };
 
-/** 启动参数；ao 只给测试用（'null'、'pcm'），正式路径不传。 */
-const buildMpvArgs = ({ platform, ipc, audioDevice, exclusive, dsdMode, ao } = {}) => {
+/**
+ * 启动参数；ao 只给测试用（'null'、'pcm'），正式路径不传。设备总是 auto：设置里的设备等 IPC 连上、核对过 mpv 的设备表
+ * 才用 set_property 换过去，渲染端给的名字不上命令行。
+ */
+const buildMpvArgs = ({ platform, ipc, exclusive, dsdMode, ao } = {}) => {
     const args = [
         ...BASE_ARGS,
-        `--audio-device=${sanitizeAudioDevice(audioDevice)}`,
-        `--audio-exclusive=${exclusive ? 'yes' : 'no'}`,
+        '--audio-device=auto',
+        `--audio-exclusive=${effectiveExclusive(platform, exclusive) ? 'yes' : 'no'}`,
     ];
     if (dsdMode === 'dop') args.push('--audio-spdif=dsd');
     args.push(buildIpcArg(platform, ipc));
@@ -100,6 +122,7 @@ const buildLoadfileCommand = (url, mode, { startSec = 0 } = {}) => {
 module.exports = {
     buildMpvArgs,
     sanitizeAudioDevice,
+    effectiveExclusive,
     buildPipeName,
     buildLoadfileCommand,
 };

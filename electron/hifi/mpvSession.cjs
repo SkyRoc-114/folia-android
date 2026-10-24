@@ -3,8 +3,8 @@
 const { spawn: childSpawn } = require('child_process');
 const { randomBytes: cryptoRandomBytes } = require('crypto');
 const { promises: fsPromises } = require('fs');
-const { createHifiError, isHifiErrorCode, toHifiErrorCode, sanitizeDetail, classifyEndFile } = require('./hifiErrors.cjs');
-const { buildMpvArgs, buildPipeName, buildLoadfileCommand, sanitizeAudioDevice } = require('./mpvArgs.cjs');
+const { createHifiError, isHifiErrorCode, toHifiErrorCode, sanitizeDetail, classifyEndFile, isOutputStreamLost } = require('./hifiErrors.cjs');
+const { buildMpvArgs, buildPipeName, buildLoadfileCommand, sanitizeAudioDevice, effectiveExclusive } = require('./mpvArgs.cjs');
 const { createMpvIpcClient, connectNamedPipe } = require('./mpvIpcClient.cjs');
 
 // mpv 会话的状态机：按需拉起 mpv，经 JSON IPC 下发载入和走带，把事件和属性变化归成 HifiEngineState 和节流后的时钟。
@@ -41,6 +41,8 @@ const ALSA_PCM_LINE = /^(\d+)-(\d+):\s?(.*)$/;
 const ALSA_CARD_ID = /^[A-Za-z0-9_-]{1,32}$/;
 // 桥记着源的错时，停在离时长这么远之外的“放完”算源中途断了，不算正常放到底。
 const END_TOLERANCE_SEC = 2;
+// 按播放时位置离时长不到这么多就算停在了末尾（暂停着载入到末尾时 mpv 不推 eof-reached）。
+const AT_END_TOLERANCE_SEC = 0.05;
 
 // 渲染端还没推设置时的取值：不独占，免得没人要求就把设备锁住。
 const DEFAULT_CONFIG = Object.freeze({
@@ -255,7 +257,18 @@ const createMpvSession = ({
 
     let mpv = createMpvProps();
     let track = null;
-    let applied = { audioDevice: config.audioDevice, exclusive: config.exclusive, spdif: spdifFor(config), volume: 100, mute: false };
+    /**
+     * mpv 眼下的设置。audioDevice 是真交给 mpv 的设备（'auto'，或核对过设备表的名字），requestedDevice 是那时设置里要的那个：
+     * 两者不同说明设置里的设备不在表里。
+     */
+    let applied = {
+        requestedDevice: 'auto',
+        audioDevice: 'auto',
+        exclusive: effectiveExclusive(platform, config.exclusive),
+        spdif: spdifFor(config),
+        volume: 100,
+        mute: false,
+    };
     let loopFile = false;
     let errorCode = null;
     let circuitOpen = false;
@@ -272,6 +285,8 @@ const createMpvSession = ({
     let seekPending = false;
     /** pause() 被调过几次；预载和 EOF 撞车时据此分辨暂停是用户按的还是 keep-open 加的。 */
     let pauseRequests = 0;
+    /** 发过几次跳转；问 mpv 途中又跳转过的，问来的结果作废。 */
+    let seekRequests = 0;
 
     const owns = record => record !== null && (record === proc || record === launching);
     const isPlayingEntry = () => Boolean(current && !current.failed);
@@ -630,6 +645,20 @@ const createMpvSession = ({
         recentLogs.push(line);
         if (recentLogs.length > RECENT_LOG_LIMIT) recentLogs.shift();
         if (line.level !== 'warn') logWarn(`[HiFi] mpv ${line.prefix}: ${sanitizeDetail(line.text)}`);
+        if (isOutputStreamLost(line)) noteOutputStreamLost(line);
+    };
+
+    /**
+     * PipeWire / PulseAudio 的流连不上输出（别的流独占着节点、节点没了）：mpv 不报错，丢着帧快进到结尾再报放完。
+     * 不等那个假的“放完”，这一首当场按 DEVICE_BUSY 失败：还在载入的让载入失败，已经在放的按中途出错报给渲染端回落。
+     */
+    const noteOutputStreamLost = line => {
+        const detail = `${line.prefix}: ${line.text}`;
+        if (pending && pending.entry === current && current.started) {
+            failAttempt(pending, 'DEVICE_BUSY', detail, { stopPlayback: true });
+            return;
+        }
+        if (current?.loaded && !current.failed && isOnCurrentEntry()) failPlayingEntry(current, 'DEVICE_BUSY', detail);
     };
 
     const startEntry = entry => {
@@ -793,6 +822,37 @@ const createMpvSession = ({
         }
     };
 
+    // keep-open 停在了当前项的末尾（mpv.eofReached 已经置上）。
+    const noteEofReached = () => {
+        seekPending = false;
+        // 排着预载项时 keep-open 本不会停在末尾：说明 append 晚于 EOF 才到 mpv，它接上时会停在暂停里。
+        if (next && !next.started) next.queuedAfterEof = true;
+        if (!current?.loaded || current.failed) return;
+        const code = sourceBrokeEarly(current);
+        if (code) {
+            failPlayingEntry(current, code, 'source ended early');
+            return;
+        }
+        if (!next) logInfo(`[HiFi] ${current.trackKey} reached the end`);
+    };
+
+    /**
+     * mpv 停回了暂停：可能是 keep-open 停在了末尾。暂停着载入到末尾再放开时 mpv 马上又停下，却不推 eof-reached，
+     * 状态会一直是“暂停”。问它一次，真到了头就按放完报，渲染端照常换下一首或停下。
+     */
+    const checkPausedAtEnd = record => {
+        const entry = current;
+        if (!entry?.loaded || entry.failed || next || mpv.eofReached || !isOnCurrentEntry()) return;
+        const seeksBefore = seekRequests;
+        void getProperty(record, 'eof-reached').then(value => {
+            if (value !== true || proc !== record || current !== entry || entry.failed || next) return;
+            if (mpv.eofReached || !mpv.paused || seekRequests !== seeksBefore) return;
+            mpv.eofReached = true;
+            noteEofReached();
+            scheduleState();
+        });
+    };
+
     const handlePropertyChange = (record, name, value) => {
         if (!owns(record)) return;
         switch (name) {
@@ -804,6 +864,7 @@ const createMpvSession = ({
             if (paused === mpv.paused) return;
             mpv.paused = paused;
             if (current?.started) pushClock(paused ? 'pause' : 'resume');
+            if (paused) checkPausedAtEnd(record);
             break;
         }
         case 'paused-for-cache': {
@@ -821,18 +882,7 @@ const createMpvSession = ({
             break;
         case 'eof-reached':
             mpv.eofReached = value === true;
-            if (!mpv.eofReached) break;
-            seekPending = false;
-            // 排着预载项时 keep-open 本不会停在末尾：说明 append 晚于 EOF 才到 mpv，它接上时会停在暂停里。
-            if (next && !next.started) next.queuedAfterEof = true;
-            if (current?.loaded && !current.failed) {
-                const code = sourceBrokeEarly(current);
-                if (code) {
-                    failPlayingEntry(current, code, 'source ended early');
-                    return;
-                }
-                if (!next) logInfo(`[HiFi] ${current.trackKey} reached the end`);
-            }
+            if (mpv.eofReached) noteEofReached();
             break;
         case 'audio-params':
             mpv.audioParams = toAudioParams(value);
@@ -896,7 +946,6 @@ const createMpvSession = ({
         const args = buildMpvArgs({
             platform,
             ipc: isWindows ? { kind: 'pipe', path: pipePath } : { kind: 'fd' },
-            audioDevice: spawnConfig.audioDevice,
             exclusive: spawnConfig.exclusive,
             dsdMode: spawnConfig.dsdMode,
             ao,
@@ -921,6 +970,8 @@ const createMpvSession = ({
             killTimer: null,
             exitWaiters: [],
             nextEntryId: 1,
+            /** 这个 mpv 列出的设备名（加上主进程补的 hw:）；还没读过时为 null。 */
+            deviceNames: null,
             abort: new AbortController(),
             failStartup: () => {},
         };
@@ -985,16 +1036,19 @@ const createMpvSession = ({
         launching = null;
         proc = record;
         applied = {
-            audioDevice: spawnConfig.audioDevice,
-            exclusive: spawnConfig.exclusive,
+            // 启动参数里的设备总是 auto，设置里的设备核对过设备表才换过去。
+            requestedDevice: 'auto',
+            audioDevice: 'auto',
+            exclusive: effectiveExclusive(platform, spawnConfig.exclusive),
             spdif: spdifFor(spawnConfig),
             volume: 100,
             // 启动参数里没有 --mute：mpv 起来时不静音。
             mute: false,
         };
         logInfo(`[HiFi] ${runtime.version ? `mpv ${runtime.version}` : 'mpv'} started (pid ${child.pid ?? '?'})`);
-        // 启动期间设置又变了，或开着软件音量、静音：补发和启动参数不同的那几项（在任何 loadfile 之前到 mpv）。
-        void applyConfig(record);
+        // 设置里的设备、启动期间又变了的设置、软件音量和静音：补发和启动参数不同的那几项。等它们发完才交出进程，
+        // 这些都在任何 loadfile 之前到 mpv（设备要先读一遍设备表）。
+        await applyConfig(record);
         return record;
     };
 
@@ -1128,6 +1182,7 @@ const createMpvSession = ({
     // 先按目标位置推一次停着的时钟（mpv 还在找位置、没出声），跳完的 playback-restart 时再推一次让它接着走。
     // seek 命令失败就等不到 playback-restart：当场放开时钟。
     const seekTo = async (record, target) => {
+        seekRequests += 1;
         mpv.timePos = target;
         mpv.eofReached = false;
         seekPending = true;
@@ -1145,11 +1200,30 @@ const createMpvSession = ({
         }
     };
 
+    /**
+     * 当前项是不是停在了末尾。缓存的 eof-reached 靠不住：暂停着载入到末尾（恢复出来的位置等于时长）时 mpv 不推它，
+     * 所以先看位置有没有到时长，再当场问 mpv。
+     */
+    const isStoppedAtEnd = async record => {
+        if (mpv.eofReached) return true;
+        if (mpv.timePos !== null && mpv.duration !== null && mpv.timePos >= mpv.duration - AT_END_TOLERANCE_SEC) return true;
+        return (await getProperty(record, 'eof-reached')) === true;
+    };
+
     const play = async () => {
         const record = proc;
-        if (!record || !current || current.failed) return;
-        // keep-open 停在了末尾：像 <audio> 那样从头再放。
-        if (current.loaded && mpv.eofReached && !next) await seekTo(record, 0);
+        const entry = current;
+        if (!record || !entry || entry.failed) return;
+        const pausesBefore = pauseRequests;
+        const seeksBefore = seekRequests;
+        // 问 mpv 的途中按了暂停、换了曲或换了进程：这次播放作废，不把后来的暂停盖掉。
+        const stale = () => proc !== record || current !== entry || pauseRequests !== pausesBefore;
+        // keep-open 停在了末尾：像 <audio> 那样从头再放。问 mpv 的途中跳转过的，就按那次跳转的位置放。
+        if (entry.loaded && !next && isOnCurrentEntry() && await isStoppedAtEnd(record)) {
+            if (stale()) return;
+            if (!next && seekRequests === seeksBefore) await seekTo(record, 0);
+        }
+        if (stale()) return;
         await runCommand(record, ['set_property', 'pause', false]);
     };
 
@@ -1270,12 +1344,48 @@ const createMpvSession = ({
         armIdleTimer();
     };
 
+    // mpv 的设备表，Linux 上补上 hw: 直连设备；名字记在这个进程上，配置设备时只认表里有的。
+    const fetchDevices = async record => {
+        const list = await send(record, ['get_property', 'audio-device-list']);
+        const devices = Array.isArray(list) ? list.map(item => toDevice(platform, item)).filter(Boolean) : [];
+        // mpv 的 ALSA 设备表把 hw: 都滤掉了（只留 plughw、dmix 这些），可 --audio-device=alsa/hw:... 照样开得了。
+        const merged = platform === 'linux' ? mergeAlsaHwDevices(devices, await readAlsaHwDevices()) : devices;
+        record.deviceNames = new Set(merged.map(device => device.name));
+        return merged;
+    };
+
+    /**
+     * 设置里的设备交不交给 mpv：只认 'auto' 和这个 mpv 自己列出的（加上主进程补的 hw:）设备，表里没有先重读一次，
+     * 还没有就留在 auto。渲染端给的别的名字一律不发：ALSA 会把 file:|… 这样的设备名当成命令执行。
+     */
+    const resolveDevice = async (record, name) => {
+        if (name === 'auto') return 'auto';
+        if (record.deviceNames?.has(name)) return name;
+        try {
+            await fetchDevices(record);
+        } catch (error) {
+            logWarn('[HiFi] could not read the device list', error);
+        }
+        if (record.deviceNames?.has(name)) return name;
+        logWarn(`[HiFi] ignoring an audio device that is not in the device list: ${JSON.stringify(name)}`);
+        return 'auto';
+    };
+
     // 运行中的 mpv 和设置对不上的项逐个 set_property；只发变了的，audio-device / audio-exclusive / audio-spdif 一改 mpv 就重开输出。
+    // 设置里的设备换了才核对设备表（之后的音量、静音不再重读）；核对期间又换了设备或换了进程，交给后来的那次。
     // 静音不看软件音量开没开（应用里静音了就得没声）；没静音时 mute 关着，样本照旧原样出去。
     const applyConfig = async record => {
+        const requestedDevice = config.audioDevice;
+        let audioDevice = applied.audioDevice;
+        if (requestedDevice !== applied.requestedDevice) {
+            applied.requestedDevice = requestedDevice;
+            audioDevice = await resolveDevice(record, requestedDevice);
+            if (proc !== record || applied.requestedDevice !== requestedDevice) return;
+        }
         const target = {
-            audioDevice: config.audioDevice,
-            exclusive: config.exclusive,
+            requestedDevice,
+            audioDevice,
+            exclusive: effectiveExclusive(platform, config.exclusive),
             spdif: spdifFor(config),
             volume: volumeFor(config),
             mute: config.muted,
@@ -1311,10 +1421,7 @@ const createMpvSession = ({
         if (disposed || circuitOpen) return [];
         const record = await ensureProcess();
         try {
-            const list = await send(record, ['get_property', 'audio-device-list']);
-            const devices = Array.isArray(list) ? list.map(item => toDevice(platform, item)).filter(Boolean) : [];
-            // mpv 的 ALSA 设备表把 hw: 都滤掉了（只留 plughw、dmix 这些），可 --audio-device=alsa/hw:... 照样开得了。
-            return platform === 'linux' ? mergeAlsaHwDevices(devices, await readAlsaHwDevices()) : devices;
+            return await fetchDevices(record);
         } finally {
             armIdleTimer();
         }

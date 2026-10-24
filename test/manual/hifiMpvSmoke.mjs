@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { openSync, readSync, closeSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -12,12 +12,15 @@ import path from 'node:path';
  *
  * 走一遍：载入 → 等到在放 → 看时钟节流 → 跳转 → 暂停 / 继续 → stop（输出关掉）→ 无缝接下一首（第一首没有 ended，
  * 两首格式不同时输出按新格式重开，上一首的令牌撤掉）→ 新的载入（replace）丢掉预载项 → clearNext 撤掉预载项、第一首照常放到底
- * → clearNext 和换曲撞在一起（把 playlist-remove 压住 1.5 秒）→ 短文件放到底（ended，之后预载被拒）→ 源读不出时的错误码
- * → 源在播放途中断掉（报错而不是 ended）→ killSync 之后不再拉起；每步打印 HifiEngineState 里的 audioParams / audioOutParams / track。
+ * → clearNext 和换曲撞在一起（把 playlist-remove 压住 1.5 秒）→ 短文件放到底（ended，之后预载被拒）→ 暂停着载入到末尾再按播放（从头放）
+ * → 设备表里没有的设备留在 auto → 源读不出时的错误码 → 源在播放途中断掉（报错而不是 ended）→ killSync 之后不再拉起；
+ * 每步打印 HifiEngineState 里的 audioParams / audioOutParams / track。
  *
  * 用法：
- *   node test/manual/hifiMpvSmoke.mjs <第一首，如 44.1k/16 FLAC> <第二首，如 96k/24 FLAC 或 DSD64 .dsf> [--mpv /usr/bin/mpv]
+ *   node test/manual/hifiMpvSmoke.mjs <第一首，如 44.1k/16 FLAC> <第二首，如 96k/24 FLAC 或 DSD64 .dsf> [--mpv /usr/bin/mpv] [--output]
  * 两首格式不同（采样率不同）时才看得出换曲时输出重开。
+ * --output：不用 --ao=null，走系统的默认输出（会出声，配静音文件用），独占开着。Linux 上有 pactl 时核对 mpv 的流
+ * 没被标成独占（node.exclusive）：PipeWire 上独占的流在声卡已经连着别的流时连不上，mpv 会丢帧快进到结尾。
  *
  * 退出码 0 表示每一步都符合预期；不符合的步骤打 FAIL 并以 1 退出。
  */
@@ -31,22 +34,25 @@ const parseArgs = () => {
     const args = process.argv.slice(2);
     const files = [];
     let mpvPath = '/usr/bin/mpv';
+    let realOutput = false;
     for (let index = 0; index < args.length; index += 1) {
         if (args[index] === '--mpv') {
             mpvPath = args[index + 1];
             index += 1;
+        } else if (args[index] === '--output') {
+            realOutput = true;
         } else {
             files.push(args[index]);
         }
     }
     if (files.length < 2) {
-        console.error('usage: node test/manual/hifiMpvSmoke.mjs <first audio file> <second audio file> [--mpv <path>]');
+        console.error('usage: node test/manual/hifiMpvSmoke.mjs <first audio file> <second audio file> [--mpv <path>] [--output]');
         process.exit(2);
     }
-    return { files: files.map(file => path.resolve(file)), mpvPath };
+    return { files: files.map(file => path.resolve(file)), mpvPath, realOutput };
 };
 
-const { files, mpvPath } = parseArgs();
+const { files, mpvPath, realOutput } = parseArgs();
 const startedAt = Date.now();
 const stamp = () => `${String(Date.now() - startedAt).padStart(6)} ms`;
 let failures = 0;
@@ -128,7 +134,7 @@ const session = createMpvSession({
     resolveRuntime: async () => ({ path: mpvPath, version: null }),
     bridge,
     createIpcClient,
-    ao: 'null',
+    ...(realOutput ? {} : { ao: 'null' }),
     idleExitMs: 60000,
     onState: state => {
         if (lastState?.status !== state.status || lastState?.trackKey !== state.trackKey) {
@@ -193,9 +199,17 @@ const printFormat = (label, state) => {
     console.log(`         durationSec ${state.durationSec} currentAo ${state.currentAo} device ${state.audioDevice} volume ${state.volume} exclusive ${state.exclusive} spdif ${state.spdif}`);
 };
 
+// PulseAudio 兼容层里 mpv 的流（Sink Input）各自的属性块；没有 pactl 时为 null。PipeWire 不总给 mpv 的流记进程号，按应用名认。
+const mpvSinkInputs = () => {
+    const listed = spawnSync('pactl', ['list', 'sink-inputs'], { encoding: 'utf8', timeout: 5000 });
+    if (listed.status !== 0 || typeof listed.stdout !== 'string') return null;
+    return listed.stdout.split(/^Sink Input #/m).slice(1).filter(block => block.includes('application.name = "mpv"'));
+};
+
 const [first, second] = files;
+const baseConfig = { mpvPath: null, audioDevice: 'auto', exclusive: realOutput, dsdMode: 'pcm', softwareVolume: false, volume: 100, muted: false };
 try {
-    await session.configure({ mpvPath: null, audioDevice: 'auto', exclusive: false, dsdMode: 'pcm', softwareVolume: false, volume: 100 });
+    await session.configure(baseConfig);
 
     console.log(`${stamp()} --- load ${path.basename(first)}`);
     const firstRequest = requestFor(first);
@@ -205,6 +219,16 @@ try {
     check(playing.audioOutParams !== null, 'audioOutParams is known once playing');
     await sleep(300);
     printFormat('first track format', lastState);
+    if (realOutput && process.platform === 'linux') {
+        check(lastState.exclusive === false, `Linux: mpv is not asked for exclusive output (state.exclusive ${lastState.exclusive})`);
+        const streams = mpvSinkInputs();
+        if (streams === null) {
+            console.log(`${stamp()} pactl is not available, skipping the stream check`);
+        } else {
+            check(streams.length > 0, `pactl lists mpv's stream (${streams.length})`);
+            check(streams.every(block => !/node\.exclusive = "true"/.test(block)), 'mpv\'s stream is not node.exclusive');
+        }
+    }
 
     clockLog.length = 0;
     await sleep(1000);
@@ -340,6 +364,36 @@ try {
     printFormat('state at the end', ended);
     const lateQueue = await session.preloadNext(requestFor(first), { ownerId: 1 });
     check(lateQueue === false, 'preloadNext after the end answers false (the renderer loads normally)');
+
+    // 窗口重建或交接后恢复出来的位置等于时长：mpv 暂停着载入到末尾，放开后马上又停下，却不推 eof-reached。
+    const endSec = ended.durationSec ?? 4;
+    console.log(`${stamp()} --- play a song loaded paused at its end (${endSec.toFixed(3)} s)`);
+    const atEnd = requestFor(second, { startSec: endSec, paused: true });
+    const atEndLoad = await session.load(atEnd, { ownerId: 1 });
+    check(atEndLoad.ok === true, `load paused at the end resolves ok (${atEndLoad.ok ? atEndLoad.state.status : atEndLoad.errorCode})`);
+    await sleep(300);
+    await session.play();
+    // 会话认出停在了末尾就从头放；没认出来，mpv 放开后又停下时按放完报（渲染端换下一首）。不能停在“暂停”。
+    const replayed = await waitForState(state => state.trackKey === atEnd.trackKey
+        && ((state.status === 'playing' && state.positionSec < 1) || state.status === 'ended'), 'playing from the top or ended', 4000);
+    check(replayed.status === 'playing' || replayed.status === 'ended',
+        `play at the end does not get stuck paused (${replayed.status} at ${replayed.positionSec.toFixed(2)})`);
+    if (replayed.status === 'playing') {
+        await sleep(500);
+        // 位置只随时钟推，状态里的不跟着走：看快照。
+        const later = session.getSnapshot();
+        check(later.status === 'playing' && later.positionSec > 0.1, `and keeps playing from the top (${later.status} at ${later.positionSec.toFixed(2)})`);
+    }
+    await session.stop();
+
+    console.log(`${stamp()} --- a device mpv does not list stays on auto`);
+    await session.configure({ ...baseConfig, audioDevice: 'alsa/plughw:CARD=FoliaNoSuchCard,DEV=0' });
+    const unlisted = requestFor(first);
+    check((await session.load(unlisted, { ownerId: 1 })).ok === true, 'load on an unlisted device resolves ok');
+    const mpvDevice = await mpvClient.command(['get_property', 'audio-device']);
+    check(mpvDevice === 'auto' && lastState.audioDevice === 'auto', `mpv stays on auto (${mpvDevice}, state ${lastState.audioDevice})`);
+    await session.configure(baseConfig);
+    await session.stop();
 
     console.log(`${stamp()} --- source that cannot be read`);
     const broken = requestFor(first);

@@ -28,6 +28,10 @@ const MAX_DETAIL_CHARS = 300;
 
 // 独占设备被别的程序占着：WASAPI 的 AUDCLNT_E_DEVICE_IN_USE、ALSA hw 的 EBUSY、CoreAudio 的 hog mode。
 const DEVICE_BUSY_PATTERN = /AUDCLNT_E_DEVICE_IN_USE|Device or resource busy|device (is )?(busy|in use)|exclusive mode.*(busy|in use|denied)|hog ?mode/i;
+// PipeWire / PulseAudio 的流连不上输出节点（别的流独占着它、节点没了）：mpv 不报错，丢帧快进到结尾，像是放完了。
+const STREAM_LOST_PATTERN = /no target node available|Stream in error state|dropping frame due to pin disconnect/i;
+// 上面那几行出自这几个模块（丢帧那行记在 ao 名下）。
+const STREAM_LOST_PREFIX = /^ao(\/(pipewire|pulse))?$/;
 // 只有报失败的级别才算数；我们只订阅了 warn 以上，这里再挡一次 info / v / debug。
 const FAILURE_LOG_LEVELS = new Set(['fatal', 'error', 'warn']);
 const FORMAT_UNSUPPORTED_PATTERN = /unrecognized file format|no audio or video data played|Failed to recognize/i;
@@ -62,11 +66,18 @@ const toHifiErrorCode = (error, fallback = 'UNKNOWN') => {
     return isHifiErrorCode(fallback) ? fallback : 'UNKNOWN';
 };
 
-/** 一条 mpv log-message 能说明的错误码；目前只认出“设备被占用”，其余为 null。 */
+/** 这条 mpv log-message 说的是 PipeWire / PulseAudio 的流连不上输出：mpv 这时照样往下放，声音全丢掉。 */
+const isOutputStreamLost = line => {
+    if (!line || typeof line.text !== 'string') return false;
+    if (typeof line.level === 'string' && !FAILURE_LOG_LEVELS.has(line.level)) return false;
+    return STREAM_LOST_PREFIX.test(typeof line.prefix === 'string' ? line.prefix : '') && STREAM_LOST_PATTERN.test(line.text);
+};
+
+/** 一条 mpv log-message 能说明的错误码；目前只认出“设备被占用”（含流连不上输出），其余为 null。 */
 const classifyLogLine = line => {
     if (!line || typeof line.text !== 'string') return null;
     if (typeof line.level === 'string' && !FAILURE_LOG_LEVELS.has(line.level)) return null;
-    return DEVICE_BUSY_PATTERN.test(line.text) ? 'DEVICE_BUSY' : null;
+    return DEVICE_BUSY_PATTERN.test(line.text) || isOutputStreamLost(line) ? 'DEVICE_BUSY' : null;
 };
 
 /**
@@ -96,6 +107,7 @@ module.exports = {
     createHifiError,
     toHifiErrorCode,
     sanitizeDetail,
+    isOutputStreamLost,
     classifyLogLine,
     classifyEndFile,
 };

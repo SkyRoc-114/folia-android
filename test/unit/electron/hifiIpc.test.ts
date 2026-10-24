@@ -340,6 +340,30 @@ describe('hifi ipc: payload validation', () => {
         }
     });
 
+    it('a device name mpv would never list becomes auto before it reaches the session; the rest of the config still applies', async () => {
+        // ALSA 的 file 插件把 | 开头的文件名交给 shell 执行：主窗口里被注入的脚本不能借设备名跑命令。
+        const hostile = 'alsa/file:|touch /tmp/x,raw';
+        expect(validateEngineConfig(validConfig({ audioDevice: hostile, volume: 40 }))).toEqual(validConfig({ audioDevice: 'auto', volume: 40 }));
+        for (const audioDevice of ['alsa/tee:hw,/tmp/x', 'pulse/$(id)', 'pipewire/a`b`', 'wasapi/"x"', 'x;y']) {
+            expect(validateEngineConfig(validConfig({ audioDevice }))?.audioDevice, audioDevice).toBe('auto');
+        }
+        expect(validateEngineConfig(validConfig({ audioDevice: 'alsa/hw:CARD=D10,DEV=0' }))?.audioDevice).toBe('alsa/hw:CARD=D10,DEV=0');
+        expect(validateEngineConfig(validConfig({ audioDevice: 'wasapi/{0.0.0.00000000}.{guid}' }))?.audioDevice).toBe('wasapi/{0.0.0.00000000}.{guid}');
+
+        const harness = createHarness();
+        await harness.invoke('hifi:configure', validConfig({ audioDevice: hostile, softwareVolume: true, volume: 40 }));
+        expect(harness.session.configure).toHaveBeenLastCalledWith(validConfig({ audioDevice: 'auto', softwareVolume: true, volume: 40 }));
+        expect(JSON.stringify(harness.session.configure.mock.calls)).not.toContain('|');
+        expect(harness.logWarn).toHaveBeenCalledWith(expect.stringMatching(/^\[HiFi\] ignoring an audio device name mpv would not list/));
+        // 音量一变渲染端就重发设置：同一个名字只记一次。
+        await harness.invoke('hifi:configure', validConfig({ audioDevice: hostile, softwareVolume: true, volume: 41 }));
+        const ignoredLines = () => harness.logWarn.mock.calls.filter(([line]) => String(line).includes('ignoring an audio device name'));
+        expect(ignoredLines()).toHaveLength(1);
+        await harness.invoke('hifi:configure', validConfig());
+        await harness.invoke('hifi:configure', validConfig({ audioDevice: hostile }));
+        expect(ignoredLines()).toHaveLength(2);
+    });
+
     it('passes the app\'s mute through to the session, whatever software volume says', async () => {
         const harness = createHarness();
         await harness.invoke('hifi:configure', validConfig({ muted: true }));

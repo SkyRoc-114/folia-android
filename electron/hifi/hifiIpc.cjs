@@ -4,6 +4,7 @@ const path = require('path');
 const { randomUUID: cryptoRandomUUID } = require('crypto');
 const { createSenderGuardedHandler } = require('../ipcAccessGuard.cjs');
 const { createHifiError } = require('./hifiErrors.cjs');
+const { sanitizeAudioDevice } = require('./mpvArgs.cjs');
 
 // HiFi 的 IPC 层：只认主窗口的调用并校验每个载荷，把状态推回主窗口，替来源桥向持有 File 的渲染进程要字节。
 
@@ -88,12 +89,16 @@ const validateLoadRequest = request => {
     return { trackKey, songKey, source, startSec, paused, loopFile };
 };
 
-/** HifiEngineConfig 的校验；不合格时为 null。 */
+/**
+ * HifiEngineConfig 的校验；不合格时为 null。设备名不像 mpv 列得出的（带 |、引号、$ 这些，或会写文件、跑命令的 ALSA 插件）
+ * 换成 'auto'，其余设置照用：存着的旧设备名不该让整条设置下发不了。会话还会再核对一次 mpv 的设备表。
+ */
 const validateEngineConfig = config => {
     if (!isPlainObject(config)) return null;
-    const { mpvPath, audioDevice, exclusive, dsdMode, softwareVolume, volume, muted } = config;
+    const { mpvPath, exclusive, dsdMode, softwareVolume, volume, muted } = config;
     if (mpvPath !== null && !(isText(mpvPath) && !CONTROL_CHARS.test(mpvPath))) return null;
-    if (!isText(audioDevice)) return null;
+    if (!isText(config.audioDevice)) return null;
+    const audioDevice = sanitizeAudioDevice(config.audioDevice);
     if (typeof exclusive !== 'boolean' || typeof softwareVolume !== 'boolean' || typeof muted !== 'boolean') return null;
     if (dsdMode !== 'pcm' && dsdMode !== 'dop') return null;
     if (!isFiniteNumber(volume) || volume < 0 || volume > 100) return null;
@@ -202,6 +207,8 @@ const registerHifiIpc = ({
     let detecting = null;
     /** readId → { webContentsId, length, settle } */
     const pendingReads = new Map();
+    /** 上次换成 auto 的设备名：音量一变渲染端就重发设置，同一个名字只记一次。 */
+    let ignoredAudioDevice = null;
 
     const handle = (channel, handler, onUntrusted) => {
         ipcMain.handle(channel, createSenderGuardedHandler({
@@ -365,6 +372,11 @@ const registerHifiIpc = ({
     handle('hifi:configure', async (_event, config) => {
         const valid = validateEngineConfig(config);
         if (!valid) throw createHifiError('INVALID_REQUEST', 'configure');
+        const ignored = valid.audioDevice !== config.audioDevice && config.audioDevice.trim() !== '' ? config.audioDevice : null;
+        if (ignored !== null && ignored !== ignoredAudioDevice) {
+            logWarn(`[HiFi] ignoring an audio device name mpv would not list, using auto: ${JSON.stringify(ignored)}`);
+        }
+        ignoredAudioDevice = ignored;
         const effective = effectiveManualPath(valid.mpvPath);
         const changed = effective !== manualPath;
         manualPath = effective;

@@ -1171,37 +1171,60 @@ describe('mpv session: crashes', () => {
 });
 
 describe('mpv session: configure and devices', () => {
-    it('puts the config on the command line before the first spawn', async () => {
-        const harness = createHarness();
-        await harness.session.configure({ mpvPath: null, audioDevice: 'alsa/hw:CARD=D10,DEV=0', exclusive: true, dsdMode: 'dop', softwareVolume: false, volume: 40 });
+    it('puts the config on the command line before the first spawn, with the device on auto', async () => {
+        const harness = createHarness({ platform: 'darwin' });
+        await harness.session.configure({ mpvPath: null, audioDevice: 'auto', exclusive: true, dsdMode: 'dop', softwareVolume: false, volume: 40 });
         await loadAndStart(harness, localRequest('local:a#1'), 1);
         const [, args] = harness.spawnFn.mock.calls[0];
-        expect(args).toEqual(expect.arrayContaining(['--audio-device=alsa/hw:CARD=D10,DEV=0', '--audio-exclusive=yes', '--audio-spdif=dsd', '--volume=100']));
+        expect(args).toEqual(expect.arrayContaining(['--audio-device=auto', '--audio-exclusive=yes', '--audio-spdif=dsd', '--volume=100']));
         // 软件音量关着：不发 volume。
         expect(harness.mpv().commands('set_property').filter(command => command[1] === 'volume')).toEqual([]);
         expect(harness.lastState()).toMatchObject({ exclusive: true, spdif: 'dsd', volume: 100 });
     });
 
     it('applies changes live with set_property, only for what changed; volume is 100 unless software volume is on', async () => {
-        const harness = createHarness();
+        const harness = createHarness({
+            platform: 'darwin',
+            onSpawn: child => {
+                child.socket.props['audio-device-list'] = [
+                    { name: 'auto', description: 'Autoselect device' },
+                    { name: 'coreaudio/AppleUSBAudioEngine:D10', description: 'D10' },
+                ];
+            },
+        });
         await loadAndStart(harness, localRequest('local:a#1'), 1);
         const mpv = harness.mpv();
+        const device = 'coreaudio/AppleUSBAudioEngine:D10';
         const before = mpv.commands('set_property').length;
-        await harness.session.configure({ mpvPath: null, audioDevice: 'wasapi/{guid}', exclusive: true, dsdMode: 'dop', softwareVolume: false, volume: 30 });
+        await harness.session.configure({ mpvPath: null, audioDevice: device, exclusive: true, dsdMode: 'dop', softwareVolume: false, volume: 30 });
         expect(mpv.commands('set_property').slice(before)).toEqual([
-            ['set_property', 'audio-device', 'wasapi/{guid}'],
+            ['set_property', 'audio-device', device],
             ['set_property', 'audio-exclusive', true],
             ['set_property', 'audio-spdif', 'dsd'],
         ]);
-        await harness.session.configure({ mpvPath: null, audioDevice: 'wasapi/{guid}', exclusive: true, dsdMode: 'pcm', softwareVolume: true, volume: 30 });
+        await harness.session.configure({ mpvPath: null, audioDevice: device, exclusive: true, dsdMode: 'pcm', softwareVolume: true, volume: 30 });
         expect(mpv.commands('set_property').slice(before + 3)).toEqual([
             ['set_property', 'audio-spdif', ''],
             ['set_property', 'volume', 30],
         ]);
-        await harness.session.configure({ mpvPath: null, audioDevice: 'wasapi/{guid}', exclusive: true, dsdMode: 'pcm', softwareVolume: false, volume: 30 });
+        await harness.session.configure({ mpvPath: null, audioDevice: device, exclusive: true, dsdMode: 'pcm', softwareVolume: false, volume: 30 });
         expect(mpv.commands('set_property').slice(before + 5)).toEqual([['set_property', 'volume', 100]]);
-        await harness.session.configure({ mpvPath: null, audioDevice: 'wasapi/{guid}', exclusive: true, dsdMode: 'pcm', softwareVolume: false, volume: 70 });
+        await harness.session.configure({ mpvPath: null, audioDevice: device, exclusive: true, dsdMode: 'pcm', softwareVolume: false, volume: 70 });
         expect(mpv.commands('set_property').length).toBe(before + 6);
+        // 设备没换：之后的设置不再读设备表。
+        expect(mpv.commands('get_property').filter(command => command[1] === 'audio-device-list')).toHaveLength(1);
+    });
+
+    it('Linux: exclusive is never asked of mpv, on the command line or live', async () => {
+        const harness = createHarness();
+        await harness.session.configure({ mpvPath: null, audioDevice: 'auto', exclusive: true, dsdMode: 'pcm', softwareVolume: false, volume: 100 });
+        await loadAndStart(harness, localRequest('local:a#1'), 1);
+        const [, args] = harness.spawnFn.mock.calls[0];
+        expect(args).toContain('--audio-exclusive=no');
+        await harness.session.configure({ mpvPath: null, audioDevice: 'auto', exclusive: false, dsdMode: 'pcm', softwareVolume: false, volume: 100 });
+        await harness.session.configure({ mpvPath: null, audioDevice: 'auto', exclusive: true, dsdMode: 'pcm', softwareVolume: false, volume: 100 });
+        expect(harness.mpv().commands('set_property').filter(command => command[1] === 'audio-exclusive')).toEqual([]);
+        expect(harness.lastState().exclusive).toBe(false);
     });
 
     it('lists devices from audio-device-list and marks only Linux hw: devices as direct (plughw converts behind mpv)', async () => {
@@ -1253,6 +1276,252 @@ describe('mpv session: configure and devices', () => {
         ]);
         await harness.session.configure({ ...config, softwareVolume: true, muted: true });
         expect(mpv.commands('set_property').length).toBe(before + 3);
+    });
+});
+
+describe('mpv session: only devices mpv lists reach it', () => {
+    const LIST = [
+        { name: 'auto', description: 'Autoselect device' },
+        { name: 'pipewire', description: 'Default (pipewire)' },
+        { name: 'pipewire/alsa_output.usb-Topping_D10-00.analog-stereo', description: 'Topping D10' },
+        { name: 'alsa/plughw:CARD=D10,DEV=0', description: 'Topping D10, USB Audio' },
+    ];
+    const config = (audioDevice: string, overrides: Partial<HifiEngineConfig> = {}) => ({
+        mpvPath: null, audioDevice, exclusive: false, dsdMode: 'pcm' as const, softwareVolume: false, volume: 100, muted: false, ...overrides,
+    });
+    const deviceHarness = (list: Json[] = LIST) => {
+        const logWarn = vi.fn();
+        const harness = createHarness({
+            logWarn,
+            onSpawn: child => {
+                child.socket.props['audio-device-list'] = list;
+            },
+            readFileFn: async (file: string) => {
+                if (file === '/proc/asound/cards') return ALSA_CARDS;
+                if (file === '/proc/asound/pcm') return ALSA_PCM;
+                throw Object.assign(new Error(`ENOENT: ${file}`), { code: 'ENOENT' });
+            },
+        });
+        return { ...harness, logWarn };
+    };
+    const sentCommands = (harness: Harness) => harness.mpv().requests.map(request => request.command);
+    const deviceListReads = (harness: Harness) => harness.mpv().commands('get_property').filter(command => command[1] === 'audio-device-list');
+
+    it('spawns on auto, reads the device list, and switches to the configured device before the loadfile', async () => {
+        const harness = deviceHarness();
+        // hw: 设备 mpv 不列，是主进程从 /proc/asound 补的：也算表里有。
+        for (const device of ['pipewire/alsa_output.usb-Topping_D10-00.analog-stereo', 'alsa/hw:CARD=D10,DEV=0']) {
+            const run = deviceHarness();
+            await run.session.configure(config(device));
+            const result = run.session.load(localRequest('local:a#1'), { ownerId: 7 });
+            await flush();
+            const [, args] = run.spawnFn.mock.calls[0];
+            expect(args.filter(arg => arg.startsWith('--audio-device='))).toEqual(['--audio-device=auto']);
+            const sent = sentCommands(run).map(command => JSON.stringify(command));
+            const listAt = sent.indexOf(JSON.stringify(['get_property', 'audio-device-list']));
+            const setAt = sent.indexOf(JSON.stringify(['set_property', 'audio-device', device]));
+            const loadAt = sent.findIndex(command => command.startsWith('["loadfile"'));
+            expect(listAt, device).toBeGreaterThan(-1);
+            expect(setAt, device).toBeGreaterThan(listAt);
+            expect(loadAt, device).toBeGreaterThan(setAt);
+            run.mpv().prop('audio-device', device);
+            await startEntry(run, 1);
+            expect((await result).ok).toBe(true);
+            expect(run.lastState().audioDevice).toBe(device);
+        }
+        expect(harness.spawnFn).not.toHaveBeenCalled();
+    });
+
+    it('a device that is not in the list stays on auto and is logged; playback still starts', async () => {
+        const harness = deviceHarness();
+        await harness.session.configure(config('alsa/plughw:CARD=Gone,DEV=0'));
+        const result = await loadAndStart(harness, localRequest('local:a#1'), 1);
+        expect((await result).ok).toBe(true);
+        expect(harness.mpv().commands('set_property').filter(command => command[1] === 'audio-device')).toEqual([]);
+        expect(deviceListReads(harness)).toHaveLength(1);
+        expect(harness.logWarn).toHaveBeenCalledWith('[HiFi] ignoring an audio device that is not in the device list: "alsa/plughw:CARD=Gone,DEV=0"');
+        expect(harness.lastState().audioDevice).toBe('auto');
+    });
+
+    it('a hostile ALSA name never reaches mpv, on the command line or by set_property', async () => {
+        const hostile = 'alsa/file:|touch /tmp/x,raw';
+        // mpv 的表里就算有这个名字（不会有），设置也先被清成 auto。
+        const harness = deviceHarness([...LIST, { name: hostile, description: 'evil' }]);
+        await harness.session.configure(config(hostile));
+        await loadAndStart(harness, localRequest('local:a#1'), 1);
+        await harness.session.configure(config(hostile, { volume: 50 }));
+        await harness.session.configure(config('alsa/tee:hw,/tmp/x'));
+        const [, args] = harness.spawnFn.mock.calls[0];
+        expect(args.some(arg => arg.includes('|') || arg.includes('file:') || arg.includes('tee:'))).toBe(false);
+        expect(JSON.stringify(harness.mpv().requests)).not.toMatch(/\||file:|tee:/);
+        expect(harness.mpv().commands('set_property').filter(command => command[1] === 'audio-device')).toEqual([]);
+    });
+
+    it('live: a device missing from the cached list is read again once; the same device is not checked again', async () => {
+        const list: Json[] = LIST.filter(device => !device.name.includes('Topping'));
+        const harness = deviceHarness(list);
+        await loadAndStart(harness, localRequest('local:a#1'), 1);
+        await harness.session.listDevices();
+        expect(deviceListReads(harness)).toHaveLength(1);
+        // DAC 刚插上：缓存的表里还没有它。
+        harness.mpv().props['audio-device-list'] = LIST;
+        const dac = 'pipewire/alsa_output.usb-Topping_D10-00.analog-stereo';
+        await harness.session.configure(config(dac));
+        expect(deviceListReads(harness)).toHaveLength(2);
+        expect(harness.mpv().commands('set_property').filter(command => command[1] === 'audio-device')).toEqual([['set_property', 'audio-device', dac]]);
+        // 只改了音量：不再读设备表。
+        await harness.session.configure(config(dac, { softwareVolume: true, volume: 50 }));
+        expect(deviceListReads(harness)).toHaveLength(2);
+        // 换成一个读两遍都没有的设备：回到 auto。
+        await harness.session.configure(config('pipewire/gone'));
+        expect(deviceListReads(harness)).toHaveLength(3);
+        expect(harness.mpv().commands('set_property').filter(command => command[1] === 'audio-device').at(-1)).toEqual(['set_property', 'audio-device', 'auto']);
+        expect(harness.logWarn).toHaveBeenCalledWith('[HiFi] ignoring an audio device that is not in the device list: "pipewire/gone"');
+    });
+
+    it('a device change made while the list is being read is not overwritten by the slower check', async () => {
+        const harness = deviceHarness();
+        await loadAndStart(harness, localRequest('local:a#1'), 1);
+        const mpv = harness.mpv();
+        const first = harness.session.configure(config('pipewire/alsa_output.usb-Topping_D10-00.analog-stereo'));
+        const second = harness.session.configure(config('auto'));
+        await Promise.all([first, second]);
+        await flush();
+        expect(mpv.commands('set_property').filter(command => command[1] === 'audio-device')).toEqual([]);
+    });
+});
+
+describe('mpv session: a PipeWire / PulseAudio stream that cannot reach its output', () => {
+    const lostLine = { prefix: 'ao/pipewire', level: 'warn', text: 'Stream in error state, trying to reload...\n' };
+
+    it('fails the playing song as DEVICE_BUSY and stops mpv instead of letting the dropped frames end it', async () => {
+        const harness = createHarness();
+        await loadAndStart(harness, localRequest('local:a#1'), 1);
+        harness.mpv().prop('duration', 30);
+        harness.mpv().prop('time-pos', 0.2);
+        harness.mpv().event('log-message', lostLine);
+        harness.mpv().event('log-message', { prefix: 'ao/pipewire', level: 'warn', text: 'Error during playback: No such file or directory, no target node available\n' });
+        await flush();
+        expect(harness.errors).toEqual([{ code: 'DEVICE_BUSY', trackKey: 'local:a#1', detail: expect.stringContaining('Stream in error state'), fatal: true }]);
+        expect(harness.mpv().commands('stop')).toEqual([['stop']]);
+        expect(harness.bridge.revoke).toHaveBeenCalledWith('tok1');
+        // mpv 丢着帧快进到了结尾：不是放完。
+        harness.mpv().prop('eof-reached', true);
+        await flush();
+        expect(harness.states.some(state => state.status === 'ended')).toBe(false);
+        expect(harness.lastState()).toMatchObject({ status: 'error', errorCode: 'DEVICE_BUSY' });
+    });
+
+    it('fails a load that has not opened its output yet', async () => {
+        const harness = createHarness();
+        const result = harness.session.load(localRequest('local:a#1'), { ownerId: 7 });
+        await flush();
+        await startEntry(harness, 1, { outParams: null });
+        harness.mpv().event('log-message', { prefix: 'ao', level: 'warn', text: 'dropping frame due to pin disconnect\n' });
+        await flush();
+        expect(await result).toMatchObject({ ok: false, errorCode: 'DEVICE_BUSY' });
+        expect(harness.mpv().commands('stop')).toEqual([['stop']]);
+    });
+
+    it('a line from another module, or before the song started, changes nothing', async () => {
+        const harness = createHarness();
+        const result = harness.session.load(localRequest('local:a#1'), { ownerId: 7 });
+        await flush();
+        // 上一首的输出撤下时的那几行：这一首还没 start-file。
+        harness.mpv().event('log-message', lostLine);
+        harness.mpv().event('log-message', { prefix: 'ffmpeg', level: 'warn', text: 'Stream in error state\n' });
+        await startEntry(harness, 1);
+        expect((await result).ok).toBe(true);
+        expect(harness.errors).toEqual([]);
+        expect(harness.lastState().status).toBe('playing');
+    });
+});
+
+describe('mpv session: play at the end of a song', () => {
+    // 暂停着载入到末尾（窗口重建或交接后恢复出来的位置等于时长）：mpv 不推 eof-reached，问它才答 true。
+    const loadPausedAtEnd = async (harness: Harness, { duration = 20.004093 as number | null, timePos = 20 as number | null } = {}) => {
+        await loadAndStart(harness, localRequest('local:dsd#1', { startSec: 20, paused: true }), 1);
+        const mpv = harness.mpv();
+        mpv.prop('pause', true);
+        if (duration !== null) mpv.prop('duration', duration);
+        if (timePos !== null) mpv.prop('time-pos', timePos);
+        mpv.props['eof-reached'] = true;
+        await flush();
+        return mpv;
+    };
+    const transport = (harness: Harness) => harness.mpv().requests
+        .map(request => request.command)
+        .filter(command => command[0] === 'seek' || (command[0] === 'set_property' && command[1] === 'pause'));
+
+    it('at the duration: seeks to 0 before unpausing, as <audio> does for an ended element', async () => {
+        const harness = createHarness();
+        await loadPausedAtEnd(harness);
+        const before = transport(harness).length;
+        await harness.session.play();
+        expect(transport(harness).slice(before)).toEqual([['seek', 0, 'absolute'], ['set_property', 'pause', false]]);
+    });
+
+    it('with no position or duration to go by: asks mpv for eof-reached', async () => {
+        const harness = createHarness();
+        await loadPausedAtEnd(harness, { duration: null, timePos: null });
+        const before = transport(harness).length;
+        await harness.session.play();
+        expect(harness.mpv().commands('get_property')).toContainEqual(['get_property', 'eof-reached']);
+        expect(transport(harness).slice(before)).toEqual([['seek', 0, 'absolute'], ['set_property', 'pause', false]]);
+    });
+
+    it('mid-song: just unpauses', async () => {
+        const harness = createHarness();
+        await loadPausedAtEnd(harness, { duration: 30, timePos: 5 });
+        harness.mpv().props['eof-reached'] = false;
+        const before = transport(harness).length;
+        await harness.session.play();
+        expect(transport(harness).slice(before)).toEqual([['set_property', 'pause', false]]);
+    });
+
+    it('mpv pausing itself again at the end after an unpause reports ended', async () => {
+        const harness = createHarness();
+        await loadPausedAtEnd(harness, { duration: null, timePos: null });
+        // play 时 mpv 还说没到头（它还没真的放过）。
+        harness.mpv().props['eof-reached'] = false;
+        await harness.session.play();
+        expect(harness.mpv().commands('seek')).toEqual([]);
+        harness.mpv().prop('pause', false);
+        await flush();
+        expect(harness.lastState().status).toBe('playing');
+        // keep-open 马上又停下，eof-reached 却不推。
+        harness.mpv().props['eof-reached'] = true;
+        harness.mpv().prop('pause', true);
+        await flush();
+        expect(harness.lastState()).toMatchObject({ status: 'ended', trackKey: 'local:dsd#1' });
+    });
+
+    it('a pause the user pressed mid-song stays a pause', async () => {
+        const harness = createHarness();
+        await loadAndStart(harness, localRequest('local:a#1'), 1);
+        harness.mpv().props['eof-reached'] = false;
+        await harness.session.pause();
+        harness.mpv().prop('pause', true);
+        await flush();
+        expect(harness.lastState().status).toBe('paused');
+    });
+
+    it('a pause pressed while play is asking mpv wins; a seek made meanwhile replaces the seek to 0', async () => {
+        const paused = createHarness();
+        await loadPausedAtEnd(paused, { duration: null, timePos: null });
+        const before = transport(paused).length;
+        const playing = paused.session.play();
+        await paused.session.pause();
+        await playing;
+        expect(transport(paused).slice(before)).toEqual([['set_property', 'pause', true]]);
+
+        const sought = createHarness();
+        await loadPausedAtEnd(sought, { duration: null, timePos: null });
+        const from = transport(sought).length;
+        const resumed = sought.session.play();
+        await sought.session.seek(10);
+        await resumed;
+        expect(transport(sought).slice(from)).toEqual([['seek', 10, 'absolute'], ['set_property', 'pause', false]]);
     });
 });
 

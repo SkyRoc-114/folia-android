@@ -13,6 +13,7 @@ const {
     createHifiError,
     toHifiErrorCode,
     sanitizeDetail,
+    isOutputStreamLost,
     classifyLogLine,
     classifyEndFile,
 } = require('../../../electron/hifi/hifiErrors.cjs') as {
@@ -21,6 +22,7 @@ const {
     createHifiError: (code: string, detail?: unknown) => Error & { code: HifiErrorCode; hifiDetail?: string };
     toHifiErrorCode: (error: unknown, fallback?: string) => HifiErrorCode;
     sanitizeDetail: (text: unknown) => string;
+    isOutputStreamLost: (line: LogLine) => boolean;
     classifyLogLine: (line: LogLine) => HifiErrorCode | null;
     classifyEndFile: (
         endFile: { reason?: string; fileError?: string; file_error?: string },
@@ -122,6 +124,30 @@ describe('classifyLogLine', () => {
             { prefix: 'ao', level: 'error', text: 'The device is busy\n' },
         ];
         for (const line of busyLines) expect(classifyLogLine(line)).toBe('DEVICE_BUSY');
+    });
+
+    // mpv 0.41.0 在 PipeWire 上开着独占、声卡上已经连着别的流时原样报的几行（warn）。
+    const streamLostLines: LogLine[] = [
+        { prefix: 'ao/pipewire', level: 'warn', text: 'Stream in error state, trying to reload...\n' },
+        { prefix: 'ao/pipewire', level: 'warn', text: 'Error during playback: No such file or directory, no target node available\n' },
+        { prefix: 'ao', level: 'warn', text: 'dropping frame due to pin disconnect\n' },
+        { prefix: 'ao/pulse', level: 'error', text: 'Stream in error state\n' },
+    ];
+
+    it('counts a PipeWire / PulseAudio stream that cannot reach its output as a busy device', () => {
+        for (const line of streamLostLines) {
+            expect(isOutputStreamLost(line), line.text).toBe(true);
+            expect(classifyLogLine(line), line.text).toBe('DEVICE_BUSY');
+        }
+    });
+
+    it('only from the audio output modules, and only at the failure levels', () => {
+        expect(isOutputStreamLost({ prefix: 'ffmpeg', level: 'error', text: 'Stream in error state\n' })).toBe(false);
+        expect(isOutputStreamLost({ prefix: 'ao/alsa', level: 'error', text: 'no target node available\n' })).toBe(false);
+        expect(isOutputStreamLost({ prefix: 'ao/pipewire', level: 'v', text: 'Stream in error state, trying to reload...\n' })).toBe(false);
+        expect(isOutputStreamLost({ prefix: 'ao/pipewire', level: 'warn', text: 'drain timeout\n' })).toBe(false);
+        expect(isOutputStreamLost({ level: 'warn', text: 'Stream in error state\n' })).toBe(false);
+        expect(isOutputStreamLost({})).toBe(false);
     });
 
     it('ignores other failures and non-failure levels', () => {

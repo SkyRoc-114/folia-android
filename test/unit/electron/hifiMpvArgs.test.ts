@@ -1,7 +1,7 @@
 import { createRequire } from 'module';
 import { describe, expect, it } from 'vitest';
 
-// 钉住 mpv 的启动参数（顺序、位精确要的开关、不上命令行的东西）、设备名清洗、管道名和 loadfile 命令。
+// 钉住 mpv 的启动参数（顺序、位精确要的开关、不上命令行的东西）、设备名清洗、各平台实际下发的独占开关、管道名和 loadfile 命令。
 
 type MpvArgsOptions = {
     platform?: string;
@@ -13,9 +13,10 @@ type MpvArgsOptions = {
 };
 
 const require = createRequire(import.meta.url);
-const { buildMpvArgs, sanitizeAudioDevice, buildPipeName, buildLoadfileCommand } = require('../../../electron/hifi/mpvArgs.cjs') as {
+const { buildMpvArgs, sanitizeAudioDevice, effectiveExclusive, buildPipeName, buildLoadfileCommand } = require('../../../electron/hifi/mpvArgs.cjs') as {
     buildMpvArgs: (options: MpvArgsOptions) => string[];
     sanitizeAudioDevice: (value: unknown) => string;
+    effectiveExclusive: (platform: string, exclusive: unknown) => boolean;
     buildPipeName: (hex: unknown) => string;
     buildLoadfileCommand: (url: unknown, mode: unknown, options?: { startSec?: unknown }) => Array<string | number>;
 };
@@ -50,14 +51,13 @@ const BASE_ARGS = [
 describe('buildMpvArgs', () => {
     it('builds the Unix argument list in order, with socketpair IPC on fd 3', () => {
         expect(buildMpvArgs({
-            platform: 'linux',
+            platform: 'darwin',
             ipc: { kind: 'fd' },
-            audioDevice: 'alsa/hw:CARD=D10,DEV=0',
             exclusive: true,
             dsdMode: 'pcm',
         })).toEqual([
             ...BASE_ARGS,
-            '--audio-device=alsa/hw:CARD=D10,DEV=0',
+            '--audio-device=auto',
             '--audio-exclusive=yes',
             '--input-ipc-client=fd://3',
         ]);
@@ -68,16 +68,23 @@ describe('buildMpvArgs', () => {
         expect(buildMpvArgs({
             platform: 'win32',
             ipc: { kind: 'pipe', path: pipePath },
-            audioDevice: 'wasapi/{0.0.0.00000000}.{guid}',
-            exclusive: false,
+            exclusive: true,
             dsdMode: 'dop',
         })).toEqual([
             ...BASE_ARGS,
-            '--audio-device=wasapi/{0.0.0.00000000}.{guid}',
-            '--audio-exclusive=no',
+            '--audio-device=auto',
+            '--audio-exclusive=yes',
             '--audio-spdif=dsd',
             `--input-ipc-server=${pipePath}`,
         ]);
+        expect(buildMpvArgs({ platform: 'win32', ipc: { kind: 'pipe', path: pipePath }, exclusive: false, dsdMode: 'pcm' }))
+            .toContain('--audio-exclusive=no');
+    });
+
+    it('Linux: never asks for exclusive output (PipeWire would mark mpv\'s node exclusive; hw: is direct anyway)', () => {
+        const args = buildMpvArgs({ platform: 'linux', ipc: { kind: 'fd' }, exclusive: true, dsdMode: 'pcm' });
+        expect(args).toContain('--audio-exclusive=no');
+        expect(args).not.toContain('--audio-exclusive=yes');
     });
 
     it('appends the test ao override last', () => {
@@ -94,9 +101,12 @@ describe('buildMpvArgs', () => {
         expect(args.some(arg => /^--(ao|playlist)=/.test(arg))).toBe(false);
     });
 
-    it('falls back to the auto device for bad device names', () => {
-        const args = buildMpvArgs({ platform: 'linux', ipc: { kind: 'fd' }, audioDevice: 'bad\ndevice', exclusive: true, dsdMode: 'pcm' });
-        expect(args).toContain('--audio-device=auto');
+    it('never puts a device name on the command line: mpv starts on auto and the session switches over IPC', () => {
+        for (const audioDevice of ['alsa/file:|touch /tmp/x,raw', 'alsa/hw:CARD=D10,DEV=0', 'bad\ndevice']) {
+            const args = buildMpvArgs({ platform: 'linux', ipc: { kind: 'fd' }, audioDevice, exclusive: true, dsdMode: 'pcm' });
+            expect(args.filter(arg => arg.startsWith('--audio-device='))).toEqual(['--audio-device=auto']);
+            expect(args.some(arg => arg.includes('|') || arg.includes('hw:'))).toBe(false);
+        }
     });
 
     it('rejects IPC setups that cannot work', () => {
@@ -112,6 +122,62 @@ describe('sanitizeAudioDevice', () => {
     it('keeps real device names', () => {
         expect(sanitizeAudioDevice('pipewire/alsa_output.usb-Topping_D10-00.analog-stereo')).toBe('pipewire/alsa_output.usb-Topping_D10-00.analog-stereo');
         expect(sanitizeAudioDevice('auto')).toBe('auto');
+        // mpv 0.41.0 在这台机器上列出的设备（节选），加上 Windows 和 macOS 的样子。
+        for (const name of [
+            'pipewire',
+            'pipewire/effect_input.eq6',
+            'pipewire/alsa_output.pci-0000_00_1f.3-platform-skl_hda_dsp_generic.HiFi__Speaker__sink',
+            'pulse/remap_input.remap-FL-FR-to-FR-FL',
+            'alsa',
+            'alsa/lavrate',
+            'alsa/pipewire',
+            'alsa/hdmi:CARD=NVidia,DEV=3',
+            'alsa/usbstream:CARD=NVidia',
+            'alsa/sysdefault:CARD=sofhdadsp',
+            'alsa/hw:CARD=D10,DEV=0',
+            'alsa/plughw:CARD=D10,DEV=0',
+            'jack',
+            'openal',
+            'sndio',
+            'wasapi/{0.0.0.00000000}.{a1b2c3d4-0000-1111-2222-333344445555}',
+            'coreaudio/AppleUSBAudioEngine:Topping:D10:20100000:1',
+            'coreaudio/~:AMS2_Aggregate:0',
+        ]) {
+            expect(sanitizeAudioDevice(name), name).toBe(name);
+        }
+    });
+
+    it('turns names mpv never lists into auto: shell characters, and ALSA plugins that write files or run commands', () => {
+        for (const name of [
+            // ALSA 的 file 插件把 | 开头的文件名交给 shell 执行。
+            'alsa/file:|touch /tmp/x,raw',
+            'alsa/file:/tmp/x,raw',
+            'alsa/file',
+            'alsa/tee:hw,/tmp/x',
+            'alsa/plug:file:x',
+            'alsa/plug:SLAVE=tee',
+            'alsa/shm:sock,hw',
+            'alsa/ladspa:x',
+            'ALSA/File:x',
+            // 花括号能在 ALSA 的参数里写一段配置；路径和空格 ALSA 的设备名里都没有。
+            'alsa/plug:{SLAVE x}',
+            'alsa/hw:CARD=D10/../x',
+            'alsa/hw:CARD=D10 ,DEV=0',
+            'pipewire/a|b',
+            'pulse/$(id)',
+            'pulse/`id`',
+            'x;y',
+            '"quoted"',
+            '\'quoted\'',
+            '/etc/passwd',
+            '-auto',
+            ' auto',
+        ]) {
+            expect(sanitizeAudioDevice(name), name).toBe('auto');
+        }
+        // 只是名字里带着这几个字母的不算。
+        expect(sanitizeAudioDevice('alsa/hw:CARD=filer,DEV=0')).toBe('alsa/hw:CARD=filer,DEV=0');
+        expect(sanitizeAudioDevice('pipewire/file_sink')).toBe('pipewire/file_sink');
     });
 
     it('turns empty, non-string, oversized and control-character values into auto', () => {
@@ -123,6 +189,16 @@ describe('sanitizeAudioDevice', () => {
         expect(sanitizeAudioDevice('a'.repeat(512))).toBe('a'.repeat(512));
         expect(sanitizeAudioDevice('alsa/hw:0\u0000')).toBe('auto');
         expect(sanitizeAudioDevice('alsa/hw:0\u007f')).toBe('auto');
+    });
+});
+
+describe('effectiveExclusive', () => {
+    it('passes the switch on Windows and macOS and is always off on Linux', () => {
+        expect(effectiveExclusive('win32', true)).toBe(true);
+        expect(effectiveExclusive('darwin', true)).toBe(true);
+        expect(effectiveExclusive('linux', true)).toBe(false);
+        expect(effectiveExclusive('win32', false)).toBe(false);
+        expect(effectiveExclusive('darwin', 'yes')).toBe(false);
     });
 });
 

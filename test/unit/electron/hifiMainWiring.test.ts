@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 // 钉住 main.cjs 里 HiFi 跟着窗口走的几处：主页面一去不回（窗口关了、页面进程没了又不重载）时停下 mpv，
-// 窗口重建时不停（新页面接手）；启动后清一次下载残留。
+// 窗口重建时不停（新页面接手）；启动后清一次下载残留，只在拿到单实例锁的那个实例里清。
 //
 // main.cjs 不能 require（会把整个应用拉起来）。两个窗口事件的处理函数从源码里原样取出来，把它用到的名字
 // 当参数传进去执行，测的是产品代码本身的分支；处理函数新用了一个名字时这里会报 ReferenceError，照样补上。
@@ -163,8 +163,25 @@ describe('main.cjs: mpv stops when the page driving it is gone for good', () => 
 });
 
 describe('main.cjs: leftover mpv downloads', () => {
+    // 应用启动的那个 ready 处理函数：先等单实例锁的结果，重复启动的实例在这里 quit。
+    const readyHandler = mainCjs.match(/app\.whenReady\(\)\.then\(async \(\) => \{\n([\s\S]*?)\n\}\);\n/)?.[1] ?? '';
+
     it('sweeps them once after app ready, and logs a failure instead of throwing', () => {
-        const site = mainCjs.match(/app\.whenReady\(\)\n\s*\.then\(\(\) => hifiInstaller\.pruneLeftovers\(\)\)\n\s*\.catch\(error => console\.warn\('\[HiFi\] [^']*', error\)\);/);
+        expect(readyHandler, 'the startup ready handler').toContain('const startupResult = await mainProcessStartupPromise;');
+        const site = readyHandler.match(/hifiInstaller\.pruneLeftovers\(\)\n\s*\.catch\(error => console\.warn\('\[HiFi\] [^']*', error\)\);/);
         expect(site, 'no startup sweep of leftover mpv downloads').not.toBeNull();
+        expect(mainCjs.match(/pruneLeftovers\(/g), 'the sweep runs from one place only').toHaveLength(1);
+    });
+
+    it('only the instance holding the single-instance lock sweeps: a second launch on its way out must not delete a running download', () => {
+        const sweepAt = readyHandler.indexOf('hifiInstaller.pruneLeftovers()');
+        const duplicateAt = readyHandler.search(/if \(startupResult === 'duplicate'\) \{\n\s*app\.quit\(\);\n\s*return;\n\s*\}/);
+        const spawnedAt = readyHandler.search(/if \(startupResult === 'spawned'\) \{\n\s*return;\n\s*\}/);
+        expect(duplicateAt).toBeGreaterThan(-1);
+        expect(spawnedAt).toBeGreaterThan(-1);
+        expect(sweepAt).toBeGreaterThan(duplicateAt);
+        expect(sweepAt).toBeGreaterThan(spawnedAt);
+        // 不在 ready 之外另挂一次（那一次重复启动的实例也会跑）。
+        expect(mainCjs).not.toMatch(/app\.whenReady\(\)\s*\.then\(\(\) => hifiInstaller\.pruneLeftovers/);
     });
 });

@@ -325,11 +325,6 @@ hifiIpc = registerHifiIpc({
 });
 // Last resort for every way out, app.exit() included: an mpv left behind would keep playing.
 process.on('exit', () => hifiSession.killSync());
-// Partial mpv downloads and half-extracted runtimes that an exit cut off (app.exit, a crash, a
-// forced kill) go once per launch, also for someone who never downloads again.
-app.whenReady()
-  .then(() => hifiInstaller.pruneLeftovers())
-  .catch(error => console.warn('[HiFi] could not remove leftover mpv downloads', error));
 // KuGou credentials stay inside the main process and are encrypted lazily after Electron is ready.
 // The bridge refuses Linux's plaintext `basic_text` fallback and degrades to an in-memory session.
 const kugouApiBridge = createKugouApiBridge({ store, safeStorage });
@@ -5953,6 +5948,12 @@ app.whenReady().then(async () => {
   if (startupResult === 'spawned') {
     return;
   }
+  // Partial mpv downloads and half-extracted runtimes that an exit cut off (app.exit, a crash, a
+  // forced kill) go once per launch, also for someone who never downloads again. Only the instance
+  // holding the single-instance lock sweeps them: a second launch on its way out would delete the
+  // download the first one is still writing into the shared userData folder.
+  hifiInstaller.pruneLeftovers()
+    .catch(error => console.warn('[HiFi] could not remove leftover mpv downloads', error));
 
   if (process.platform === 'win32') {
     app.setAppUserModelId(WINDOWS_APP_USER_MODEL_ID);
