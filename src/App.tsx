@@ -89,6 +89,8 @@ import { useLibraryAccountProviders } from './library/core/account/useLibraryAcc
 import { resolveActiveProviderSummary } from './library/core/account/accountRules';
 import { useAppPreferences } from './hooks/useAppPreferences';
 import { useElectronPlaybackBridge } from './components/app/playback/bridges/useElectronPlaybackBridge';
+import { seekHifiRoute, useHifiPlaybackBridge } from './components/hifi/useHifiPlaybackBridge';
+import { useHifiAutomixGate } from './components/hifi/useHifiAutomixGate';
 import { useElectronDisplaySleepBlocker } from './hooks/useElectronDisplaySleepBlocker';
 import { useBackgroundLyricHold } from './components/app/backgroundThrottling/useBackgroundLyricHold';
 import { readLiveLyricTime, useBackgroundLyricHoldStore } from './components/app/backgroundThrottling/backgroundLyricHoldStore';
@@ -1136,13 +1138,15 @@ export default function App() {
         return () => registerLocalTrackFileReader(null);
     }, [getLocalStemBytes]);
 
+    // mpv is not one of the two decks a blend needs: off while this song or the next one plays on HiFi.
+    const hifiBlocksAutomix = useHifiAutomixGate();
     const automix = useAutomixDecks({
         audioRef,
         audioContextRef,
         currentSongKeyRef: currentSongRef,
         coverUrl,
         loopMode: effectiveLoopMode,
-        isEnabled: automixEnabled && !isNowPlayingStageActive,
+        isEnabled: automixEnabled && !isNowPlayingStageActive && !hifiBlocksAutomix,
         transition: transitionSettings,
         onAdvanceTrack: () => {
             // Same advance the end of a track would trigger, only early enough for the outgoing
@@ -1392,6 +1396,7 @@ export default function App() {
         pauseDuringTransition: handlePauseDuringTransition,
         isTransitionAudible: automix.isTransitionAudible,
     });
+    useHifiPlaybackBridge({ handleNextTrack, playSong, shouldAutoPlayRef: shouldAutoPlay, isLyricsLoading, effectiveLoopMode, isFmMode });
     useNavidromeScrobbleReporter({
         audioRef,
         currentSong,
@@ -2005,6 +2010,8 @@ export default function App() {
      * the live song, queue-mode and blend state.
      */
     seekDuringTransitionRef.current = (time: number) => {
+        // HiFi route: mpv seeks. Arrow keys and the remote seek mpv before this, so it is seekMainAudio's and resumes.
+        if (seekHifiRoute(time, { resume: true })) return true;
         const tailElement = cancelBlendToDisplayedTrack(true);
         if (!tailElement) return false;
         const seekTarget = Math.max(0, time);

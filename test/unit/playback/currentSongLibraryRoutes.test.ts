@@ -12,6 +12,9 @@ import type { NavidromeSong } from '@/types/navidrome';
 // The second half pins the audio address of a local file and of a Navidrome song: where it comes
 // from, what happens to the blob URL of the song before, the copy that replaces an address the
 // browser could not play, the cover, and what a file that cannot be read leaves behind.
+// The last describe pins the same plays on the HiFi route: no blob URL is made and no address is
+// written; the track goes to the HiFi service (a stub here) with the file itself or the stream of the
+// original file, and the rest of the play is the web route's.
 
 const env = vi.hoisted(() => ({
     note: (_label: string) => {},
@@ -33,6 +36,12 @@ const env = vi.hoisted(() => ({
     duringSave: null as (() => Promise<unknown>) | null,
     /** Runs while something is being saved to the cache (an online song's lyrics state). */
     duringCacheSave: null as (() => Promise<unknown>) | null,
+    /** The engine the HiFi service picks for a local or Navidrome song. */
+    route: 'web' as 'web' | 'hifi',
+    /** The songs the HiFi service was asked to route, as `<kind> <song key>`. */
+    routesAsked: [] as string[],
+    /** What the HiFi service was asked to start, with the Navidrome carrier's data as it was at the call. */
+    hifiStarts: [] as Array<{ song: { name: string }; source: Record<string, unknown>; startSec: number; adoptRunning?: boolean; navidromeData?: Record<string, unknown> }>,
 }));
 
 vi.mock('react', () => ({
@@ -69,6 +78,10 @@ vi.mock('@/services/localMusicService', () => ({
         env.note(`wait local file ${song.id}`);
         return env.unreadable.has(song.id) ? null : `blob:${song.id}`;
     },
+    getFileFromLocalSong: async (song: { id: string }) => {
+        env.note(`wait the file itself ${song.id}`);
+        return env.unreadable.has(song.id) ? null : { name: `${song.id}.flac` };
+    },
     ensureLocalSongCoverAsset: async (song: { id: string }) => {
         env.detail(`wait cover asset ${song.id}`);
         return song;
@@ -104,9 +117,19 @@ vi.mock('@/services/navidromeService', () => ({
     getNavidromeConfig: () => env.navidromeConfig,
     isNavidromeEnabled: () => true,
     navidromeApi: {
-        getStreamUrl: (_config: unknown, id: string) => `https://navi.test/stream/${id}`,
+        getStreamUrl: (_config: unknown, id: string, format?: string) => `https://navi.test/stream/${id}${format ? `?format=${format}` : ''}`,
         getSong: async (_config: unknown, id: string) => { env.note(`wait navidrome song ${id}`); return env.serverSong; },
         getCoverArtUrl: (_config: unknown, id: string) => `https://navi.test/cover/${id}`,
+    },
+}));
+// The HiFi service: which engine a song plays on, and the start of a track on mpv, recorded.
+vi.mock('@/services/hifi/hifiPlayback', () => ({
+    hifiRouteFor: (kind: string, songKey: string) => { env.routesAsked.push(`${kind} ${songKey}`); return env.route; },
+    beginHifiTrack: async (options: { song: { name: string }; source: Record<string, unknown> & { carrier?: { navidromeData: Record<string, unknown> } }; startSec: number; adoptRunning?: boolean }) => {
+        const navidromeData = options.source.carrier ? { ...options.source.carrier.navidromeData } : undefined;
+        env.hifiStarts.push({ ...options, navidromeData });
+        env.note(`hifi ${options.song.name} ${String(options.source.kind)} from ${options.startSec}`);
+        return 'ready';
     },
 }));
 vi.mock('@/utils/appNavidromeLyrics', () => ({
@@ -174,6 +197,9 @@ beforeEach(() => {
     env.navidromeLyricsGate = null;
     env.duringSave = null;
     env.duringCacheSave = null;
+    env.route = 'web';
+    env.routesAsked.length = 0;
+    env.hifiStarts.length = 0;
     clearPlaybackRepresentationsForTests();
     useStatusMessageStore.setState({ message: null });
 });
@@ -785,6 +811,9 @@ describe('the audio address of a local file and of a Navidrome song', () => {
         ]);
         expect(refs.shouldAutoPlay.current).toBe(true);
         expect(usePlaybackStore.getState().currentSong).toMatchObject({ playbackSourceRevision: buildLocalSourceRevision(localThree) });
+        // The route was asked before the file was read, and the web route starts nothing on mpv.
+        expect(env.routesAsked.at(-1)).toBe('local local:l3');
+        expect(env.hifiStarts).toEqual([]);
     });
 
     it('a local file that has a copy the browser can play: the copy is the address, and the file\'s own blob URL is given back', async () => {
@@ -850,6 +879,8 @@ describe('the audio address of a local file and of a Navidrome song', () => {
             playbackSourceRevision: 'n1:::1000:https://navi.test/stream/n1',
         });
         expect(refs.shouldAutoPlay.current).toBe(true);
+        expect(env.routesAsked).toEqual(['local local:l1', 'navidrome navidrome:n1']);
+        expect(env.hifiStarts).toEqual([]);
     });
 
     it('a Navidrome song that has a copy the browser can play: the copy is the address', async () => {
@@ -871,6 +902,187 @@ describe('the audio address of a local file and of a Navidrome song', () => {
 
         expect(watch.take()).toEqual([]);
         expect(status()).toMatchObject({ type: 'error', text: 'Navidrome not configured' });
+    });
+});
+
+describe('a local file and a Navidrome song on the HiFi route', () => {
+    const status = () => useStatusMessageStore.getState().message;
+    const aNavidromeSong = () => ({
+        id: 'n1', name: 'N1', artists: [], album: { id: 0, name: '' }, durationMs: 1000,
+        isNavidrome: true, navidromeData: { id: 'n1', title: 'N1', streamUrl: 'https://navi.test/stream/n1' },
+    } as unknown as NavidromeSong);
+    const localThree = { ...localSong('l3', 'L3'), useOnlineCover: true, onlineMetadata: { coverUrl: 'https://cover.test/l3' } } as LocalSong;
+    const representation = (songKey: string, sourceRevision: string) => ({
+        songKey, sourceRevision, representationId: 'transcoded', url: `blob:transcoded-${songKey}`,
+    } as never);
+
+    beforeEach(() => {
+        retireBlobUrl(null);
+        vi.spyOn(URL, 'revokeObjectURL').mockImplementation(url => env.detail(`revoke ${url}`));
+    });
+
+    /** Plays L1 on the web route first, so there is a blob URL to hand over and a fetch time left by an online song; later plays go to HiFi. */
+    const afterLocalOneOnTheWeb = async () => {
+        const mounted = mount({ address: true });
+        await mounted.library.onPlayLocalSong(localOne);
+        await settle();
+        mounted.refs.currentOnlineAudioUrlFetchedAtRef.current = 777;
+        mounted.watch.take();
+        env.route = 'hifi';
+        return mounted;
+    };
+
+    it('a local file: the file itself goes to the HiFi service in the place of the address, and the blob URL of the song before is handed over', async () => {
+        const { refs, watch, library } = await afterLocalOneOnTheWeb();
+        env.songs = [localOne, localThree];
+
+        await library.onPlayLocalSong(localThree);
+        await settle();
+
+        expect(watch.take()).toEqual([
+            'wait the file itself l3 | song=L1 key=local:l1',
+            'wait cover asset l3',
+            'wait local lyrics l3#1 | song=L1 key=local:l1',
+            'retire blob:l1',
+            'lyrics=null | song=L1 key=local:l3',
+            'song=L3 key=local:l3',
+            // No address: the web route's `audio=` line is this one.
+            'hifi L3 local from 0 | song=L3 key=local:l3',
+            'wait cover cache cover_local_l3',
+            'queue=[L3] key=local:l3',
+            'cover=cached:https://cover.test/l3 key=local:l3',
+            'wait local lyrics l3#2 | song=L3 key=local:l3',
+            'song~L3 key=local:l3',
+            'lyrics=null | song=L3 key=local:l3',
+        ]);
+        expect(env.routesAsked.at(-1)).toBe('local local:l3');
+        expect(env.hifiStarts).toEqual([expect.objectContaining({
+            song: expect.objectContaining({ name: 'L3' }),
+            source: { kind: 'local', localSong: localThree, file: { name: 'l3.flac' } },
+            startSec: 0,
+        })]);
+        expect(env.hifiStarts[0].adoptRunning).toBeUndefined();
+        expect(refs.blobUrlRef.current).toBeNull();
+        expect(refs.shouldAutoPlay.current).toBe(true);
+        expect(refs.currentOnlineAudioUrlFetchedAtRef.current).toBe(777);
+        expect(usePlaybackStore.getState().isLoadingToPlay).toBe(true);
+        expect(status()).toMatchObject({ type: 'success', text: 'status.localMusicLoaded' });
+    });
+
+    it('a local file that has a copy the browser can play: the copy is not looked for, mpv plays the file', async () => {
+        const { watch, library } = await afterLocalOneOnTheWeb();
+        registerPlaybackRepresentation(representation('local:l2', buildLocalSourceRevision(localTwo)));
+
+        await library.onPlayLocalSong(localTwo);
+        await settle();
+
+        expect(watch.take().filter(line => /^(audio|retire|revoke|hifi)/.test(line))).toEqual([
+            'retire blob:l1',
+            'hifi L2 local from 0 | song=L2 key=local:l2',
+        ]);
+    });
+
+    it('a local file that cannot be read: nothing is written, nothing starts, and the listener is told as on the web route', async () => {
+        const { refs, watch, library } = await afterLocalOneOnTheWeb();
+        env.unreadable.add('l2');
+
+        await library.onPlayLocalSong(localTwo);
+        await settle();
+
+        expect(watch.take()).toEqual(['wait the file itself l2 | song=L1 key=local:l1']);
+        expect(status()).toMatchObject({ type: 'error', text: 'status.localFileAccessError' });
+        expect(env.hifiStarts).toEqual([]);
+        expect(refs.blobUrlRef.current).toBe('blob:l1');
+    });
+
+    it('a local file overtaken by a newer play while it was read writes nothing, starts nothing and has no blob URL to give back', async () => {
+        const { watch, library } = await afterLocalOneOnTheWeb();
+        const firstReading = deferred();
+        env.lyricsGate.set('l2#1', firstReading.promise);
+        const play = library.onPlayLocalSong(localTwo);
+        await vi.waitFor(() => expect(watch.log.at(-1)).toContain('wait local lyrics l2#1'));
+        // The file itself was read, and no blob URL was made of it.
+        expect(watch.take().filter(line => line.startsWith('wait'))).toEqual([
+            'wait the file itself l2 | song=L1 key=local:l1',
+            'wait cover asset l2',
+            'wait local lyrics l2#1 | song=L1 key=local:l1',
+        ]);
+        env.route = 'web';
+        await library.onPlayLocalSong(localThree);
+        await settle();
+        watch.take();
+
+        firstReading.resolve();
+        await play;
+        await settle();
+
+        // Nothing of L2 is written or started, and nothing is revoked for it.
+        expect(watch.take()).toEqual([]);
+        expect(env.hifiStarts).toEqual([]);
+        expect(usePlaybackStore.getState().audioSrc).toBe('blob:l3');
+        expect(useStatusMessageStore.getState().message).toMatchObject({ text: 'status.localMusicLoaded' });
+    });
+
+    it('a Navidrome song: the stream of the original file goes to the HiFi service with the carrier, its format and gain already on it', async () => {
+        const { refs, watch, library } = await afterLocalOneOnTheWeb();
+        const song = aNavidromeSong();
+        const format = { contentType: 'audio/flac', bitDepth: 24, samplingRate: 96000, channelCount: 2 };
+        env.serverSong = { replayGain: { trackGain: -4 }, ...format };
+        // A copy made for the web route is not looked for.
+        registerPlaybackRepresentation(representation('navidrome:n1', 'n1:::1000:https://navi.test/stream/n1'));
+
+        await library.onPlayNavidromeSong(song);
+
+        expect(watch.take()).toEqual([
+            'wait navidrome song n1 | song=L1 key=local:l1',
+            'wait navidrome lyrics n1 | song=L1 key=local:l1',
+            'lyrics=set | song=L1 key=navidrome:n1',
+            'song=N1 key=navidrome:n1',
+            'cover=https://navi.test/cover/n1 key=navidrome:n1',
+            // The web route leaves the local song's blob URL in place; this route makes none, so it goes now.
+            'retire blob:l1',
+            'hifi N1 navidrome from 0 | song=N1 key=navidrome:n1',
+            'queue=[N1] key=navidrome:n1',
+        ]);
+        expect(env.routesAsked.at(-1)).toBe('navidrome navidrome:n1');
+        const [start] = env.hifiStarts;
+        expect(start.source).toEqual({ kind: 'navidrome', carrier: song, streamUrl: 'https://navi.test/stream/n1?format=raw' });
+        expect(start.navidromeData).toMatchObject({ replayGain: { trackGain: -4 }, ...format });
+        expect(start).toMatchObject({ song: { name: 'N1' }, startSec: 0 });
+        expect(start.adoptRunning).toBeUndefined();
+        expect(refs.blobUrlRef.current).toBeNull();
+        expect(refs.shouldAutoPlay.current).toBe(true);
+        expect(usePlaybackStore.getState().isLoadingToPlay).toBe(true);
+        expect(status()).toMatchObject({ type: 'success', text: 'status.navidromeSongLoaded' });
+    });
+
+    it('a Navidrome song on the web route takes no format from the server\'s record', async () => {
+        const { library } = mount();
+        const song = aNavidromeSong();
+        env.serverSong = { replayGain: { trackGain: -4 }, bitDepth: 24, samplingRate: 96000 };
+
+        await library.onPlayNavidromeSong(song);
+
+        expect(song.navidromeData).not.toHaveProperty('bitDepth');
+        expect(song.navidromeData).not.toHaveProperty('samplingRate');
+        expect(env.hifiStarts).toEqual([]);
+    });
+
+    it('a local file and a Navidrome song start at their beginning, not at a time left by a restore that was overtaken', async () => {
+        const { refs, library } = mount();
+        env.route = 'hifi';
+        const leftBehind = () => {
+            refs.pendingResumeTimeRef.current = 130;
+            refs.lastAudioRecoverySourceRef.current = 'https://audio.test/old';
+        };
+        leftBehind();
+        await library.onPlayLocalSong(localOne);
+        expect([refs.pendingResumeTimeRef.current, refs.lastAudioRecoverySourceRef.current]).toEqual([null, null]);
+
+        leftBehind();
+        await library.onPlayNavidromeSong(navidromeSong);
+        expect([refs.pendingResumeTimeRef.current, refs.lastAudioRecoverySourceRef.current]).toEqual([null, null]);
+        expect(env.hifiStarts.map(start => start.startSec)).toEqual([0, 0]);
     });
 });
 

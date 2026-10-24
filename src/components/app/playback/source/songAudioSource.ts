@@ -1,11 +1,11 @@
-import { ensureLocalSongCoverAsset, getAudioFromLocalSong } from '../../../../services/localMusicService';
+import { ensureLocalSongCoverAsset, getAudioFromLocalSong, getFileFromLocalSong } from '../../../../services/localMusicService';
 import { navidromeApi } from '../../../../services/navidromeService';
 import { loadOnlineSongAudioSource, type LoadOnlineAudioSourceOptions } from '../../../../services/onlinePlayback';
 import { getPlaybackRepresentationForRevision } from '../../../../services/playbackRecovery/representationRegistry';
 import { buildLocalSourceRevision, buildNavidromeSourceRevision } from '../../../../services/playbackRecovery/sourceRevision';
 import type { PrefetchedSongData } from '../../../../services/prefetchService';
 import type { LocalSong, SongResult } from '../../../../types';
-import type { NavidromeConfig, NavidromeSong } from '../../../../types/navidrome';
+import type { NavidromeConfig, NavidromeSong, SubsonicSong } from '../../../../types/navidrome';
 import type { AudioQualityPreference } from '../../../../types/onlineMusic';
 import { getPlaybackSongKey } from '../../../../utils/appPlaybackGuards';
 
@@ -42,6 +42,27 @@ export const loadLocalSongAudio = async (localSong: LocalSong) => {
 };
 
 /**
+ * A local file for the HiFi route: the file itself, which mpv reads through the main process (it
+ * cannot open a blob URL, so none is made), and its library record with the cover asset made if it
+ * had none. null when the file cannot be read.
+ */
+export const loadLocalSongHifiSource = async (localSong: LocalSong) => {
+    const file = await getFileFromLocalSong(localSong);
+    if (!file) return null;
+    const preparedSong = await ensureLocalSongCoverAsset(localSong);
+    return { file, localSong: preparedSong };
+};
+
+// The original file's format as the server knows it, written onto the song for the HiFi route's
+// signal path (services/hifi/sourceSpec.ts). A field the server leaves out keeps what the song had.
+const writeServerFormat = (navidromeData: NavidromeSong['navidromeData'], answered: SubsonicSong) => {
+    if (answered.contentType) navidromeData.contentType = answered.contentType;
+    if (typeof answered.bitDepth === 'number') navidromeData.bitDepth = answered.bitDepth;
+    if (typeof answered.samplingRate === 'number') navidromeData.samplingRate = answered.samplingRate;
+    if (typeof answered.channelCount === 'number') navidromeData.channelCount = answered.channelCount;
+};
+
+/**
  * A Navidrome song: its stream address, built here (nothing is fetched for it), and the server's
  * own record of the song, asked for at once and waited for by `takeServerGain`.
  */
@@ -51,12 +72,29 @@ export const loadNavidromeSongAudio = (config: NavidromeConfig, navidromeSong: N
     const serverSong = navidromeApi.getSong(config, songId);
     return {
         streamUrl,
+        /**
+         * The stream of the original file, never transcoded by the server: what mpv plays on the
+         * HiFi route. Built when asked for. Its query carries the credentials, as `streamUrl`'s does.
+         */
+        rawStreamUrl: () => navidromeApi.getStreamUrl(config, songId, 'raw'),
         /** Waits for the server's record and writes its replay gain onto the song. */
         takeServerGain: async () => {
             const answered = await serverSong;
             if (answered?.replayGain) {
                 navidromeSong.navidromeData.replayGain = answered.replayGain;
             }
+        },
+        /**
+         * The HiFi route's `takeServerGain`: the same wait, and the original file's format (content
+         * type, bit depth, sampling rate, channels) written onto the song along with the gain.
+         */
+        takeServerGainAndFormat: async () => {
+            const answered = await serverSong;
+            if (!answered) return;
+            if (answered.replayGain) {
+                navidromeSong.navidromeData.replayGain = answered.replayGain;
+            }
+            writeServerFormat(navidromeSong.navidromeData, answered);
         },
         /** The source revision of `song` when it plays from this address. */
         revisionOf: (song: SongResult) => buildNavidromeSourceRevision(song, streamUrl),

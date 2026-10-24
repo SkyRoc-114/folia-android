@@ -56,7 +56,8 @@ import { setStatusMessage as setStatusMsg } from '../../../../stores/useStatusMe
 import { useLyricSettingsStore } from '../../../../stores/useLyricSettingsStore';
 import { setActiveLocalLyricsSource, setAudioSrc, setCachedCoverUrl, setCurrentLineIndex, setCurrentSong, setPlayQueue, startLoadingToPlay } from '../../../../stores/usePlaybackStore';
 import { askedSongKeyRef, askForSong, playsDroppedSoFar, replaceShownSong, showSong, startPlay } from '../currentSong';
-import { loadLocalSongAudio, loadNavidromeSongAudio } from '../source/songAudioSource';
+import { loadLocalSongAudio, loadLocalSongHifiSource, loadNavidromeSongAudio } from '../source/songAudioSource';
+import { beginHifiTrack, hifiRouteFor } from '../../../../services/hifi/hifiPlayback';
 import { supplyLyricsAfterEmptyLoad } from '../createLyricsSetter';
 import { useStableActionSurface } from '../../../../hooks/useStableCallbacks';
 import { useTranslation } from 'react-i18next';
@@ -673,7 +674,9 @@ export function useLibraryPlaybackController({
         const queueRewritten = queueRewrittenFor(options);
         interruptStagePlaybackForMainTransition();
 
-        const audio = await loadLocalSongAudio(localSong);
+        // Asked before the file is read: on the HiFi route mpv reads the file itself, and no blob URL is made.
+        const onHifi = hifiRouteFor('local', `local:${localSong.id}`) === 'hifi';
+        const audio = onHifi ? await loadLocalSongHifiSource(localSong) : await loadLocalSongAudio(localSong);
         if (!audio) {
             // Another song was asked for while the file was read: this failure is not the listener's
             // any more, and is neither said nor told.
@@ -684,19 +687,22 @@ export function useLibraryPlaybackController({
             return;
         }
 
-        const { blobUrl, localSong: preparedLocalSong } = audio;
+        const { localSong: preparedLocalSong } = audio;
+        // null on the HiFi route, which makes none.
+        const blobUrl = 'blobUrl' in audio ? audio.blobUrl : null;
         // A newer play started, or the plays in flight were dropped, while this one waited: nothing
         // of this song is written, and the blob URL just made for it is given back.
         const givesUp = () => {
             if (stillWanted()) return false;
-            URL.revokeObjectURL(blobUrl);
+            if (blobUrl) URL.revokeObjectURL(blobUrl);
             return true;
         };
         if (givesUp()) return;
         const initialMeta = await resolveLocalMetadataUI(preparedLocalSong, null);
         if (givesUp()) return;
         const initialSongKey = getPlaybackSongKey(initialMeta.unifiedSong);
-        const recoveredRepresentation = audio.recoveredCopy(initialSongKey);
+        // The HiFi route looks for no copy the browser can play: mpv decodes every format itself.
+        const recoveredRepresentation = 'blobUrl' in audio ? audio.recoveredCopy(initialSongKey) : null;
         const playbackUrl = recoveredRepresentation?.url ?? blobUrl;
 
         // Handed over, not revoked here: a blend is still playing the song this replaces on the
@@ -718,7 +724,16 @@ export function useLibraryPlaybackController({
         setCurrentLineIndex(-1);
         currentTime.set(0);
         showSong(initialMeta.unifiedSong);
-        setAudioSrc(playbackUrl);
+        if ('file' in audio) {
+            // Loaded paused from its beginning; the HiFi bridge starts it, as the web route's autoplay starts <audio>.
+            void beginHifiTrack({
+                song: initialMeta.unifiedSong,
+                source: { kind: 'local', localSong: preparedLocalSong, file: audio.file },
+                startSec: 0,
+            });
+        } else {
+            setAudioSrc(playbackUrl);
+        }
 
         if (initialMeta.coverUrl) {
             loadCachedOrFetchCover(`cover_local_${preparedLocalSong.id}`, initialMeta.coverUrl).then((resolvedCoverUrl) => {
@@ -868,6 +883,7 @@ export function useLibraryPlaybackController({
 
         try {
             const navidromeId = navidromeSong.navidromeData.id;
+            const onHifi = hifiRouteFor('navidrome', `navidrome:${navidromeId}`) === 'hifi';
             const audio = loadNavidromeSongAudio(config, navidromeSong);
             const matchData = await getFromCacheWithMigration<NavidromeMatchData>(
                 getNavidromeMatchCacheKey(navidromeSong),
@@ -1016,7 +1032,8 @@ export function useLibraryPlaybackController({
                 coverUrl = getProviderSongMetadata(navidromeSong).coverUrl || navidromeApi.getCoverArtUrl(config, navidromeId);
             }
 
-            await audio.takeServerGain();
+            // The HiFi route also takes the file's format from the server's record: its signal path shows it.
+            await (onHifi ? audio.takeServerGainAndFormat() : audio.takeServerGain());
             if (givesUp()) return;
 
             const unifiedSong = buildUnifiedNavidromeSong(navidromeSong, {
@@ -1027,7 +1044,8 @@ export function useLibraryPlaybackController({
                 matchedLyricsSource: mutableSong.matchedLyricsSource || matchData?.matchedLyricsSource,
                 matchedLyricsProviderPlatform: mutableSong.matchedLyricsProviderPlatform || matchData?.matchedLyricsProviderPlatform,
             });
-            const recoveredRepresentation = audio.recoveredCopy(unifiedSong);
+            // The HiFi route looks for no copy the browser can play: mpv decodes every format itself.
+            const recoveredRepresentation = onHifi ? null : audio.recoveredCopy(unifiedSong);
 
             shouldAutoPlayRef.current = true;
             askForSong(unifiedSong);
@@ -1039,7 +1057,19 @@ export function useLibraryPlaybackController({
             currentTime.set(0);
             showSong(unifiedSong);
             setManagedCachedCoverUrl(coverUrl ?? null);
-            setAudioSrc(recoveredRepresentation?.url ?? audio.streamUrl);
+            if (onHifi) {
+                // No blob URL plays on this route: the one a local song before left is handed over now.
+                retireBlobUrl(blobUrlRef.current);
+                blobUrlRef.current = null;
+                // Loaded paused from its beginning; the HiFi bridge starts it, as the web route's autoplay starts <audio>.
+                void beginHifiTrack({
+                    song: unifiedSong,
+                    source: { kind: 'navidrome', carrier: navidromeSong, streamUrl: audio.rawStreamUrl() },
+                    startSec: 0,
+                });
+            } else {
+                setAudioSrc(recoveredRepresentation?.url ?? audio.streamUrl);
+            }
             setIsLyricsLoading(false);
             // The lyrics came with the match data; a song without any may get some from a mod.
             supplyLyricsAfterEmptyLoad();
@@ -1077,6 +1107,7 @@ export function useLibraryPlaybackController({
         }
     }, [
         audioQuality,
+        blobUrlRef,
         currentTime,
         interruptStagePlaybackForMainTransition,
         lyricsLoadingWritesRef,
