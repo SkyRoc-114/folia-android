@@ -16,7 +16,7 @@ import { colorWithAlpha } from '../colorMix';
 import { type PreviewPlaceholderId } from '../PreviewPlaceholder';
 import { VISUALIZER_REGISTRY, getVisualizerModeLabel, getVisualizerRegistryEntry } from '../registry';
 import VisPlaygroundPreviewHotspots, { type VisPlaygroundEditSection, type VisPlaygroundHotspotSection } from './VisPlaygroundPreviewHotspots';
-import VisPlaygroundSampleStage from './VisPlaygroundSampleStage';
+import VisPlaygroundSampleStage, { SampleBox } from './VisPlaygroundSampleStage';
 import VisPlaygroundSettingsPanel from './VisPlaygroundSettingsPanel';
 import FontPicker, { type LocalFontEntry } from './FontPicker';
 import { useTuningDrafts } from './useTuningDrafts';
@@ -477,9 +477,10 @@ const VisPlayground: React.FC<VisPlaygroundProps> = ({
     const stage = (
         <>
             {/* The sample always shows the theme being previewed, whatever the window's own colours. */}
-            <div
+            <SampleBox
                 ref={previewBoxRef}
-                className="relative min-h-[160px] flex-1 overflow-hidden rounded-xl shadow-[0_0_0_1px_var(--st-line)]"
+                room="min-h-[160px] flex-1"
+                className="relative overflow-hidden rounded-xl shadow-[0_0_0_1px_var(--st-line)]"
                 style={{ backgroundColor: previewTheme.backgroundColor }}
             >
                 {/* The style is drawn as large as the app's window and scaled to fit. */}
@@ -547,7 +548,7 @@ const VisPlayground: React.FC<VisPlaygroundProps> = ({
                         {isPreviewPaused ? <Play size={14} fill="currentColor" /> : <Pause size={14} fill="currentColor" />}
                     </button>
                 </Tooltip>
-            </div>
+            </SampleBox>
             <div className="flex shrink-0 flex-col">
                 <h3 className="mb-2 flex min-h-6 items-center px-1 text-[13px] font-semibold leading-5 text-[color:var(--st-t2)]">
                     {t('options.lyricStyles')}

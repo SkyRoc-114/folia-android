@@ -24,7 +24,7 @@ import {
  * 否则「清除缓存」会把用户刚设好的视频背景一起删掉。
  */
 export const VIDEO_LAYER_FILE_BLOB_KEY = 'video_layer_local_file';
-export type CacheCategory = 'playlist' | 'lyrics' | 'cover' | 'media' | 'analysis';
+export type CacheCategory = 'playlist' | 'lyrics' | 'cover' | 'media' | 'analysis' | 'volumeBalance';
 export type CacheTableName = 'api_cache' | 'user_cache' | 'media_cache' | 'metadata_cache';
 
 const CACHE_TABLE_NAMES: CacheTableName[] = [
@@ -40,6 +40,7 @@ export const getCacheTableName = (key: string): CacheTableName => {
   if (key.startsWith('audio_') || key.startsWith('cover_')) return 'media_cache';
   if (
     key.startsWith('automix_profile_') ||
+    key.startsWith('volume_balance_') ||
     isBeatGridKey(key) ||
     isDrumHitsKey(key) ||
     key.startsWith('lyric_') ||
