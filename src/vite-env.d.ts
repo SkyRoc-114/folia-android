@@ -1083,6 +1083,32 @@ declare global {
         onModRpcMessage: (callback: (message: ModRpcMessage) => void) => () => void;
         onModSecretChanged: (callback: (change: ModSecretChange) => void) => () => void;
       };
+      /** HiFi 原生直通后端（mpv 子进程）。只在桌面版存在。 */
+      hifi?: {
+        getRuntimeStatus: () => Promise<import('./types/hifi').HifiRuntimeStatus>;
+        detectRuntime: () => Promise<import('./types/hifi').HifiRuntimeStatus>;
+        /** 弹系统文件框选 mpv 可执行文件；取消时为 null。 */
+        pickRuntimePath: () => Promise<string | null>;
+        installRuntime: () => Promise<import('./types/hifi').HifiInstallResult>;
+        cancelInstall: () => Promise<void>;
+        configure: (config: import('./types/hifi').HifiEngineConfig) => Promise<void>;
+        listDevices: () => Promise<import('./types/hifi').HifiDevice[]>;
+        load: (request: import('./types/hifi').HifiLoadRequest) => Promise<import('./types/hifi').HifiLoadResult>;
+        play: () => Promise<void>;
+        pause: () => Promise<void>;
+        seek: (positionSec: number) => Promise<void>;
+        stop: () => Promise<void>;
+        setLoopFile: (loop: boolean) => Promise<void>;
+        preloadNext: (request: import('./types/hifi').HifiLoadRequest) => Promise<boolean>;
+        clearNext: () => Promise<void>;
+        getSnapshot: () => Promise<import('./types/hifi').HifiEngineState>;
+        respondRead: (readId: string, response: import('./types/hifi').HifiReadResponse) => Promise<void>;
+        onState: (callback: (state: import('./types/hifi').HifiEngineState) => void) => () => void;
+        onClock: (callback: (update: import('./types/hifi').HifiClockUpdate) => void) => () => void;
+        onError: (callback: (event: import('./types/hifi').HifiErrorEvent) => void) => () => void;
+        onInstallProgress: (callback: (progress: import('./types/hifi').HifiInstallProgress) => void) => () => void;
+        onReadRequest: (callback: (request: import('./types/hifi').HifiReadRequest) => void) => () => void;
+      };
     };
   }
 }
