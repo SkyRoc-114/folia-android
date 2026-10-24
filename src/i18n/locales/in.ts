@@ -763,6 +763,11 @@ export default {
       "settings-audio-output": { "title": "Keluaran audio", "description": "Langsung ke pengaturan perangkat dan format keluaran audio" },
       "hifi-toggle": { "title": "Output bit-perfect HiFi", "description": "Nyalakan atau matikan pemutaran lagu lokal dan Navidrome lewat mpv, langsung ke perangkat output" },
       "hifi-settings": { "title": "Pengaturan HiFi", "description": "Buka pengaturan HiFi: mpv, perangkat output, mode eksklusif, dan DSD" },
+      "hifi-exclusive-toggle": { "title": "Mode eksklusif HiFi", "description": "Aktifkan atau matikan HiFi memakai perangkat output sendirian, agar mixer sistem tidak ikut campur" },
+      "hifi-navidrome-toggle": { "title": "Navidrome lewat HiFi", "description": "Aktifkan atau matikan pemutaran lagu Navidrome lewat HiFi, sebagai berkas asli tanpa transkode" },
+      "hifi-software-volume-toggle": { "title": "Volume perangkat lunak HiFi", "description": "Aktifkan atau matikan slider volume Folia untuk mengatur volume mpv; tidak bit-perfect selama menyala" },
+      "hifi-redetect-mpv": { "title": "Deteksi mpv ulang", "description": "Cari ulang mpv untuk HiFi, misalnya setelah memasang atau memperbaruinya" },
+      "hifi-download-mpv": { "title": "Unduh atau perbarui mpv", "description": "Unduh mpv yang disarankan untuk HiFi, atau perbarui yang diunduh Folia; kemajuannya tampil di pengaturan HiFi" },
       "hifi-signal-path": { "title": "Jalur sinyal HiFi", "description": "Lihat bagaimana lagu ini sampai ke DAC dan apakah tetap bit-perfect" },
       "settings-transition": { "title": "Transisi cerdas", "description": "Langsung ke pengaturan transisi FOLIA" },
       "settings-navidrome": { "title": "Server Navidrome", "description": "Langsung ke pengaturan koneksi server Navidrome" },
@@ -4120,19 +4125,21 @@ export default {
       "device": "Perangkat output",
       "deviceAuto": "Bawaan sistem",
       "deviceDirect": "langsung",
-      "deviceDirectNote": "Perangkat bertanda langsung adalah perangkat ALSA hw:. Perangkat ini melewati PipeWire dan PulseAudio sehingga menjadi jalur bit-perfect di Linux, tetapi aplikasi lain tidak bisa memutar suara di perangkat itu selama Folia memakainya.",
+      "deviceDirectNote": "Perangkat bertanda langsung adalah perangkat ALSA hw:. mpv membuka kartu suara sendiri dan melewati PipeWire serta PulseAudio, yaitu jalur bit-perfect di Linux. Selama Folia memutar ke perangkat itu, aplikasi lain tidak bisa memakai kartu tersebut, dan selama server suara sedang memutar di kartu itu, perangkatnya sibuk.",
+      "deviceLinuxHint": "Untuk output bit-perfect, pilih perangkat bertanda langsung.",
       "devicesRefresh": "Segarkan daftar perangkat",
       "devicesLoading": "Membaca perangkat dari mpv...",
       "devicesEmpty": "Tidak ada perangkat output yang ditemukan.",
       "devicesNeedMpv": "Daftar perangkat memerlukan mpv.",
       "exclusive": "Mode eksklusif",
       "exclusiveDesc": "Folia memakai perangkat sendirian sehingga mixer sistem tidak dapat mengubah sample rate atau mencampur suara. Selama itu, aplikasi lain tidak bisa bersuara di perangkat tersebut.",
-      "exclusiveLinuxNote": "Di Linux, mode eksklusif hanya berlaku untuk perangkat langsung (hw:). Lewat PipeWire atau PulseAudio, server suara tetap mencampur dan bisa mengubah sample rate.",
+      "exclusiveLinuxDesc": "Di Linux, ini tidak mengubah jalur suara. Untuk melewati PipeWire dan PulseAudio, pilih perangkat bertanda langsung.",
+      "exclusiveLinuxNote": "Output PipeWire dan PulseAudio milik mpv tidak punya mode eksklusif: server suara tetap mencampur dan bisa melakukan resampling, menyala atau tidak. Perangkat langsung (ALSA hw:) selalu dipakai Folia sendirian.",
       "dsdMode": "Output DSD",
       "dsdModeDesc": "DoP mengirim DSD tanpa diubah, dikemas dalam frame PCM.",
       "dsdPcm": "Ubah ke PCM",
       "dsdDop": "DoP",
-      "dopWarning": "Pilih DoP hanya jika DAC Anda mendukungnya. DAC tanpa DoP memutarnya sebagai derau keras berskala penuh.",
+      "dopWarning": "Pilih DoP hanya jika DAC Anda mendukungnya. DAC tanpa dukungan DoP memutarnya sebagai desis, bukan musik.",
       "dopPlatformNote": "DoP hanya berfungsi di Windows, dalam mode eksklusif WASAPI, dengan mpv yang lebih baru dari 0.41.0. Di tempat lain DSD diubah ke PCM.",
       "dopCapable": "mpv ini dapat mengirim DoP.",
       "dopNotCapable": "mpv ini tidak dapat mengirim DoP (perlu versi yang lebih baru dari 0.41.0); DSD diubah ke PCM.",
@@ -4152,11 +4159,14 @@ export default {
       "limitBypassed": "Fitur yang dilewati",
       "limitBypassedDesc": "Untuk lagu lewat HiFi, transisi pintar (automix), equalizer, efek suara, ReplayGain, fade, dan spektrum tidak aktif.",
       "limitVideoExport": "Tanpa ekspor video",
-      "limitVideoExportDesc": "Ekspor video lirik memerlukan mesin audio biasa, jadi tidak tersedia selama lagu diputar lewat HiFi."
+      "limitVideoExportDesc": "Ekspor video lirik memerlukan mesin audio biasa, jadi tidak tersedia selama lagu diputar lewat HiFi.",
+      "limitMediaControls": "Tanpa kontrol media sistem dalam mode eksklusif",
+      "limitMediaControlsDesc": "Selama lagu diputar lewat HiFi dalam mode eksklusif, kontrol media sistem (SMTC di Windows, Now Playing di macOS, MPRIS di Linux) tidak menampilkan atau mengendalikan Folia. Dalam mode bersama, kontrol itu tetap berfungsi."
     },
     "player": {
       "badge": "HiFi · {{verdict}}",
       "badgeWithFormat": "HiFi · {{verdict}} · {{format}}",
+      "badgeChip": "HiFi",
       "badgeAria": "{{badge}}. Tampilkan jalur sinyal",
       "signalPathTile": "Jalur sinyal: {{verdict}}",
       "volumeFixed": "Volume diatur oleh DAC atau amplifier Anda",
@@ -4186,8 +4196,11 @@ export default {
         "bitPerfect": "Setiap sampel sampai ke DAC persis seperti di dalam berkas.",
         "dop": "Aliran DSD dikemas ke dalam frame PCM (DoP) dan sampai ke DAC tanpa diubah.",
         "converted": "mpv mengubah sinyal sebelum sampai ke output. Tahap bertanda Dikonversi di bawah menjelaskan caranya.",
-        "sharedMixer": "Perangkat output dipakai bersama aplikasi lain, jadi mixer sistem bisa melakukan resampling atau mengubah sinyal. Nyalakan mode eksklusif di pengaturan HiFi, atau di Linux pilih perangkat hw: langsung.",
-        "unknown": "mpv belum melaporkan format output."
+        "sharedMixer": "Perangkat output dipakai bersama aplikasi lain, jadi mixer sistem bisa melakukan resampling atau mengubah sinyal. Nyalakan mode eksklusif di pengaturan HiFi.",
+        "sharedMixerExclusiveOn": "Mode eksklusif sudah menyala, tetapi perangkat output ini tidak mendukungnya, jadi suara tetap lewat mixer sistem dan bisa di-resampling. Pilih perangkat output lain di pengaturan HiFi.",
+        "sharedMixerLinux": "Output ini lewat PipeWire, PulseAudio, atau perangkat plugin ALSA, yang mencampurnya dengan aplikasi lain dan bisa melakukan resampling. Untuk output bit-perfect, pilih perangkat bertanda langsung (ALSA hw:) di pengaturan HiFi.",
+        "unknown": "mpv belum melaporkan format output.",
+        "notLoaded": "Lagu ini belum dimuat ke mpv. Jalur sinyal diperiksa setelah lagu mulai diputar."
       },
       "stage": {
         "source": "Berkas sumber",
@@ -4221,13 +4234,14 @@ export default {
         "dop": "DSD dikemas ke frame PCM (DoP), tanpa diubah",
         "volume": "Volume perangkat lunak menskalakan setiap sampel ({{volume}})",
         "volumePlain": "Volume perangkat lunak menskalakan setiap sampel",
-        "sharedMixer": "Dicampur oleh mixer sistem (tidak eksklusif)"
+        "sharedMixer": "Dicampur oleh mixer sistem, yang bisa melakukan resampling"
       },
       "transportLocal": "Dibaca byte demi byte dari pustaka lewat jembatan lokal Folia",
       "transportNavidrome": "Berkas asli dari Navidrome, tanpa transkode",
       "processBypassed": "Tanpa equalizer, efek, ReplayGain, atau perubahan volume",
       "outputExclusive": "Mode eksklusif",
-      "outputShared": "Mode bersama"
+      "outputShared": "Mode bersama",
+      "outputDirect": "Langsung ke perangkat, tanpa server suara"
     },
     "errors": {
       "MPV_NOT_FOUND": "mpv tidak ditemukan. Pasang mpv atau pilih di pengaturan HiFi.",

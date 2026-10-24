@@ -4,7 +4,9 @@ import type { ThemeGenerationSource } from '../../../services/themePreferences';
 import { useAudioSettingsStore } from '../../../stores/useAudioSettingsStore';
 import { useAutomixSettingsStore } from '../../../stores/useAutomixSettingsStore';
 import { useHifiSettingsStore } from '../../../stores/useHifiSettingsStore';
-import { useHifiEngineStore } from '../../../services/hifi/hifiEngine';
+import { hifiEngine, useHifiEngineStore } from '../../../services/hifi/hifiEngine';
+import { HIFI_PLATFORM } from '../../modal/settings/pages/hifi/options';
+import { canOfferRuntimeDownload, isRuntimeInstalling } from '../../modal/settings/pages/hifi/runtimeState';
 import { useDesktopSettingsStore } from '../../../stores/useDesktopSettingsStore';
 import { useLocalLibrarySettingsStore } from '../../../stores/useLocalLibrarySettingsStore';
 import { isLocalLibraryAutoScanSupported } from '../../../services/localLibraryAutoScan';
@@ -269,5 +271,28 @@ export const buildSettingsCommandContext = (
         isHifiEnabled: () => useHifiSettingsStore.getState().enabled,
         isHifiVolumeConfirmed: () => useHifiSettingsStore.getState().volumeConfirmed,
         setHifiEnabled: enabled => useHifiSettingsStore.getState().setEnabled(enabled),
+        toggleHifiExclusive: () => {
+            const hifi = useHifiSettingsStore.getState();
+            hifi.setExclusive(!hifi.exclusive);
+        },
+        toggleHifiNavidrome: () => {
+            const hifi = useHifiSettingsStore.getState();
+            hifi.setNavidrome(!hifi.navidrome);
+        },
+        toggleHifiSoftwareVolume: () => {
+            const hifi = useHifiSettingsStore.getState();
+            hifi.setSoftwareVolume(!hifi.softwareVolume);
+        },
+        // The HiFi page's runtime row asks the same questions (runtimeState.ts).
+        canRedetectHifiRuntime: () => {
+            const engine = useHifiEngineStore.getState();
+            return engine.supported && !isRuntimeInstalling(engine.runtime, engine.installProgress);
+        },
+        redetectHifiRuntime: () => hifiEngine.detect(),
+        canInstallHifiRuntime: () => {
+            const engine = useHifiEngineStore.getState();
+            return engine.supported && canOfferRuntimeDownload(engine.runtime, engine.installProgress, HIFI_PLATFORM);
+        },
+        installHifiRuntime: () => hifiEngine.install(),
     };
 };

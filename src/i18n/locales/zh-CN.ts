@@ -763,6 +763,11 @@ export default {
       "settings-audio-output": { "title": "音频输出", "description": "直接跳到音频输出设备与格式设置" },
       "hifi-toggle": { "title": "HiFi 原生直通", "description": "开关本地和 Navidrome 歌曲经 mpv 直接送到输出设备播放" },
       "hifi-settings": { "title": "HiFi 原生直通设置", "description": "打开 HiFi 设置：mpv、输出设备、独占模式和 DSD" },
+      "hifi-exclusive-toggle": { "title": "HiFi 独占模式", "description": "开关 HiFi 是否独占输出设备，不让系统混音器插手" },
+      "hifi-navidrome-toggle": { "title": "Navidrome 走 HiFi", "description": "开关 Navidrome 歌曲是否走 HiFi：从服务器取原文件，不转码" },
+      "hifi-software-volume-toggle": { "title": "HiFi 软件音量", "description": "开关是否让 Folia 的音量滑杆调 mpv 的音量；开着时不再是原生直通" },
+      "hifi-redetect-mpv": { "title": "重新检测 mpv", "description": "重新查找 HiFi 用的 mpv，比如装好或更新之后" },
+      "hifi-download-mpv": { "title": "下载或更新 mpv", "description": "下载推荐给 HiFi 用的 mpv，或更新 Folia 下载的那份；进度显示在 HiFi 设置里" },
       "hifi-signal-path": { "title": "HiFi 信号链路", "description": "查看当前歌曲如何送到 DAC，以及是否保持原生直通" },
       "settings-transition": { "title": "智能过渡", "description": "直接跳到 FOLIA 智能过渡设置" },
       "settings-navidrome": { "title": "Navidrome 服务器", "description": "直接跳到 Navidrome 服务器连接设置" },
@@ -4120,19 +4125,21 @@ export default {
       "device": "输出设备",
       "deviceAuto": "系统默认",
       "deviceDirect": "直连",
-      "deviceDirectNote": "标着「直连」的是 ALSA hw: 设备：它们绕过 PipeWire 和 PulseAudio，是 Linux 上的原生直通路径，但 Folia 占用时其他程序无法在这个设备上发声。",
+      "deviceDirectNote": "标着「直连」的是 ALSA hw: 设备：mpv 直接打开声卡，绕过 PipeWire 和 PulseAudio，这是 Linux 上的原生直通路径。Folia 用它播放时，其他程序用不了这块声卡；声音服务正在这块声卡上放音时，这个设备会被占用。",
+      "deviceLinuxHint": "要原生直通，请选标着「直连」的设备。",
       "devicesRefresh": "刷新设备列表",
       "devicesLoading": "正在从 mpv 读取设备...",
       "devicesEmpty": "没有找到输出设备。",
       "devicesNeedMpv": "需要先有 mpv 才能列出设备。",
       "exclusive": "独占模式",
       "exclusiveDesc": "Folia 独占设备，系统混音器不会重采样或混音。期间其他程序在这个设备上没有声音。",
-      "exclusiveLinuxNote": "在 Linux 上，独占模式只对「直连」（hw:）设备生效。经过 PipeWire 或 PulseAudio 时，声音服务仍会混音，也可能重采样。",
+      "exclusiveLinuxDesc": "在 Linux 上它不改变声音的路径。要绕过 PipeWire 和 PulseAudio，请选标着「直连」的设备。",
+      "exclusiveLinuxNote": "mpv 的 PipeWire 和 PulseAudio 输出没有独占模式：不管这里开不开，声音服务都会混音，也可能重采样。「直连」（ALSA hw:）设备则无论如何都只归 Folia 用。",
       "dsdMode": "DSD 输出方式",
       "dsdModeDesc": "DoP 把 DSD 原样装进 PCM 帧发送。",
       "dsdPcm": "转为 PCM",
       "dsdDop": "DoP",
-      "dopWarning": "只有 DAC 支持 DoP 时才选它。不支持 DoP 的 DAC 会把它当成满幅噪声大声放出来。",
+      "dopWarning": "只有 DAC 支持 DoP 时才选它。不支持 DoP 的 DAC 会放出沙沙的噪声，而不是音乐。",
       "dopPlatformNote": "DoP 只在 Windows 的 WASAPI 独占模式下、配合比 0.41.0 新的 mpv 才能用。其他情况下 DSD 都会转成 PCM。",
       "dopCapable": "当前的 mpv 能发送 DoP。",
       "dopNotCapable": "当前的 mpv 不能发送 DoP（需要比 0.41.0 新的版本），DSD 会转成 PCM。",
@@ -4152,11 +4159,14 @@ export default {
       "limitBypassed": "被绕过的功能",
       "limitBypassedDesc": "走 HiFi 的歌曲不经过智能过渡（automix）、均衡器、音效、ReplayGain、淡入淡出和频谱。",
       "limitVideoExport": "不能导出视频",
-      "limitVideoExportDesc": "歌词视频导出依赖原来的音频引擎，歌曲走 HiFi 时无法导出。"
+      "limitVideoExportDesc": "歌词视频导出依赖原来的音频引擎，歌曲走 HiFi 时无法导出。",
+      "limitMediaControls": "独占模式下没有系统媒体控制",
+      "limitMediaControlsDesc": "歌曲在独占模式下走 HiFi 播放时，系统媒体控制（Windows 的 SMTC、macOS 的「正在播放」、Linux 的 MPRIS）不显示也控制不了 Folia。共享模式下照常可用。"
     },
     "player": {
       "badge": "HiFi · {{verdict}}",
       "badgeWithFormat": "HiFi · {{verdict}} · {{format}}",
+      "badgeChip": "HiFi",
       "badgeAria": "{{badge}}。查看信号链路",
       "signalPathTile": "信号链路：{{verdict}}",
       "volumeFixed": "音量由你的 DAC 或功放控制",
@@ -4186,8 +4196,11 @@ export default {
         "bitPerfect": "每个采样都和文件里一模一样地送到 DAC。",
         "dop": "DSD 码流打包进 PCM 帧（DoP），原样送到 DAC。",
         "converted": "信号送到输出设备之前被 mpv 改动过，下面标着「已转换」的环节写明了改动。",
-        "sharedMixer": "输出设备与其他程序共用，系统混音器可能会重采样或改动信号。可在 HiFi 设置里开启独占模式；Linux 上请选一个 hw: 直连设备。",
-        "unknown": "mpv 还没有报告输出格式。"
+        "sharedMixer": "输出设备与其他程序共用，系统混音器可能会重采样或改动信号。可在 HiFi 设置里开启独占模式。",
+        "sharedMixerExclusiveOn": "独占模式已经开着，但这个输出设备不支持独占，声音仍经过系统混音器，可能被重采样。请在 HiFi 设置里换一个输出设备。",
+        "sharedMixerLinux": "这个输出经过 PipeWire、PulseAudio 或 ALSA 插件设备，会和其他程序混音，也可能被重采样。要原生直通，请在 HiFi 设置里选一个标着「直连」的设备（ALSA hw:）。",
+        "unknown": "mpv 还没有报告输出格式。",
+        "notLoaded": "这首歌还没交给 mpv 载入，开始播放后才会确认信号链路。"
       },
       "stage": {
         "source": "源文件",
@@ -4221,13 +4234,14 @@ export default {
         "dop": "DSD 打包为 DoP 帧，内容不变",
         "volume": "软件音量缩放了每个采样（{{volume}}）",
         "volumePlain": "软件音量缩放了每个采样",
-        "sharedMixer": "经过系统混音器（非独占）"
+        "sharedMixer": "经过系统混音器，可能被重采样"
       },
       "transportLocal": "经 Folia 的本机桥接逐字节读取曲库文件",
       "transportNavidrome": "Navidrome 上的原始文件，不转码",
       "processBypassed": "不经均衡器、音效和 ReplayGain，也不调音量",
       "outputExclusive": "独占模式",
-      "outputShared": "共享模式"
+      "outputShared": "共享模式",
+      "outputDirect": "直连设备，不经过声音服务"
     },
     "errors": {
       "MPV_NOT_FOUND": "未找到 mpv。请安装 mpv，或在 HiFi 设置里指定它。",

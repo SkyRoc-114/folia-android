@@ -33,7 +33,8 @@ vi.mock('@/components/shared/Sheet', () => ({
 
 import i18n from '@/i18n/config';
 import type { HifiEngineState, HifiMpvAudioParams, HifiSourceSpec } from '@/types/hifi';
-import HifiBadge from '@/components/hifi/HifiBadge';
+import type { HifiLoadState } from '@/services/hifi/hifiTrackStore';
+import HifiBadge, { HifiProgressRow } from '@/components/hifi/HifiBadge';
 import HifiSignalPathPanel from '@/components/hifi/HifiSignalPathPanel';
 import { closeHifiSignalPath, openHifiSignalPath, useHifiPanelStore } from '@/components/hifi/hifiPanelStore';
 import AudioEqualizerDialog from '@/components/panelTab/AudioEqualizerDialog';
@@ -48,9 +49,10 @@ import { useHifiSettingsStore } from '@/stores/useHifiSettingsStore';
 import { setPlaybackRoute } from '@/stores/usePlaybackStore';
 
 // test/unit/hifi/hifiPlayerSurfaces.test.ts
-// The player surfaces on the HiFi route, drawn in jsdom with the real stores: the badge and the sheet it
-// opens, the controls tab tiles and volume row, the slider's out-of-reach state, the audio effects window
-// and the ReplayGain row. On the web route every one of them looks as it did before HiFi.
+// The player surfaces on the HiFi route, drawn in jsdom with the real stores: the badge (and the progress row
+// it shares with the bar) and the sheet it opens, the controls tab tiles and volume row, the slider's
+// out-of-reach state, the audio effects window and the ReplayGain row. On the web route every one of them
+// looks as it did before HiFi.
 
 const params = (format: string, samplerate: number): HifiMpvAudioParams => ({ format, samplerate, channelCount: 2, channels: 'stereo' });
 
@@ -93,7 +95,7 @@ const engineState = (trackKey: string): HifiEngineState => ({
 });
 
 /** The song mpv plays: the track store's current entry and the engine state for the same trackKey. */
-const playOnHifi = (engineTrackKey = 'local:1#a') => {
+const playOnHifi = (engineTrackKey = 'local:1#a', loadState: HifiLoadState = 'ready') => {
     act(() => {
         useHifiTrackStore.setState({
             current: {
@@ -102,8 +104,9 @@ const playOnHifi = (engineTrackKey = 'local:1#a') => {
                 origin: 'local',
                 song: { id: 1, name: 'Track One', artists: [], album: { id: 1, name: 'Album' }, durationMs: 200000 } as never,
                 localSourceKey: 'source-1',
+                stillWanted: () => true,
             },
-            loadState: 'ready',
+            loadState,
             loadError: null,
             sourceSpec: spec,
         });
@@ -144,6 +147,7 @@ describe('the HiFi player surfaces', () => {
         act(() => root.unmount());
         place.remove();
         setPlaybackRoute('web');
+        delete (window as { electron?: unknown }).electron;
     });
 
     describe('the badge', () => {
@@ -176,6 +180,43 @@ describe('the HiFi player surfaces', () => {
             press(place.querySelector('button')!);
             expect(useHifiPanelStore.getState().isSignalPathOpen).toBe(false);
         });
+
+        it('picks its length by the width of its row, not of the window, and starts as a chip', () => {
+            playOnHifi();
+            draw(React.createElement(HifiBadge));
+            const badge = place.querySelector('button')!;
+            const [chip, short, full] = Array.from(badge.querySelectorAll('span'));
+            // No container query matches (or none applies) → only the chip shows: an icon and "HiFi".
+            expect(badge.querySelector('svg')!.getAttribute('class')).toContain('@sm:hidden');
+            expect(chip.textContent).toBe(i18n.t('hifi.player.badgeChip'));
+            expect(chip.className.split(' ')).toContain('@sm:hidden');
+            expect(short.className.split(' ')).toEqual(expect.arrayContaining(['hidden', '@sm:block', '@md:hidden']));
+            expect(full.className.split(' ')).toEqual(expect.arrayContaining(['hidden', '@md:block']));
+            // The window breakpoints would show the full line at 700 px, where the row is about 290 px wide.
+            expect(badge.outerHTML).not.toMatch(/(^|[\s"])(max-)?sm:/);
+            // It may shrink and cut its text rather than push the bar.
+            expect(badge.className.split(' ')).toEqual(expect.arrayContaining(['min-w-0', 'overflow-hidden']));
+            expect(badge.className.split(' ')).not.toContain('shrink-0');
+        });
+
+        it('keeps the progress bar at a usable width in the row it shares with the badge', () => {
+            playOnHifi();
+            draw(React.createElement(HifiProgressRow, { className: 'col-span-3 w-full px-2', children: React.createElement('div', { 'data-bar': '' }) }));
+            const row = place.firstElementChild as HTMLElement;
+            expect(row.className.split(' ')).toEqual(expect.arrayContaining(['col-span-3', 'w-full', 'px-2', '@container', 'flex']));
+            const bar = place.querySelector('[data-bar]')!.parentElement!;
+            // 10rem: both time labels (88 px) and at least 72 px of bar.
+            expect(bar.className.split(' ')).toEqual(expect.arrayContaining(['min-w-40', 'flex-1']));
+            expect(row.querySelector('button')).not.toBeNull();
+        });
+
+        it('says only HiFi for a restored track mpv has not loaded yet, even beside an engine state with its key', () => {
+            playOnHifi('local:1#a', 'deferred');
+            draw(React.createElement(HifiBadge));
+            const badge = place.querySelector('button')!;
+            expect(badge.getAttribute('aria-label')).toBe(i18n.t('hifi.player.badgeAria', { badge: i18n.t('hifi.player.badgeChip') }));
+            expect(badge.querySelector('svg')).toBeNull();
+        });
     });
 
     describe('the signal path sheet', () => {
@@ -199,6 +240,25 @@ describe('the HiFi player surfaces', () => {
             openHifiSignalPath();
             draw(React.createElement(HifiSignalPathPanel));
             expect(place.querySelector('[role="status"]')!.textContent).toBe(i18n.t('hifi.signal.verdict.unknown'));
+        });
+
+        it('says a restored track is checked once it plays', () => {
+            playOnHifi('local:1#a', 'deferred');
+            openHifiSignalPath();
+            draw(React.createElement(HifiSignalPathPanel));
+            expect(place.querySelector('[role="status"]')!.textContent).toBe(i18n.t('hifi.signal.verdict.unknown'));
+            expect(place.textContent).toContain(i18n.t('hifi.signal.verdictDesc.notLoaded'));
+        });
+
+        it('points Linux at a direct device when PipeWire mixes the output', () => {
+            (window as { electron?: unknown }).electron = { platform: 'linux' };
+            playOnHifi();
+            act(() => useHifiEngineStore.setState({ engine: { ...engineState('local:1#a'), currentAo: 'pipewire', audioDevice: 'auto' } }));
+            openHifiSignalPath();
+            draw(React.createElement(HifiSignalPathPanel));
+            expect(place.querySelector('[role="status"]')!.textContent).toBe(i18n.t('hifi.signal.verdict.sharedMixer'));
+            expect(place.textContent).toContain(i18n.t('hifi.signal.verdictDesc.sharedMixerLinux'));
+            expect(place.textContent).toContain(i18n.t('hifi.signal.outputShared'));
         });
     });
 
@@ -239,15 +299,31 @@ describe('the HiFi player surfaces', () => {
             expect(place.textContent).not.toContain(i18n.t('hifi.player.volumeFixed'));
         });
 
-        it('hands the volume to the DAC on HiFi: the slider and mute are out of reach and read 100%', () => {
+        it('hands the volume to the DAC on HiFi: the slider is out of reach, dimmed with its reading, and reads 100%', () => {
+            playOnHifi();
+            draw(volumeRow());
+            expect(sliders()[0].getAttribute('aria-disabled')).toBe('true');
+            expect(sliders()[0].getAttribute('aria-valuenow')).toBe('100');
+            expect(sliders()[0].className).toContain('opacity-40');
+            const reading = Array.from(place.querySelectorAll('span')).find(span => span.textContent === '100%')!;
+            expect(reading.className).toContain('opacity-40');
+            expect(place.textContent).toContain(i18n.t('hifi.player.volumeFixed'));
+        });
+
+        it('keeps mute in reach on HiFi: it goes to mpv, apart from the volume', () => {
             playOnHifi();
             const onToggleMute = vi.fn();
             draw(volumeRow(vi.fn(), onToggleMute));
-            expect(sliders()[0].getAttribute('aria-disabled')).toBe('true');
-            expect(sliders()[0].getAttribute('aria-valuenow')).toBe('100');
-            expect(place.textContent).toContain(i18n.t('hifi.player.volumeFixed'));
-            press(place.querySelector('button')!);
-            expect(onToggleMute).not.toHaveBeenCalled();
+            const mute = place.querySelector('button')!;
+            expect(mute.getAttribute('aria-disabled')).toBeNull();
+            press(mute);
+            expect(onToggleMute).toHaveBeenCalledOnce();
+        });
+
+        it('reads 0% on HiFi while muted', () => {
+            playOnHifi();
+            draw(React.createElement(VolumeRow, { volume: 0.4, isMuted: true, onVolumePreview: vi.fn(), onVolumeChange: vi.fn(), onToggleMute: vi.fn() }));
+            expect(sliders()[0].getAttribute('aria-valuenow')).toBe('0');
         });
 
         it('keeps the volume in reach on HiFi with software volume on', () => {

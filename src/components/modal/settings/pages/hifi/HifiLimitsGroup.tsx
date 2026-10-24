@@ -12,6 +12,7 @@ const LIMIT_ROWS = [
     { option: O.dopWindowsOnly, hintKey: 'hifi.settings.limitDopDesc' },
     { option: O.bypassed, hintKey: 'hifi.settings.limitBypassedDesc' },
     { option: O.videoExport, hintKey: 'hifi.settings.limitVideoExportDesc' },
+    { option: O.mediaControls, hintKey: 'hifi.settings.limitMediaControlsDesc' },
 ] as const;
 
 export const HifiLimitsGroup: React.FC = () => {

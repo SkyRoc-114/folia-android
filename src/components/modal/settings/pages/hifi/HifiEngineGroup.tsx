@@ -6,9 +6,10 @@ import { useShallow } from 'zustand/react/shallow';
 import ConfirmDialog from '../../../../shared/ConfirmDialog';
 import { hifiEngine, useHifiEngineStore } from '../../../../../services/hifi/hifiEngine';
 import { useHifiSettingsStore } from '../../../../../stores/useHifiSettingsStore';
-import type { HifiErrorCode, HifiInstallProgress, HifiRuntimeSource, HifiRuntimeStatus } from '../../../../../types/hifi';
+import type { HifiErrorCode, HifiInstallProgress } from '../../../../../types/hifi';
 import { Button, CopyValue, Group, Progress, Reveal, Row, Status, Toggle, Value, useSettingsKitTheme } from '../../kit';
 import { ENGINE, HIFI_PLATFORM, O } from './options';
+import { canOfferRuntimeDownload, isRuntimeInstalling, runtimeLine } from './runtimeState';
 
 // src/components/modal/settings/pages/hifi/HifiEngineGroup.tsx
 // The engine group of the HiFi page: the switch (the first time it is turned on it asks to accept
@@ -16,12 +17,6 @@ import { ENGINE, HIFI_PLATFORM, O } from './options';
 // the recommended mpv with its progress, the choice of an mpv file of one's own, and on Linux the
 // package-manager lines in place of a download. The settings are pushed to the main process by the
 // playback bridge, not from here.
-
-const SOURCE_KEYS: Record<HifiRuntimeSource, string> = {
-    manual: 'hifi.settings.sourceManual',
-    downloaded: 'hifi.settings.sourceDownloaded',
-    system: 'hifi.settings.sourceSystem',
-};
 
 const IS_LINUX = HIFI_PLATFORM === 'linux';
 
@@ -32,26 +27,7 @@ const LINUX_INSTALL_COMMANDS = [
     { distro: 'Fedora', command: 'sudo dnf install mpv' },
 ] as const;
 
-const ACTIVE_INSTALL_PHASES: ReadonlySet<HifiInstallProgress['phase']> = new Set(['downloading', 'verifying', 'extracting']);
-
 const MIB = 1024 * 1024;
-
-type Line = { tone?: 'ok' | 'warn' | 'error'; text: string };
-
-/** The one line that says which mpv is in use, or why there is none. */
-const runtimeLine = (runtime: HifiRuntimeStatus | null, t: TFunction): Line => {
-    if (!runtime) {
-        return { text: t('hifi.settings.runtimeChecking') };
-    }
-    if (runtime.available) {
-        const source = runtime.source ? t(SOURCE_KEYS[runtime.source]) : '';
-        return { tone: 'ok', text: t('hifi.settings.runtimeFound', { version: runtime.version ?? '', source }) };
-    }
-    if (runtime.errorCode === 'MPV_TOO_OLD') {
-        return { tone: 'warn', text: t('hifi.settings.runtimeTooOld', { version: runtime.version ?? '' }) };
-    }
-    return { tone: 'warn', text: t('hifi.settings.runtimeNotFound') };
-};
 
 /** How far the download has come, as the bar's fill and the words beside it. */
 const installReading = (progress: HifiInstallProgress | null, t: TFunction): { value: number; text: string } => {
@@ -103,13 +79,15 @@ export const HifiEngineGroup: React.FC = () => {
 
     const { runtime, installProgress } = engine;
     const download = runtime?.download ?? null;
-    const installing = installPending
-        || Boolean(download?.installing)
-        || (installProgress !== null && ACTIVE_INSTALL_PHASES.has(installProgress.phase));
-    const offerDownload = !IS_LINUX && !installing && Boolean(download?.supported)
-        && (download?.installedVersion === null || Boolean(download?.updateAvailable));
-    const line = runtimeLine(runtime, t);
+    // The palette's download and detect commands ask the same two questions (runtimeState.ts).
+    const installing = installPending || isRuntimeInstalling(runtime, installProgress);
+    const offerDownload = !installPending && canOfferRuntimeDownload(runtime, installProgress, HIFI_PLATFORM);
+    const line = runtimeLine(runtime, (key, values) => t(key, values));
     const reading = installReading(installProgress, t);
+    // A download started from the palette fails where this page did not start it: its last progress says why.
+    const shownInstallError = installing
+        ? null
+        : installError ?? (installProgress?.phase === 'error' ? installProgress.errorCode ?? 'INSTALL_FAILED' : null);
 
     const runtimeHint = !runtime
         ? undefined
@@ -183,8 +161,8 @@ export const HifiEngineGroup: React.FC = () => {
                         <Reveal when={Boolean(runtime?.manualPathRejected)}>
                             <Row sub label={<Status tone="warn">{t('hifi.settings.manualPathRejected')}</Status>} />
                         </Reveal>
-                        <Reveal when={installError !== null}>
-                            <Row sub label={<Status tone="error">{installError ? t(`hifi.errors.${installError}`) : ''}</Status>} />
+                        <Reveal when={shownInstallError !== null}>
+                            <Row sub label={<Status tone="error">{shownInstallError ? t(`hifi.errors.${shownInstallError}`) : ''}</Status>} />
                         </Reveal>
                         <Reveal when={IS_LINUX && runtime !== null && !runtime.available}>
                             {LINUX_INSTALL_COMMANDS.map(({ distro, command }) => (

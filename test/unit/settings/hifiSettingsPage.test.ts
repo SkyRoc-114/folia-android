@@ -7,8 +7,10 @@ import type { HifiDevice, HifiRuntimeStatus } from '../../../src/types/hifi';
 // test/unit/settings/hifiSettingsPage.test.ts
 // The HiFi settings page against a fake window.electron.hifi: the first switch-on asks about full
 // volume, the mpv line says what is in use (or why nothing is), Linux gets package-manager lines in
-// place of a download, the saved device keeps its name before the list is read, and DoP is not
-// offered off Windows. The page reads the platform when it loads, so each case loads it afresh.
+// place of a download, the saved device keeps its name before the list is read, DoP is not offered
+// off Windows, Linux is told that a direct device (not the exclusive switch) skips the sound server,
+// and a build without the engine has nothing to switch. The page reads the platform when it loads,
+// so each case loads it afresh.
 
 vi.mock('react-i18next', () => ({
     useTranslation: () => ({
@@ -63,21 +65,22 @@ let root: Root | null = null;
 let host: HTMLDivElement;
 
 /** Loads the page as the given desktop OS would and renders it once the runtime answer is in. */
-const renderPage = async (platform: string, runtime: HifiRuntimeStatus, storage: Record<string, string> = {}) => {
+const renderPage = async (platform: string, runtime: HifiRuntimeStatus, storage: Record<string, string> = {}, { withEngine = true } = {}) => {
     vi.resetModules();
     window.localStorage.clear();
     Object.entries(storage).forEach(([key, value]) => window.localStorage.setItem(key, value));
     const api = fakeHifiApi(runtime);
-    (window as any).electron = { platform, hifi: api };
+    (window as any).electron = withEngine ? { platform, hifi: api } : { platform };
     const { default: HifiPage } = await import('../../../src/components/modal/settings/pages/HifiPage');
     const { useHifiSettingsStore } = await import('../../../src/stores/useHifiSettingsStore');
+    const { useHifiEngineStore } = await import('../../../src/services/hifi/hifiEngine');
     host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);
     await act(async () => {
         root!.render(React.createElement(HifiPage));
     });
-    return { api, settings: useHifiSettingsStore };
+    return { api, settings: useHifiSettingsStore, engine: useHifiEngineStore };
 };
 
 const rowOf = (rowId: string) => host.querySelector(`[data-settings-row="${rowId}"]`) as HTMLElement;
@@ -190,5 +193,41 @@ describe('HiFi settings page', () => {
         await renderPage('win32', runtimeStatus({ dopCapable: true }));
         expect((buttonWithText('hifi.settings.dsdDop') as HTMLButtonElement).disabled).toBe(false);
         expect(host.textContent).toContain('hifi.settings.dopCapable');
+    });
+
+    it('tells Linux that the exclusive switch does not change the sound path, and points at the direct devices', async () => {
+        await renderPage('linux', runtimeStatus({ platform: 'linux' }));
+        const exclusive = rowOf('hifiExclusive').textContent;
+        expect(exclusive).toContain('hifi.settings.exclusiveLinuxDesc');
+        expect(exclusive).not.toContain('hifi.settings.exclusiveDesc');
+        expect(rowOf('hifiAudioDevice').textContent).toContain('hifi.settings.deviceLinuxHint');
+    });
+
+    it('keeps the takeover wording for Windows and macOS', async () => {
+        await renderPage('win32', runtimeStatus());
+        expect(rowOf('hifiExclusive').textContent).toContain('hifi.settings.exclusiveDesc');
+        expect(rowOf('hifiAudioDevice').textContent).not.toContain('hifi.settings.deviceLinuxHint');
+    });
+
+    it('lists the system media controls among the known limits', async () => {
+        await renderPage('win32', runtimeStatus());
+        const row = rowOf('hifiLimitMediaControls');
+        expect(row.textContent).toContain('hifi.settings.limitMediaControls');
+        expect(row.textContent).toContain('hifi.settings.limitMediaControlsDesc');
+    });
+
+    it('says why a download it did not start failed (one started from the palette)', async () => {
+        const { engine } = await renderPage('win32', runtimeStatus({ available: false, path: null, version: null, source: null, errorCode: 'MPV_NOT_FOUND' }));
+        await act(async () => {
+            engine.setState({ installProgress: { phase: 'error', version: '0.41.0', receivedBytes: 10, totalBytes: 10, errorCode: 'INSTALL_CHECKSUM_MISMATCH' } });
+        });
+        expect(host.textContent).toContain('hifi.errors.INSTALL_CHECKSUM_MISMATCH');
+    });
+
+    it('has nothing to switch in a build without the engine, where the palette offers no switch either', async () => {
+        await renderPage('win32', runtimeStatus(), {}, { withEngine: false });
+        for (const rowId of ['hifiEnabled', 'hifiExclusive', 'hifiNavidrome', 'hifiSoftwareVolume']) {
+            expect(rowOf(rowId).querySelector('[inert]')).not.toBeNull();
+        }
     });
 });

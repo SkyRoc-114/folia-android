@@ -16,7 +16,7 @@ import {
     verdictDescription,
     verdictTitle,
 } from './hifiSignalText';
-import { useHifiSignalPath, useIsHifiRoute } from './useHifiSignalPath';
+import { readHifiPlatform, useHifiSignalPath, useHifiTrackDeferred, useIsHifiRoute } from './useHifiSignalPath';
 
 // src/components/hifi/HifiSignalPathPanel.tsx
 // HiFi 信号链路面板：顶上一行大字说结论（原生直通 / 经 DoP 原生输出 DSD / 已转换 / 经过系统混音器 / 尚未确认），
@@ -57,7 +57,7 @@ type StageRowProps = {
 const StageRow: React.FC<StageRowProps> = ({ stage, path, origin, deviceLabel, isLast }) => {
     const { t, i18n } = useTranslation();
     const format = formatStageFormat(stage, t, i18n.language);
-    const description = describeStage(stage, path, origin, t);
+    const description = describeStage(stage, path, origin, t, readHifiPlatform());
 
     return (
         <li className="flex gap-3">
@@ -104,6 +104,7 @@ const HifiSignalPathPanel: React.FC = () => {
     const close = useHifiPanelStore(state => state.closeSignalPath);
     const isHifiRoute = useIsHifiRoute();
     const path = useHifiSignalPath();
+    const deferred = useHifiTrackDeferred();
     const songName = useHifiTrackStore(state => state.current?.song.name ?? null);
     const origin = useHifiTrackStore(state => state.current?.origin ?? state.sourceSpec?.origin ?? null);
     const audioDevice = useHifiSettingsStore(state => state.audioDevice);
@@ -133,7 +134,10 @@ const HifiSignalPathPanel: React.FC = () => {
                         <look.icon size={22} aria-hidden className={`mt-0.5 shrink-0 ${look.className}`} />
                         <div className="min-w-0 flex-1">
                             <p role="status" className="text-lg font-semibold leading-7">{verdictTitle(path.verdict, t)}</p>
-                            <p className="mt-0.5 text-[13px] leading-5 text-[color:var(--st-t2)]">{verdictDescription(path.verdict, t)}</p>
+                            <p className="mt-0.5 text-[13px] leading-5 text-[color:var(--st-t2)]">
+                                {/* 恢复出来还没载入的曲目：按下播放、mpv 载入之后才有结论。 */}
+                                {deferred ? t('hifi.signal.verdictDesc.notLoaded') : verdictDescription(path, t, readHifiPlatform())}
+                            </p>
                         </div>
                     </section>
                     <ol aria-label={t('hifi.signal.stagesLabel')} className="mt-5 px-1">

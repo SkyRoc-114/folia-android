@@ -27,7 +27,8 @@ const VolumeRow: React.FC<VolumeRowProps> = ({
     const { t } = useTranslation();
     const isHifiRoute = useIsHifiRoute();
     const hifiSoftwareVolume = useHifiSettingsStore(state => state.softwareVolume);
-    // HiFi 没开软件音量时 mpv 固定 100% 输出，响度在 DAC / 功放上调：滑杆和静音都够不着，显示的是实际的 100%。
+    // HiFi 没开软件音量时 mpv 固定 100% 输出，响度在 DAC / 功放上调：滑杆够不着、和读数一起变暗，显示的是实际输出的
+    // 100%（静音时 0%）。静音照样能按：它单独下发给 mpv 的 mute，不碰音量。
     const isVolumeFixed = isHifiRoute && !hifiSoftwareVolume;
     const [sliderVolume, setSliderVolume] = useState(isMuted ? 0 : volume);
     const isDraggingRef = useRef(false);
@@ -67,21 +68,20 @@ const VolumeRow: React.FC<VolumeRowProps> = ({
         }
     }, []);
 
-    const shownVolume = isVolumeFixed ? 1 : sliderVolume;
+    const shownVolume = isVolumeFixed ? (isMuted ? 0 : 1) : sliderVolume;
     const percent = `${Math.round(shownVolume * 100)}%`;
 
     return (
         <>
             <div className="flex h-10 items-center gap-2">
                 <PanelIconButton
-                    label={isVolumeFixed ? t('hifi.player.volumeFixed') : t('ui.volume')}
-                    disabled={isVolumeFixed}
+                    label={t('ui.volume')}
                     onClick={(event) => {
                         event.stopPropagation();
                         onToggleMute();
                     }}
                 >
-                    {isVolumeFixed ? <Volume2 size={17} /> : isMuted || sliderVolume === 0 ? <VolumeX size={17} /> : sliderVolume < 0.5 ? <Volume1 size={17} /> : <Volume2 size={17} />}
+                    {isMuted || shownVolume === 0 ? <VolumeX size={17} /> : shownVolume < 0.5 ? <Volume1 size={17} /> : <Volume2 size={17} />}
                 </PanelIconButton>
 
                 <PanelSlider
@@ -93,7 +93,7 @@ const VolumeRow: React.FC<VolumeRowProps> = ({
                     disabled={isVolumeFixed}
                 />
 
-                <span className="w-[38px] shrink-0 text-right text-xs tabular-nums text-[color:var(--st-t2)]">
+                <span className={`w-[38px] shrink-0 text-right text-xs tabular-nums text-[color:var(--st-t2)]${isVolumeFixed ? ' opacity-40' : ''}`}>
                     {percent}
                 </span>
             </div>

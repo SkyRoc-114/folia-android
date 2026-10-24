@@ -18,7 +18,7 @@ import { PLAYER_BOTTOM_BAR_BASE_OFFSET_PX, clampPlayerBottomBarOffset, resolvePl
 import type { PlayerControlSlotActionId, PlayerControlSlotContext } from './floating-player/playerControlSlotActions';
 import { usePlayerOverlayObstacle } from '../hooks/usePlayerOverlayLayout';
 import { resolveLyricSeekMediaTime } from '../utils/lyrics/lyricSeekTime';
-import HifiBadge from './hifi/HifiBadge';
+import { HifiProgressRow } from './hifi/HifiBadge';
 import { useIsHifiRoute } from './hifi/useHifiSignalPath';
 
 export interface TrackNavigation {
@@ -501,6 +501,9 @@ const FloatingPlayerControls: React.FC<FloatingPlayerControlsProps> = ({
     );
 };
 
+/** 展开视图里进度那一行在网格中的位置；HiFi 路线和 Web 路线共用。 */
+const PROGRESS_ROW_CLASS = 'col-span-3 row-start-3 w-full px-2 sm:col-start-2 sm:col-span-1 sm:row-start-2';
+
 // 展开视图组件
 interface ExpandedViewProps {
     currentSong: { name: string; } | null;
@@ -634,18 +637,14 @@ const ExpandedView: React.FC<ExpandedViewProps> = ({
             </div>
 
             {/* Row 2: Current Time, Progress Bar, Duration */}
-            {/* HiFi 路线上时长后面多一块 HiFi 徽标；Web 路线和原来一模一样。 */}
-            <div
-                data-folia-player-bar-progress="true"
-                className={`col-span-3 row-start-3 w-full px-2 sm:col-start-2 sm:col-span-1 sm:row-start-2${isHifiRoute ? ' flex items-center gap-2' : ''}`}
-            >
-                {isHifiRoute ? (
-                    <>
-                        <div className="min-w-0 flex-1">{progressBar}</div>
-                        <HifiBadge isDaylight={isDaylight} disabled={controlsDisabled} />
-                    </>
-                ) : progressBar}
-            </div>
+            {/* HiFi 路线上时长后面多一块 HiFi 徽标，按这一行的宽度换长短，进度条留够最小宽度；Web 路线和原来一模一样。 */}
+            {isHifiRoute ? (
+                <HifiProgressRow className={PROGRESS_ROW_CLASS} isDaylight={isDaylight} disabled={controlsDisabled}>
+                    {progressBar}
+                </HifiProgressRow>
+            ) : (
+                <div data-folia-player-bar-progress="true" className={PROGRESS_ROW_CLASS}>{progressBar}</div>
+            )}
         </div>
     );
 };

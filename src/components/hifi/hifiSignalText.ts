@@ -50,7 +50,18 @@ export const verdictLabel = (verdict: HifiSignalVerdict, t: TFunction) => t(`hif
 /** 面板顶上那行大字。 */
 export const verdictTitle = (verdict: HifiSignalVerdict, t: TFunction) => t(`hifi.signal.verdict.${VERDICT_KEY[verdict]}`);
 
-export const verdictDescription = (verdict: HifiSignalVerdict, t: TFunction) => t(`hifi.signal.verdictDesc.${VERDICT_KEY[verdict]}`);
+/**
+ * 大字下面那句说明。经过系统混音器时按平台给出办法：Linux 上独占开关不起作用，只有选标着“直连”的 ALSA hw: 设备才绕过
+ * PipeWire / PulseAudio；Windows、macOS 上独占没开就让它打开，开着还在混音说明这个输出设备不认独占，得换一个。
+ * platform 是 window.electron.platform（'win32'、'darwin'、'linux'），不知道时为 null。
+ */
+export const verdictDescription = (path: HifiSignalPath, t: TFunction, platform: string | null = null) => {
+    if (path.verdict === 'shared-mixer') {
+        if (platform === 'linux') return t('hifi.signal.verdictDesc.sharedMixerLinux');
+        if (path.output.exclusive) return t('hifi.signal.verdictDesc.sharedMixerExclusiveOn');
+    }
+    return t(`hifi.signal.verdictDesc.${VERDICT_KEY[path.verdict]}`);
+};
 
 export const stageLabel = (id: HifiSignalStageId, t: TFunction) => t(`hifi.signal.stage.${STAGE_KEY[id]}`);
 
@@ -124,8 +135,9 @@ export const formatStageFormat = (stage: HifiSignalStage, t: TFunction, locale: 
 const findStage = (path: HifiSignalPath, id: HifiSignalStageId) => path.stages.find(stage => stage.id === id) ?? null;
 
 /**
- * 徽标里的格式：采样率取输出级；逐位直通（或只经过系统混音器、mpv 没改数据）时位深取源文件，不然取输出级的采样格式。
- * DoP 写 DSD64。什么都不知道时为 null。
+ * 徽标里的格式：采样率取输出级。位深只在 mpv 改过数据（已转换）时取输出级的采样格式，那是 DAC 实际收到的；
+ * 别的情况取源文件的位深，源文件的还不知道（没读完、读不出、服务器没给）就不写——mpv 解码用的容器位宽不是文件的位深，
+ * 24 位 FLAC 会被解成 s32，写出来就成了“32 bit”。DoP 写 DSD64。什么都不知道时为 null。
  */
 export const formatBadgeFormat = (path: HifiSignalPath, t: TFunction, locale: string): string | null => {
     const source = findStage(path, 'source')?.format ?? null;
@@ -139,26 +151,40 @@ export const formatBadgeFormat = (path: HifiSignalPath, t: TFunction, locale: st
     const sourceBits = source && !usableNumber(source.dsdRate) && usableNumber(source.bitDepth) && source.bitDepth > 1
         ? formatBitDepth(source.bitDepth, t)
         : null;
-    const untouched = path.verdict === 'bit-perfect' || path.verdict === 'shared-mixer';
-    const depth = (untouched ? sourceBits : null) ?? formatSampleDepth(output, t);
+    const depth = path.verdict === 'converted' ? formatSampleDepth(output, t) : sourceBits;
     const text = [rate, depth].filter((part): part is string => Boolean(part)).join(' / ');
     return text || null;
 };
 
 export type HifiBadgeText = {
-    /** 'HiFi · 原生直通 · 96 kHz / 24 bit'。 */
+    /** 地方够时的全称：'HiFi · 原生直通 · 96 kHz / 24 bit'。 */
     text: string;
-    /** 窄屏上放不下格式时的 'HiFi · 原生直通'。 */
+    /** 放不下格式时的 'HiFi · 原生直通'。 */
     shortText: string;
+    /** 最窄时的小牌子：只写 'HiFi'，结论交给旁边的图标和颜色。 */
+    chipText: string;
 };
 
-export const formatHifiBadge = (path: HifiSignalPath, t: TFunction, locale: string): HifiBadgeText => {
+/**
+ * 徽标的三种长短。deferred：恢复出来、还没交给 mpv 载入的曲目，结论要等载入后才知道，三种都只写 'HiFi'。
+ */
+export const formatHifiBadge = (
+    path: HifiSignalPath,
+    t: TFunction,
+    locale: string,
+    options: { deferred?: boolean } = {},
+): HifiBadgeText => {
+    const chipText = t('hifi.player.badgeChip');
+    if (options.deferred) {
+        return { text: chipText, shortText: chipText, chipText };
+    }
     const verdict = verdictLabel(path.verdict, t);
     const format = formatBadgeFormat(path, t, locale);
     const shortText = t('hifi.player.badge', { verdict });
     return {
         text: format ? t('hifi.player.badgeWithFormat', { verdict, format }) : shortText,
         shortText,
+        chipText,
     };
 };
 
@@ -199,22 +225,24 @@ export const isConversionLossless = (conversion: HifiSignalConversion) => conver
 
 /**
  * 每一级格式之外的一句说明：传输看来源（本机曲库还是 Navidrome 原文件），处理级说绕过了什么，输出级说独占还是共享。
- * 没什么可说时为 null。
+ * 没什么可说时为 null。platform 同 verdictDescription。
  */
 export const describeStage = (
     stage: HifiSignalStage,
     path: HifiSignalPath,
     origin: 'local' | 'navidrome' | null,
     t: TFunction,
+    platform: string | null = null,
 ): string | null => {
     if (stage.id === 'transport' && origin) {
         return t(origin === 'navidrome' ? 'hifi.signal.transportNavidrome' : 'hifi.signal.transportLocal');
     }
     if (stage.id === 'process' && stage.status === 'bypassed') return t('hifi.signal.processBypassed');
     if (stage.id === 'output' && stage.status !== 'unknown') {
-        // PulseAudio、PipeWire 这类输出不管独占开没开都混音：按实际有没有经过混音器说。
-        const shared = !path.output.exclusive || stage.conversions.includes('shared-mixer');
-        return t(shared ? 'hifi.signal.outputShared' : 'hifi.signal.outputExclusive');
+        // 只看这一级实际有没有经过系统混音器，不看独占开关：PipeWire、PulseAudio 开着独占也照样混音，
+        // ALSA 的 hw: 直连关着独占也不经过混音器。Linux 上没有独占这回事，不经过混音器就是直连了设备。
+        if (stage.conversions.includes('shared-mixer')) return t('hifi.signal.outputShared');
+        return t(platform === 'linux' ? 'hifi.signal.outputDirect' : 'hifi.signal.outputExclusive');
     }
     return null;
 };

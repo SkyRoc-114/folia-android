@@ -1,8 +1,10 @@
 import React from 'react';
+import { BadgeCheck, CircleHelp, Merge, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import type { HifiSignalVerdict } from '../../types/hifi';
 import { openHifiSignalPath } from './hifiPanelStore';
 import { formatHifiBadge, verdictTone, type HifiVerdictTone } from './hifiSignalText';
-import { useHifiSignalPath } from './useHifiSignalPath';
+import { useHifiSignalPath, useHifiTrackDeferred } from './useHifiSignalPath';
 
 // src/components/hifi/HifiBadge.tsx
 // 播放胶囊进度条旁的 HiFi 小牌子：结论加输出格式，如「HiFi · 原生直通 · 96 kHz / 24 bit」，点一下打开信号链路面板。
@@ -25,16 +27,32 @@ const TONE_CLASS: Record<HifiVerdictTone, { day: string; night: string }> = {
     },
 };
 
+/** 最窄的小牌子只写 HiFi，结论靠这个图标（和信号链路面板顶上的同一套）。 */
+const VERDICT_ICON: Record<HifiSignalVerdict, LucideIcon> = {
+    'bit-perfect': BadgeCheck,
+    dop: BadgeCheck,
+    converted: TriangleAlert,
+    'shared-mixer': Merge,
+    unknown: CircleHelp,
+};
+
+/**
+ * 小牌子按所在那一行（@container）有多宽换长短，不看窗口宽度：胶囊最宽也就 32rem，窗口再宽这一行也只有三百来像素。
+ * 不到 24rem 只写图标加 HiFi，24–28rem 写「HiFi · 结论」，28rem 起才带上格式。读屏软件总是听到全称。
+ */
 const HifiBadge: React.FC<HifiBadgeProps> = ({ isDaylight = false, disabled = false }) => {
     const { t, i18n } = useTranslation();
     const path = useHifiSignalPath();
+    const deferred = useHifiTrackDeferred();
 
     if (!path) {
         return null;
     }
 
-    const { text, shortText } = formatHifiBadge(path, t, i18n.language);
+    const { text, shortText, chipText } = formatHifiBadge(path, t, i18n.language, { deferred });
     const tone = TONE_CLASS[verdictTone(path.verdict)][isDaylight ? 'day' : 'night'];
+    // 还没载入的曲目没有结论可画。
+    const Icon = deferred ? null : VERDICT_ICON[path.verdict];
 
     return (
         <button
@@ -47,13 +65,34 @@ const HifiBadge: React.FC<HifiBadgeProps> = ({ isDaylight = false, disabled = fa
                 event.stopPropagation();
                 openHifiSignalPath();
             }}
-            className={`shrink-0 whitespace-nowrap rounded-md px-1.5 py-0.5 text-[10px] font-semibold leading-4 tabular-nums transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${tone}`}
+            className={`flex min-w-0 items-center gap-1 overflow-hidden whitespace-nowrap rounded-md px-1.5 py-0.5 text-[10px] font-semibold leading-4 tabular-nums transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${tone}`}
         >
-            {/* 窄屏上进度条已经很短，只写结论。 */}
-            <span className="sm:hidden">{shortText}</span>
-            <span className="max-sm:hidden">{text}</span>
+            {Icon && <Icon size={11} strokeWidth={2.4} aria-hidden className="shrink-0 @sm:hidden" />}
+            <span className="truncate @sm:hidden">{chipText}</span>
+            <span className="hidden truncate @sm:block @md:hidden">{shortText}</span>
+            <span className="hidden truncate @md:block">{text}</span>
         </button>
     );
 };
+
+type HifiProgressRowProps = {
+    /** 这一行在胶囊网格里的位置，和 Web 路线那一行一样。 */
+    className: string;
+    isDaylight?: boolean;
+    disabled?: boolean;
+    /** 进度条（两头的时间加中间的条）。 */
+    children: React.ReactNode;
+};
+
+/**
+ * HiFi 路线上胶囊的进度行：进度条在前、小牌子在后。这一行是小牌子量宽度的容器；进度条至少留 10rem（两头的时间
+ * 共 88px，条本身至少 72px），小牌子在更窄的地方自己截断，挤不掉进度条。
+ */
+export const HifiProgressRow: React.FC<HifiProgressRowProps> = ({ className, isDaylight, disabled, children }) => (
+    <div className={`${className} @container flex items-center gap-2`}>
+        <div className="min-w-40 flex-1">{children}</div>
+        <HifiBadge isDaylight={isDaylight} disabled={disabled} />
+    </div>
+);
 
 export default HifiBadge;

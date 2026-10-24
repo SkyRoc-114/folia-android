@@ -197,6 +197,13 @@ const createContext = (overrides: CommandPaletteContextOverrides = {}): CommandP
             isHifiEnabled: () => false,
             isHifiVolumeConfirmed: () => false,
             setHifiEnabled: vi.fn(),
+            toggleHifiExclusive: vi.fn(),
+            toggleHifiNavidrome: vi.fn(),
+            toggleHifiSoftwareVolume: vi.fn(),
+            canRedetectHifiRuntime: () => true,
+            redetectHifiRuntime: vi.fn(async () => null),
+            canInstallHifiRuntime: () => false,
+            installHifiRuntime: vi.fn(async () => null),
         },
         visualizer: {
             visualizerMode: 'classic',

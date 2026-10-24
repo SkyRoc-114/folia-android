@@ -763,6 +763,11 @@ export default {
       "settings-audio-output": { "title": "Audio output", "description": "Jump to the audio output device and format settings" },
       "hifi-toggle": { "title": "HiFi bit-perfect output", "description": "Toggle playing local and Navidrome songs through mpv, straight to the output device" },
       "hifi-settings": { "title": "HiFi settings", "description": "Open the HiFi settings: mpv, output device, exclusive mode and DSD" },
+      "hifi-exclusive-toggle": { "title": "HiFi exclusive mode", "description": "Turn on or off whether HiFi takes the output device for itself, so the system mixer stays out of the way" },
+      "hifi-navidrome-toggle": { "title": "Navidrome through HiFi", "description": "Turn on or off playing Navidrome songs through HiFi, as the original file without transcoding" },
+      "hifi-software-volume-toggle": { "title": "HiFi software volume", "description": "Turn on or off letting Folia's volume slider set mpv's volume; not bit-perfect while on" },
+      "hifi-redetect-mpv": { "title": "Detect mpv again", "description": "Look for mpv again for HiFi, for example after installing or updating it" },
+      "hifi-download-mpv": { "title": "Download or update mpv", "description": "Download the recommended mpv for HiFi, or update the one Folia downloaded; the progress shows in the HiFi settings" },
       "hifi-signal-path": { "title": "HiFi signal path", "description": "Show how the current song reaches your DAC and whether it stays bit-perfect" },
       "settings-transition": { "title": "Smart transition", "description": "Jump to the FOLIA transition settings" },
       "settings-navidrome": { "title": "Navidrome server", "description": "Jump to the Navidrome server connection" },
@@ -4120,19 +4125,21 @@ export default {
       "device": "Output device",
       "deviceAuto": "System default",
       "deviceDirect": "direct",
-      "deviceDirectNote": "Devices marked direct are ALSA hw: devices. They skip PipeWire and PulseAudio, which makes them the bit-perfect path on Linux, but no other app can play sound on that device while Folia uses it.",
+      "deviceDirectNote": "Devices marked direct are ALSA hw: devices. mpv opens the sound card itself and skips PipeWire and PulseAudio, which is the bit-perfect path on Linux. While Folia plays to one, no other app can use that card, and while the sound server is playing on the card, the device is busy.",
+      "deviceLinuxHint": "For bit-perfect output, choose a device marked direct.",
       "devicesRefresh": "Refresh the device list",
       "devicesLoading": "Reading devices from mpv...",
       "devicesEmpty": "No output device was found.",
       "devicesNeedMpv": "The device list needs mpv.",
       "exclusive": "Exclusive mode",
       "exclusiveDesc": "Folia takes the device for itself, so the system mixer cannot resample or mix the sound. Meanwhile, other apps cannot play sound on that device.",
-      "exclusiveLinuxNote": "On Linux, exclusive mode only takes effect with a direct (hw:) device. Through PipeWire or PulseAudio the sound server still mixes and may resample.",
+      "exclusiveLinuxDesc": "On Linux this does not change the sound path. To skip PipeWire and PulseAudio, choose a device marked direct.",
+      "exclusiveLinuxNote": "mpv's PipeWire and PulseAudio outputs have no exclusive mode: the sound server mixes and may resample whether this is on or off. A direct (ALSA hw:) device is Folia's alone either way.",
       "dsdMode": "DSD output",
       "dsdModeDesc": "DoP sends DSD unchanged, packed in PCM frames.",
       "dsdPcm": "Convert to PCM",
       "dsdDop": "DoP",
-      "dopWarning": "Choose DoP only if your DAC supports it. A DAC without DoP plays it as loud full-scale noise.",
+      "dopWarning": "Choose DoP only if your DAC supports it. A DAC without DoP support plays it as a hiss instead of the music.",
       "dopPlatformNote": "DoP works only on Windows, in WASAPI exclusive mode, with an mpv newer than 0.41.0. Everywhere else DSD is converted to PCM.",
       "dopCapable": "This mpv can send DoP.",
       "dopNotCapable": "This mpv cannot send DoP (it needs a version newer than 0.41.0); DSD is converted to PCM.",
@@ -4152,11 +4159,14 @@ export default {
       "limitBypassed": "Bypassed features",
       "limitBypassedDesc": "For a song on HiFi, smart transitions (automix), the equalizer, sound effects, ReplayGain, fades and the spectrum are off.",
       "limitVideoExport": "No video export",
-      "limitVideoExportDesc": "Lyric video export needs the normal audio engine, so it is unavailable while a song plays through HiFi."
+      "limitVideoExportDesc": "Lyric video export needs the normal audio engine, so it is unavailable while a song plays through HiFi.",
+      "limitMediaControls": "No system media controls in exclusive mode",
+      "limitMediaControlsDesc": "While a song plays through HiFi in exclusive mode, the system media controls (SMTC on Windows, Now Playing on macOS, MPRIS on Linux) do not show or control Folia. In shared mode they keep working."
     },
     "player": {
       "badge": "HiFi · {{verdict}}",
       "badgeWithFormat": "HiFi · {{verdict}} · {{format}}",
+      "badgeChip": "HiFi",
       "badgeAria": "{{badge}}. Show the signal path",
       "signalPathTile": "Signal path: {{verdict}}",
       "volumeFixed": "Volume is controlled by your DAC or amplifier",
@@ -4186,8 +4196,11 @@ export default {
         "bitPerfect": "Every sample reaches your DAC exactly as it is in the file.",
         "dop": "The DSD stream is packed into PCM frames (DoP) and reaches your DAC unchanged.",
         "converted": "mpv changes the signal before it reaches the output. The steps marked Converted below say how.",
-        "sharedMixer": "The output device is shared with other apps, so the system mixer may resample or change the signal. Turn on exclusive mode in the HiFi settings, or on Linux choose a direct hw: device.",
-        "unknown": "mpv has not reported the output format yet."
+        "sharedMixer": "The output device is shared with other apps, so the system mixer may resample or change the signal. Turn on exclusive mode in the HiFi settings.",
+        "sharedMixerExclusiveOn": "Exclusive mode is on, but this output device does not support it, so the system mixer still handles the sound and may resample it. Choose another output device in the HiFi settings.",
+        "sharedMixerLinux": "PipeWire, PulseAudio or an ALSA plugin device mixes this output with other apps and may resample it. For bit-perfect output, choose a device marked direct (ALSA hw:) in the HiFi settings.",
+        "unknown": "mpv has not reported the output format yet.",
+        "notLoaded": "This song has not been loaded into mpv yet. The signal path is checked once it starts playing."
       },
       "stage": {
         "source": "Source file",
@@ -4221,13 +4234,14 @@ export default {
         "dop": "DSD packed into PCM frames (DoP), unchanged",
         "volume": "Software volume scales every sample ({{volume}})",
         "volumePlain": "Software volume scales every sample",
-        "sharedMixer": "Mixed by the system mixer (not exclusive)"
+        "sharedMixer": "Mixed by the system mixer, which may resample it"
       },
       "transportLocal": "Read byte for byte from your library through Folia's local bridge",
       "transportNavidrome": "The original file from Navidrome, not transcoded",
       "processBypassed": "No equalizer, effects, ReplayGain or volume change",
       "outputExclusive": "Exclusive mode",
-      "outputShared": "Shared mode"
+      "outputShared": "Shared mode",
+      "outputDirect": "Direct to the device, no sound server"
     },
     "errors": {
       "MPV_NOT_FOUND": "mpv was not found. Install it or choose it in the HiFi settings.",

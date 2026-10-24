@@ -25,6 +25,7 @@ export const O = {
     dopWindowsOnly: option(LIMITS, 'hifiLimitDop', 'hifi.settings.limitDop'),
     bypassed: option(LIMITS, 'hifiLimitBypassed', 'hifi.settings.limitBypassed'),
     videoExport: option(LIMITS, 'hifiLimitVideoExport', 'hifi.settings.limitVideoExport'),
+    mediaControls: option(LIMITS, 'hifiLimitMediaControls', 'hifi.settings.limitMediaControls'),
 };
 
 /** The desktop build's OS, from the preload; null on the web. */

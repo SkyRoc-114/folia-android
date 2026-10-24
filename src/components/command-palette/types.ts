@@ -29,6 +29,7 @@ import type { PonderHintVisibility } from '../../types/ponder';
 import type { LibraryWallLook } from '../../utils/libraryWallLook';
 import type { LibraryWallSeamStyle } from '../../utils/libraryWallSeamStyle';
 import type { LibraryWallSeamDirection } from '../../utils/libraryWallSeamDirection';
+import type { HifiInstallResult, HifiRuntimeStatus } from '../../types/hifi';
 
 // src/components/command-palette/types.ts
 // Shared command palette contracts used by the registry, hook, and UI shell.
@@ -427,6 +428,25 @@ export type CommandPaletteSettingsContext = {
      */
     isHifiVolumeConfirmed: () => boolean;
     setHifiEnabled: (enabled: boolean) => void;
+    /** The three HiFi switches without a warning of their own, flipped from what is stored at the press. */
+    toggleHifiExclusive: () => void;
+    toggleHifiNavidrome: () => void;
+    toggleHifiSoftwareVolume: () => void;
+    /**
+     * Whether "Detect mpv again" is offered: the engine exists and no mpv download is running, the
+     * same answer the HiFi page enables its button by. A getter: a download starts and ends without
+     * rebuilding this context.
+     */
+    canRedetectHifiRuntime: () => boolean;
+    /** Looks for mpv again; null when the main process did not answer. */
+    redetectHifiRuntime: () => Promise<HifiRuntimeStatus | null>;
+    /**
+     * Whether the download (or update) of mpv is offered: the HiFi page's own test (runtimeState.ts),
+     * which is false on Linux, while a download runs, and when the newest build is installed.
+     */
+    canInstallHifiRuntime: () => boolean;
+    /** Downloads and installs the recommended mpv; resolves once it is done, failed or cancelled. */
+    installHifiRuntime: () => Promise<HifiInstallResult | null>;
 };
 
 /**

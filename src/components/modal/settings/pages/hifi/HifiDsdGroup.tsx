@@ -10,7 +10,7 @@ import { DSD, HIFI_PLATFORM, O } from './options';
 // src/components/modal/settings/pages/hifi/HifiDsdGroup.tsx
 // The DSD group of the HiFi page: convert DSD to PCM, or send it as DoP. DoP is offered only on
 // Windows (WASAPI exclusive, mpv newer than 0.41.0), and the warning about DACs without DoP stays
-// on the card whichever is chosen: such a DAC plays DoP as full-scale noise.
+// on the card whichever is chosen: such a DAC plays DoP as a hiss instead of the music.
 
 const IS_WINDOWS = HIFI_PLATFORM === 'win32';
 
@@ -25,6 +25,7 @@ export const HifiDsdGroup: React.FC = () => {
     })));
     // null until the runtime has been asked for.
     const dopCapable = useHifiEngineStore(state => state.runtime?.dopCapable ?? null);
+    const supported = useHifiEngineStore(state => state.supported);
     const isDop = settings.dsdMode === 'dop';
 
     const options: ReadonlyArray<{ value: HifiDsdMode; label: string; disabled?: boolean }> = [
@@ -47,7 +48,7 @@ export const HifiDsdGroup: React.FC = () => {
 
     return (
         <Group def={DSD}>
-            <Row option={O.dsdMode} hint={t('hifi.settings.dsdModeDesc')} note={t('hifi.settings.dopPlatformNote')}>
+            <Row option={O.dsdMode} hint={t('hifi.settings.dsdModeDesc')} note={t('hifi.settings.dopPlatformNote')} disabled={!supported}>
                 <Segmented value={settings.dsdMode} options={options} onChange={settings.setDsdMode} />
             </Row>
             <Row notice={t('hifi.settings.dopWarning')} />
