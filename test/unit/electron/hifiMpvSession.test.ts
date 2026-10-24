@@ -812,6 +812,23 @@ describe('mpv session: gapless', () => {
         expect(harness.bridge.revoke).not.toHaveBeenCalledWith('tok2');
     });
 
+    it('the switch does not carry the previous song\'s duration; an equal one mpv does not push again is read on playback-restart', async () => {
+        const harness = createHarness();
+        await loadAndStart(harness, localRequest('local:a#1'), 1);
+        const mpv = harness.mpv();
+        mpv.prop('duration', 240);
+        await harness.session.preloadNext(localRequest('local:b#2'));
+        mpv.event('end-file', { reason: 'eof', playlist_entry_id: 1 });
+        mpv.event('start-file', { playlist_entry_id: 2 });
+        await flush();
+        expect(harness.lastState()).toMatchObject({ trackKey: 'local:b#2', durationSec: null });
+
+        mpv.props.duration = 240;
+        mpv.event('playback-restart');
+        await flush();
+        expect(harness.lastState()).toMatchObject({ trackKey: 'local:b#2', durationSec: 240 });
+    });
+
     it('replacing a queued song removes the old entry by playlist index; clearNext removes and revokes', async () => {
         const harness = createHarness();
         await loadAndStart(harness, localRequest('local:a#1'), 1);
@@ -877,6 +894,39 @@ describe('mpv session: gapless', () => {
         mpv.answer(mpv.requests.filter(request => request.command[0] === 'loadfile').at(-1)!);
         expect(await appended).toBe(true);
         expect(mpv.commands('set_property').at(-1)).toEqual(['set_property', 'pause', true]);
+    });
+
+    it('clearNext racing the switch: mpv starts the entry being removed, the song reports ended and keeps its own clock', async () => {
+        const harness = createHarness();
+        await loadAndStart(harness, localRequest('local:a#1'), 1);
+        const mpv = harness.mpv();
+        mpv.prop('duration', 4);
+        mpv.prop('time-pos', 3.9);
+        expect(await harness.session.preloadNext(localRequest('local:b#2'))).toBe(true);
+        mpv.props.playlist = [{ id: 1, current: true, playing: true }, { id: 2 }];
+        // The removal is still on its way when mpv moves on: it plays the entry being removed.
+        mpv.silent.add('playlist-remove');
+        const clearing = harness.session.clearNext();
+        await flush();
+        harness.clocks.length = 0;
+        mpv.event('end-file', { reason: 'eof', playlist_entry_id: 1 });
+        mpv.event('start-file', { playlist_entry_id: 2 });
+        mpv.prop('duration', 6);
+        mpv.prop('time-pos', 0.2);
+        await flush();
+
+        expect(harness.lastState()).toMatchObject({ status: 'ended', trackKey: 'local:a#1', next: null, durationSec: 4 });
+        expect(harness.clocks.filter(update => update.positionSec < 3.9)).toEqual([]);
+        expect(await harness.session.preloadNext(localRequest('local:c#3'))).toBe(false);
+
+        // The removal lands: mpv stops the removed entry and goes idle; the song stays ended.
+        mpv.answer(mpv.requests.filter(request => request.command[0] === 'playlist-remove').at(-1)!);
+        await clearing;
+        mpv.event('end-file', { reason: 'stop', playlist_entry_id: 2 });
+        mpv.event('idle');
+        await flush();
+        expect(harness.lastState()).toMatchObject({ status: 'ended', trackKey: 'local:a#1' });
+        expect(harness.bridge.revoke).toHaveBeenCalledWith('tok2');
     });
 
     it('a new load drops the queued song too (replace clears the playlist)', async () => {

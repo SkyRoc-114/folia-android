@@ -10,18 +10,21 @@ import path from 'node:path';
  * 用真的 mpv 跑一遍 HiFi 主进程那几块（electron/hifi/mpvSession.cjs + sourceBridge.cjs），不起 Electron：
  * 渲染端换成进程内的假实现，按 sourceKey 直接从磁盘读字节回给来源桥；输出用 --ao=null，不出声。
  *
- * 走一遍：载入 → 等到在放 → 看时钟节流 → 跳转 → 暂停 / 继续 → stop（输出关掉）→ 无缝接下一首 → 短文件放到底
- * （ended，之后预载被拒）→ 源读不出时的错误码 → 源在播放途中断掉（报错而不是 ended）→ killSync 之后不再拉起；
- * 每步打印 HifiEngineState 里的 audioParams / audioOutParams / track。
+ * 走一遍：载入 → 等到在放 → 看时钟节流 → 跳转 → 暂停 / 继续 → stop（输出关掉）→ 无缝接下一首（第一首没有 ended，
+ * 两首格式不同时输出按新格式重开，上一首的令牌撤掉）→ 新的载入（replace）丢掉预载项 → clearNext 撤掉预载项、第一首照常放到底
+ * → clearNext 和换曲撞在一起（把 playlist-remove 压住 1.5 秒）→ 短文件放到底（ended，之后预载被拒）→ 源读不出时的错误码
+ * → 源在播放途中断掉（报错而不是 ended）→ killSync 之后不再拉起；每步打印 HifiEngineState 里的 audioParams / audioOutParams / track。
  *
  * 用法：
- *   node test/manual/hifiMpvSmoke.mjs <第一首，如 96k/24 FLAC> <第二首，如 DSD64 .dsf> [--mpv /usr/bin/mpv]
+ *   node test/manual/hifiMpvSmoke.mjs <第一首，如 44.1k/16 FLAC> <第二首，如 96k/24 FLAC 或 DSD64 .dsf> [--mpv /usr/bin/mpv]
+ * 两首格式不同（采样率不同）时才看得出换曲时输出重开。
  *
  * 退出码 0 表示每一步都符合预期；不符合的步骤打 FAIL 并以 1 退出。
  */
 
 const require = createRequire(import.meta.url);
 const { createMpvSession } = require('../../electron/hifi/mpvSession.cjs');
+const { createMpvIpcClient } = require('../../electron/hifi/mpvIpcClient.cjs');
 const { createSourceBridge } = require('../../electron/hifi/sourceBridge.cjs');
 
 const parseArgs = () => {
@@ -75,6 +78,39 @@ const requestRead = async (_ownerId, { sourceKey, offset, length }) => {
 const quiet = () => {};
 // 块小一点，源中途断掉那一步才断在文件中间。
 const bridge = createSourceBridge({ requestRead, chunkSize: 64 * 1024, unknownSourceGiveUpMs: 600, logInfo: quiet });
+// 每个 sourceKey 在桥上的地址：令牌撤掉以后这个地址回 404。
+const bridgeUrls = new Map();
+const registerLocal = bridge.registerLocal;
+bridge.registerLocal = (source) => {
+    const registered = registerLocal(source);
+    bridgeUrls.set(source.sourceKey, registered.url);
+    return registered;
+};
+const bridgeStatus = async (sourceKey) => {
+    const url = bridgeUrls.get(sourceKey);
+    if (!url) return null;
+    const response = await fetch(url, { method: 'HEAD' });
+    return response.status;
+};
+
+// 会话用的 IPC 客户端：留一份给脚本直接问 mpv（播放列表），playlist-remove 可以压住一会儿，让 clearNext 和换曲撞在一起。
+let mpvClient = null;
+let holdPlaylistRemoveMs = 0;
+const createIpcClient = (options) => {
+    const client = createMpvIpcClient(options);
+    mpvClient = client;
+    return {
+        ...client,
+        command: async (args) => {
+            if (holdPlaylistRemoveMs > 0 && args[0] === 'playlist-remove') await sleep(holdPlaylistRemoveMs);
+            return client.command(args);
+        },
+    };
+};
+const mpvPlaylist = async () => {
+    const playlist = await mpvClient.command(['get_property', 'playlist']);
+    return Array.isArray(playlist) ? playlist : [];
+};
 
 let lastState = null;
 const stateWaiters = new Set();
@@ -91,6 +127,7 @@ const session = createMpvSession({
     platform: process.platform,
     resolveRuntime: async () => ({ path: mpvPath, version: null }),
     bridge,
+    createIpcClient,
     ao: 'null',
     idleExitMs: 60000,
     onState: state => {
@@ -206,20 +243,93 @@ try {
     await sleep(200);
     check(idle.trackKey === null && lastState.currentAo === null && lastState.audioOutParams === null, `stop closes the output (ao=${lastState.currentAo})`);
 
+    const firstDuration = playing.durationSec ?? 4;
     console.log(`${stamp()} --- gapless: ${path.basename(first)} near its end, then ${path.basename(second)}`);
-    const nearEnd = requestFor(first, { startSec: Math.max(0, (playing.durationSec ?? 4) - 1.2) });
+    const nearEnd = requestFor(first, { startSec: Math.max(0, firstDuration - 1.5) });
     const nearEndLoad = await session.load(nearEnd, { ownerId: 1 });
     check(nearEndLoad.ok === true, 'near-end load resolves ok');
+    const firstOut = (await waitForState(state => state.trackKey === nearEnd.trackKey && state.audioOutParams !== null, 'first output')).audioOutParams;
     const queued = requestFor(second);
+    statusLog.length = 0;
+    clockLog.length = 0;
+    const preloadedAt = Date.now();
+    const remainingSec = firstDuration - lastState.positionSec;
     const preloaded = await session.preloadNext(queued, { ownerId: 1 });
     check(preloaded === true, 'preloadNext appends the second track');
     check(lastState.next?.trackKey === queued.trackKey || lastState.trackKey === queued.trackKey, 'state shows the queued track');
+    const queuedPlaylist = await mpvPlaylist();
+    check(queuedPlaylist.length === 2 || lastState.trackKey === queued.trackKey, `mpv's playlist holds both entries (${queuedPlaylist.length})`);
     const switched = await waitForState(state => state.trackKey === queued.trackKey, 'gapless switch', 6000);
     check(switched.trackKey === queued.trackKey && switched.next === null, 'start-file of the queued entry makes it current');
-    // 换到 DSD 时 mpv 要重开输出，track-list 的回复会晚几百毫秒。
+    check(!statusLog.some(entry => entry.trackKey === nearEnd.trackKey && entry.status === 'ended'), 'the first track never reports ended at the switch');
+    const firstQueuedClock = clockLog.find(update => update.trackKey === queued.trackKey);
+    check(firstQueuedClock?.reason === 'load' && firstQueuedClock.positionSec < 0.1,
+        `the first clock of the queued track is a load at 0 (${firstQueuedClock ? `${firstQueuedClock.reason} ${firstQueuedClock.positionSec.toFixed(3)}` : 'none'})`);
+    // start-file 在上一首解码完时就到，那时输出里还缓冲着它最后几百毫秒（mpv 换格式前先把它放完）：换曲比听到的早这么多。
+    const switchedAfterSec = (Date.now() - preloadedAt) / 1000;
+    check(switchedAfterSec >= remainingSec - 0.6 && switchedAfterSec <= remainingSec + 0.6,
+        `the switch comes at the first track's end, not at the preload (${remainingSec.toFixed(2)} s left, switched after ${switchedAfterSec.toFixed(2)} s)`);
+    // 换格式（如 44.1k → 96k，或换到 DSD）时 mpv 要重开输出，track-list 的回复会晚几百毫秒。
     await waitForState(state => state.trackKey === queued.trackKey && state.track !== null
         && state.audioOutParams?.samplerate === state.audioParams?.samplerate, 'second format', 4000);
     printFormat('second track format (after gapless switch)', lastState);
+    check(switched.durationSec === null || switched.durationSec === lastState.durationSec,
+        `the first state of the queued track does not carry the previous track's duration (${switched.durationSec}, then ${lastState.durationSec})`);
+    check(typeof lastState.durationSec === 'number' && lastState.durationSec > 0, `the queued track's duration is known (${lastState.durationSec})`);
+    if (firstOut && lastState.audioParams && firstOut.samplerate !== lastState.audioParams.samplerate) {
+        check(lastState.audioOutParams?.samplerate === lastState.audioParams.samplerate,
+            `the output reopened at the new format (${firstOut.samplerate} Hz -> ${lastState.audioOutParams?.samplerate} Hz, no resampling)`);
+    }
+    check(await bridgeStatus(nearEnd.source.sourceKey) === 404, 'the first track\'s bridge token is revoked after the switch');
+    check(await bridgeStatus(queued.source.sourceKey) === 200, 'the queued track\'s bridge token stays live');
+
+    console.log(`${stamp()} --- a new load (replace) drops an appended entry`);
+    const base = requestFor(first);
+    check((await session.load(base, { ownerId: 1 })).ok === true, 'load resolves ok');
+    const dropped = requestFor(second);
+    check(await session.preloadNext(dropped, { ownerId: 1 }) === true, 'preloadNext appends');
+    check((await mpvPlaylist()).length === 2, 'mpv\'s playlist holds both entries');
+    const replacing = requestFor(first, { startSec: 1 });
+    statusLog.length = 0;
+    const replaced = await session.load(replacing, { ownerId: 1 });
+    check(replaced.ok === true && replaced.state.next === null, 'the replacing load resolves with no next entry');
+    const replacedPlaylist = await mpvPlaylist();
+    check(replacedPlaylist.length === 1 && replacedPlaylist[0].filename === bridgeUrls.get(replacing.source.sourceKey),
+        `mpv's playlist holds only the new entry (${replacedPlaylist.length})`);
+    check(await bridgeStatus(dropped.source.sourceKey) === 404, 'the dropped entry\'s bridge token is revoked');
+    await sleep(500);
+    check(lastState.next === null && !statusLog.some(entry => entry.trackKey === dropped.trackKey), 'the session forgot the dropped entry');
+
+    console.log(`${stamp()} --- clearNext drops the appended entry; the song then ends on its own`);
+    const clearBase = requestFor(first, { startSec: Math.max(0, firstDuration - 1.2) });
+    check((await session.load(clearBase, { ownerId: 1 })).ok === true, 'near-end load resolves ok');
+    const cleared = requestFor(second);
+    check(await session.preloadNext(cleared, { ownerId: 1 }) === true, 'preloadNext appends');
+    statusLog.length = 0;
+    await session.clearNext();
+    check((await mpvPlaylist()).length === 1, 'mpv\'s playlist is back to one entry');
+    check(await bridgeStatus(cleared.source.sourceKey) === 404, 'the cleared entry\'s bridge token is revoked');
+    const clearedEnd = await waitForState(state => state.trackKey === clearBase.trackKey && state.status === 'ended', 'ended after clearNext', 4000);
+    check(clearedEnd.status === 'ended' && !statusLog.some(entry => entry.trackKey === cleared.trackKey), 'the song ends without switching to the cleared entry');
+
+    console.log(`${stamp()} --- clearNext racing the switch: playlist-remove held back 1.5 s`);
+    const raceBase = requestFor(first, { startSec: Math.max(0, firstDuration - 0.6) });
+    check((await session.load(raceBase, { ownerId: 1 })).ok === true, 'near-end load resolves ok');
+    const raced = requestFor(second);
+    check(await session.preloadNext(raced, { ownerId: 1 }) === true, 'preloadNext appends');
+    statusLog.length = 0;
+    clockLog.length = 0;
+    holdPlaylistRemoveMs = 1500;
+    const clearing = session.clearNext();
+    const raceEnd = await waitForState(state => state.trackKey === raceBase.trackKey && state.status === 'ended', 'ended while the removal is held back', 3000);
+    check(raceEnd.status === 'ended', `mpv moved past the song while its next entry was being removed: reported ${raceEnd.status}`);
+    await clearing;
+    holdPlaylistRemoveMs = 0;
+    await sleep(300);
+    check(!statusLog.some(entry => entry.trackKey === raced.trackKey), 'the entry being removed never becomes current');
+    const rewound = clockLog.filter(update => update.trackKey === raceBase.trackKey && update.positionSec < raceBase.startSec - 0.05);
+    check(rewound.length === 0, `the song's clock does not run on the removed entry's position (${rewound.length} pushes below ${raceBase.startSec.toFixed(2)})`);
+    check(lastState.status === 'ended' && lastState.trackKey === raceBase.trackKey, `still ended after the removal (${lastState.status})`);
 
     console.log(`${stamp()} --- eof on a short file: ${path.basename(second)} from near its end`);
     const tail = requestFor(second, { startSec: Math.max(0, (lastState.durationSec ?? 4) - 0.8) });
@@ -243,9 +353,12 @@ try {
     const unknownLoad = await session.load(unknown, { ownerId: 1 });
     check(unknownLoad.ok === false, `unknown source fails with ${unknownLoad.ok ? 'ok' : unknownLoad.errorCode}`);
 
-    console.log(`${stamp()} --- source that breaks off mid-play: ${path.basename(first)} fails from byte 256 KiB`);
-    const midway = requestFor(first);
-    failFromOffset.set(midway.source.sourceKey, 256 * 1024);
+    // 断在大的那个文件里：一个几十 KB 的短文件在第一块里就读完了，断不到中间。
+    const midwayFile = statSync(first).size >= statSync(second).size ? first : second;
+    const breakAt = Math.min(256 * 1024, Math.floor(statSync(midwayFile).size / 3));
+    console.log(`${stamp()} --- source that breaks off mid-play: ${path.basename(midwayFile)} fails from byte ${breakAt}`);
+    const midway = requestFor(midwayFile);
+    failFromOffset.set(midway.source.sourceKey, breakAt);
     errorLog.length = 0;
     statusLog.length = 0;
     clockLog.length = 0;

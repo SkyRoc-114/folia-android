@@ -290,7 +290,8 @@ describe('conversions and stage notes', () => {
     it('names the software volume and the channel remix', () => {
         const path = buildSignalPath(
             pcmSpec(24, 48000),
-            engine({ volume: 72, audioParams: params('float', 48000, 6), audioOutParams: params('float', 48000, 2) }),
+            // 应用音量 72% 时 mpv 的 volume 是它的立方根乘 100；链路上写的是应用音量。
+            engine({ volume: Math.cbrt(0.72) * 100, audioParams: params('float', 48000, 6), audioOutParams: params('float', 48000, 2) }),
             { ...settings, softwareVolume: true, volume: 72 },
         );
         expect(describeConversion('volume', path, t, 'en')).toBe('Software volume scales every sample (72%)');

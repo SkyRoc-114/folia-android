@@ -133,6 +133,12 @@ const isSharedOutput = (ao: string | null, device: string | null, exclusive: boo
     return true;
 };
 
+/**
+ * mpv 的 volume 按三次方曲线换成增益，下发的是应用音量的立方根乘 100（selectHifiEngineConfig）：应用 50% 时 mpv 是 79.37。
+ * 链路上显示的是听的人调的应用音量，即 (v/100)³·100，取整。
+ */
+const appVolumePercent = (mpvVolume: number) => Math.round(((mpvVolume / 100) ** 3) * 100);
+
 const outputDetail = (ao: string | null, device: string | null): string | null => {
     if (!ao) return device;
     if (!device || device === 'auto') return ao;
@@ -209,7 +215,7 @@ export const buildSignalPath = (
         status: volumeApplied ? 'converted' : 'bypassed',
         conversions: processConversions,
         format: null,
-        detail: volumeApplied ? `${Math.round(mpvState.volume)}%` : null,
+        detail: volumeApplied ? `${appVolumePercent(mpvState.volume)}%` : null,
     };
 
     const outputConversions: HifiSignalConversion[] = [];

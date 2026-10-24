@@ -3,18 +3,15 @@ import type { MutableRefObject } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { PlayerState } from '../../types';
-import type { SongResult, StageLoopMode } from '../../types';
-import type { NextTrackOptions, PlaybackNavigationOptions } from '../../types/appPlayback';
+import type { StageLoopMode } from '../../types';
+import type { NextTrackOptions } from '../../types/appPlayback';
 import type { HifiErrorCode, HifiPlaybackStatus } from '../../types/hifi';
-import { currentTime } from '../../stores/motionSignals';
 import { useAudioSettingsStore } from '../../stores/useAudioSettingsStore';
 import { selectHifiEngineConfig, useHifiSettingsStore } from '../../stores/useHifiSettingsStore';
-import { setDuration, setPlayerState, startLoadingToPlay, usePlaybackStore } from '../../stores/usePlaybackStore';
+import { setDuration, setPlayerState, usePlaybackStore } from '../../stores/usePlaybackStore';
 import { setStatusMessage } from '../../stores/useStatusMessageStore';
 import { hifiEngine, useHifiEngineStore } from '../../services/hifi/hifiEngine';
-import { hifiMediaShim } from '../../services/hifi/hifiMediaShim';
 import {
-    getHifiPosition,
     hifiPlaybackClock,
     hifiTransport,
     installHifiPlayback,
@@ -23,15 +20,29 @@ import {
     useHifiTrackStore,
     type HifiTrack,
 } from '../../services/hifi/hifiPlayback';
-import { getPlaybackSongKey } from '../../utils/appPlaybackGuards';
+import {
+    armQueueEndReplay,
+    bindHifiPlayIntent,
+    clearQueueEndReplay,
+    isHifiTrackStarted,
+    markHifiTrackStarted,
+    moveHifiTrackToWeb,
+    spendHifiPlayIntent,
+    type HifiPlaySong,
+} from './hifiRouteTransport';
+import { useHifiGaplessPreload } from './useHifiGaplessPreload';
 
 // src/components/hifi/useHifiPlaybackBridge.ts
 // HiFi 路线在 React 这一侧的接线：装上推送驱动、把设置和循环推给主进程、载入就绪后自动播放、引擎状态写回播放 store、
-// 放完换下一首（队尾放开设备）、失败或关掉 HiFi 时让这首在 Web 引擎上接着放。传输控制和跳转用的两个函数也在这里。
+// 放完换下一首（队尾放开设备）、失败或关掉 HiFi 时让这首在 Web 引擎上接着放。
+// 传输控制和跳转用的两个函数，连同播放意图和队尾重放，在 hifiRouteTransport；那两个函数经这里导出。
+// 无缝接播（预载下一首、mpv 接上后换过去）在 useHifiGaplessPreload，由这里挂上。
+
+export { resumeHifiPlayback, seekHifiRoute } from './hifiRouteTransport';
 
 type UseHifiPlaybackBridgeParams = {
     handleNextTrack: (options?: NextTrackOptions) => Promise<void> | void;
-    playSong: (song: SongResult, queue?: SongResult[], isFmCall?: boolean, options?: PlaybackNavigationOptions) => Promise<void> | void;
+    playSong: HifiPlaySong;
     /** 起播时记下的“载入好就播”；自动播放用掉它，和 Web 引擎的自动播放是同一个 ref。 */
     shouldAutoPlayRef: MutableRefObject<boolean>;
     isLyricsLoading: boolean;
@@ -39,23 +50,8 @@ type UseHifiPlaybackBridgeParams = {
     isFmMode: boolean;
 };
 
-// 队尾停掉 mpv 之后，这一首再按播放要重放（mpv 里已经没有它了）：停的时候记下怎么重放；之后的跳转只改重放的起点。
-let queueEndReplay: { trackKey: string; startAtSec: number; replay: (startAtSec: number) => void } | null = null;
 // 熔断的提示整个会话只弹一次：之后的歌都走 Web 引擎，不会再有 HiFi 的失败。
 let circuitToastShown = false;
-// 桥挂载时交来的播放意图（和 Web 引擎的自动播放是同一个 ref），以及已经开播过（或恢复时决定停着）的那一首：
-// 模块级的 resumeHifiPlayback / seekHifiRoute 也要用掉或补上这份意图。
-const intent: { ref: MutableRefObject<boolean> | null; startedTrackKey: string | null } = { ref: null, startedTrackKey: null };
-
-/**
- * 这一首第一次开播了（不管是谁按的）：用掉播放意图，之后歌词载完时的自动播放不会再把听的人按下的暂停顶掉。
- * 已经开播过的那一首再开播不碰意图：那时的意图（如果有）是之后一次播放的，比如正在取地址的在线歌曲。
- */
-const spendPlayIntent = (trackKey: string) => {
-    if (intent.startedTrackKey === trackKey) return;
-    if (intent.ref) intent.ref.current = false;
-    intent.startedTrackKey = trackKey;
-};
 
 const showCircuitOpenToast = (t: TFunction) => {
     if (circuitToastShown) return;
@@ -66,80 +62,6 @@ const showCircuitOpenToast = (t: TFunction) => {
 const isValidDuration = (durationSec: number | null): durationSec is number => (
     typeof durationSec === 'number' && Number.isFinite(durationSec) && durationSec > 0
 );
-
-/** 队尾停掉 mpv 后还等着重放的那一首，是当前曲目时才算。 */
-const pendingQueueEndReplay = (trackKey: string | null | undefined) => (
-    queueEndReplay && queueEndReplay.trackKey === trackKey ? queueEndReplay : null
-);
-
-/**
- * HiFi 路线上的“播放”。平常是让 mpv 接着放。队尾停掉 mpv 之后再按，交给 playSong 重放这一首：从头，或从停下后跳到的位置
- * （Web 引擎放完再按也是这样）。恢复时还没载入的那一首，这时才载入，载入好由自动播放开播。
- * 返回 true 表示接着放了，调用方照常把状态写成 PLAYING；false 表示状态由别处写（playSong，或载入好之后的自动播放）。
- */
-export const resumeHifiPlayback = (): boolean => {
-    const { current, loadState } = useHifiTrackStore.getState();
-    const pending = pendingQueueEndReplay(current?.trackKey);
-    if (pending) {
-        queueEndReplay = null;
-        pending.replay(pending.startAtSec);
-        return false;
-    }
-    if (current && loadState === 'deferred') {
-        if (intent.ref) intent.ref.current = true;
-        intent.startedTrackKey = null;
-        startLoadingToPlay();
-        void loadDeferredHifiTrack();
-        return false;
-    }
-    if (current) spendPlayIntent(current.trackKey);
-    void hifiTransport.resume();
-    return true;
-};
-
-/**
- * HiFi 路线上的跳转；不在 HiFi 路线上时返回 false，调用方走原来的路。进度条的 motion value 当场设好。
- * resume 为 true 时（进度条、歌词行点按，即 seekMainAudio）停着的歌顺带开始播，和它对 <audio> 的做法一样；方向键和遥控器的跳转不带它。
- * mpv 里没有这一首时（队尾停掉了，或恢复时还没载入）不发给 mpv：时钟停到目标，重放或载入从那里开始；没载入的那一首跳一下就载入。
- */
-export const seekHifiRoute = (timeSec: number, { resume = false }: { resume?: boolean } = {}): boolean => {
-    if (!isHifiRoute()) return false;
-    if (!Number.isFinite(timeSec)) return true;
-    const target = Math.max(0, timeSec);
-    const { current, loadState } = useHifiTrackStore.getState();
-    const pending = pendingQueueEndReplay(current?.trackKey);
-    if (pending || loadState === 'deferred') {
-        hifiPlaybackClock.sync({ positionSec: target, paused: true });
-        hifiMediaShim.markSeeked();
-        if (pending) pending.startAtSec = target;
-        else if (!resume) void loadDeferredHifiTrack();
-    } else {
-        void hifiTransport.seek(target);
-    }
-    currentTime.set(target);
-    if (resume && hifiTransport.isPaused() && resumeHifiPlayback()) setPlayerState(PlayerState.PLAYING);
-    return true;
-};
-
-/** 这首歌在当前 store 里的那个对象（同一首歌恢复或补全过信息后是另一个对象），不是当前歌时用起播时的那个。 */
-const liveSongOf = (track: HifiTrack): SongResult => {
-    const song = usePlaybackStore.getState().currentSong;
-    return song && getPlaybackSongKey(song) === track.songKey ? song : track.song;
-};
-
-/**
- * 让 playSong 再放这一首，按当前的队列和私人 FM，不跳到播放页。路线由它照常判：失败回落时这首已记成 forcedWeb、关掉 HiFi 时
- * 设置已经不让，都会走 Web 引擎；队尾重放时多半还是 HiFi。
- */
-const replayOnPlaySong = (
-    playSong: UseHifiPlaybackBridgeParams['playSong'],
-    track: HifiTrack,
-    label: string,
-    options: PlaybackNavigationOptions = {},
-) => {
-    Promise.resolve(playSong(liveSongOf(track), [], usePlaybackStore.getState().isFmMode, { shouldNavigateToPlayer: false, ...options }))
-        .catch(error => console.warn(`[HiFi] ${label} failed`, error));
-};
 
 // 挂在 App 里一次。每帧的值不经这里：时钟由 hifiPlayback 驱动，可视化桥逐帧读它。
 export function useHifiPlaybackBridge({
@@ -155,6 +77,7 @@ export function useHifiPlaybackBridge({
     const playbackRoute = usePlaybackStore(state => state.playbackRoute);
     const trackKey = useHifiTrackStore(state => state.current?.trackKey ?? null);
     const loadState = useHifiTrackStore(state => state.loadState);
+    const promotedByGapless = useHifiTrackStore(state => state.current?.promotedByGapless === true);
     const volume = useAudioSettingsStore(state => state.volume);
     const isMuted = useAudioSettingsStore(state => state.isMuted);
     const mpvPath = useHifiSettingsStore(state => state.mpvPath);
@@ -171,17 +94,13 @@ export function useHifiPlaybackBridge({
     });
 
     // 排在自动播放之前：同一次提交里它先拿到意图的 ref。
-    useEffect(() => {
-        intent.ref = shouldAutoPlayRef;
-        return () => {
-            intent.ref = null;
-            intent.startedTrackKey = null;
-        };
-    }, [shouldAutoPlayRef]);
+    useEffect(() => bindHifiPlayIntent(shouldAutoPlayRef), [shouldAutoPlayRef]);
 
     useEffect(() => {
         installHifiPlayback();
     }, []);
+
+    useHifiGaplessPreload({ handleNextTrack, playSong, loopMode: effectiveLoopMode, isFmMode });
 
     // 应用音量原样交给选择器（它换成 mpv 的音量曲线），静音单独下发。和上一次一样的配置 hifiEngine.configure 自己会跳过，
     // 音量拖动时不会每一下都走 IPC。
@@ -208,30 +127,35 @@ export function useHifiPlaybackBridge({
     // 恢复时延后载入的那一首：有意图就现在载入（载入好了再走这里开播），没有就摆成停着的样子，等第一次播放或跳转。
     useEffect(() => {
         if (playbackRoute !== 'hifi' || !trackKey) return;
+        // mpv 无缝接上的那一首已经在放：意图归之后认领它的那次 playSong（见 useHifiGaplessPreload），这里只记成开播过。
+        if (promotedByGapless) {
+            markHifiTrackStarted(trackKey);
+            return;
+        }
         if (loadState === 'deferred') {
             if (shouldAutoPlayRef.current) {
                 void loadDeferredHifiTrack();
                 return;
             }
-            if (intent.startedTrackKey === trackKey) return;
-            intent.startedTrackKey = trackKey;
+            if (isHifiTrackStarted(trackKey)) return;
+            markHifiTrackStarted(trackKey);
             const durationSec = hifiPlaybackClock.state().durationSec;
             if (isValidDuration(durationSec) && usePlaybackStore.getState().duration !== durationSec) setDuration(durationSec);
             setPlayerState(PlayerState.PAUSED);
             return;
         }
-        if (loadState !== 'ready' || intent.startedTrackKey === trackKey) return;
+        if (loadState !== 'ready' || isHifiTrackStarted(trackKey)) return;
         if (shouldAutoPlayRef.current) {
             if (isLyricsLoading) return;
-            spendPlayIntent(trackKey);
+            spendHifiPlayIntent(trackKey);
             void hifiTransport.resume();
             setPlayerState(PlayerState.PLAYING);
             return;
         }
-        intent.startedTrackKey = trackKey;
+        markHifiTrackStarted(trackKey);
         // 接管窗口重建前还在放的那首时，它可能本来就在放。
         setPlayerState(hifiTransport.isPaused() ? PlayerState.PAUSED : PlayerState.PLAYING);
-    }, [isLyricsLoading, loadState, playbackRoute, shouldAutoPlayRef, trackKey]);
+    }, [isLyricsLoading, loadState, playbackRoute, promotedByGapless, shouldAutoPlayRef, trackKey]);
 
     // 引擎状态 → 播放 store、放完、失败。只在当前曲目的状态翻转时动作，同一状态的重复推送（音频参数变了之类）不动。
     useEffect(() => {
@@ -240,20 +164,8 @@ export function useHifiPlaybackBridge({
         let handedOverTrackKey: string | null = null;
         let endedTrackKey: string | null = null;
 
-        /**
-         * 把这一首挪到 Web 引擎上接着放：从 HiFi 现在的位置开始（队尾停下之后是重放的起点），在放或正要开播就接着放，
-         * 停着就停着；不再弹“已载入”，挪走的原因那条提示留着。
-         */
-        const moveToWeb = (track: HifiTrack, label: string) => {
-            const pending = pendingQueueEndReplay(track.trackKey);
-            if (pending) queueEndReplay = null;
-            const playing = usePlaybackStore.getState().playerState === PlayerState.PLAYING || !hifiMediaShim.paused;
-            replayOnPlaySong(latestRef.current.playSong, track, label, {
-                startAtSec: pending ? pending.startAtSec : getHifiPosition(),
-                autoplay: !pending && (intent.ref?.current === true || playing),
-                quietLoadedToast: true,
-            });
-        };
+        // 挪到 Web 引擎时用的是那一刻最新的 playSong。
+        const moveToWeb = (track: HifiTrack, label: string) => moveHifiTrackToWeb(latestRef.current.playSong, track, label);
 
         /**
          * 回落：提示一次、记下这首本次会话走 Web，再让它在 Web 引擎上接着放。那之后又开始了一次播放（点了别的歌、换了下一首）
@@ -282,16 +194,7 @@ export function useHifiPlaybackBridge({
             // 有下一首时 handleNextTrack 不等它载入就返回，那时曲目还是这一首；队尾的 stopAtQueueEnd 才把状态写成 IDLE。
             if (!isHifiRoute() || useHifiTrackStore.getState().current?.trackKey !== track.trackKey) return;
             if (usePlaybackStore.getState().playerState !== PlayerState.IDLE) return;
-            queueEndReplay = {
-                trackKey: track.trackKey,
-                startAtSec: 0,
-                replay: startAtSec => replayOnPlaySong(
-                    latestRef.current.playSong,
-                    track,
-                    'replay after the queue end',
-                    startAtSec > 0 ? { startAtSec } : {},
-                ),
-            };
+            armQueueEndReplay(track, () => latestRef.current.playSong);
             console.info('[HiFi] queue ended, mpv stopped to release the output device', { trackKey: track.trackKey });
             void hifiEngine.stop();
         };
@@ -312,9 +215,11 @@ export function useHifiPlaybackBridge({
             } else if (engine.status === 'ended') {
                 end(track).catch(error => console.warn('[HiFi] moving on after the end failed', error));
             } else if (engine.status === 'playing') {
-                spendPlayIntent(track.trackKey);
+                // 无缝接上的那一首：播放意图（如果有）是正在落地的那次播放的，留给认领它的时候。
+                if (track.promotedByGapless) markHifiTrackStarted(track.trackKey);
+                else spendHifiPlayIntent(track.trackKey);
                 if (playback.playerState !== PlayerState.PLAYING || playback.isLoadingToPlay) setPlayerState(PlayerState.PLAYING);
-            } else if (engine.status === 'paused' && intent.startedTrackKey === track.trackKey) {
+            } else if (engine.status === 'paused' && isHifiTrackStarted(track.trackKey)) {
                 if (playback.playerState === PlayerState.PLAYING) setPlayerState(PlayerState.PAUSED);
             }
         };
@@ -353,7 +258,7 @@ export function useHifiPlaybackBridge({
             unsubscribeTrack();
             unsubscribeError();
             unsubscribeSettings();
-            queueEndReplay = null;
+            clearQueueEndReplay();
         };
     }, []);
 }

@@ -275,6 +275,10 @@ const createMpvSession = ({
 
     const owns = record => record !== null && (record === proc || record === launching);
     const isPlayingEntry = () => Boolean(current && !current.failed);
+    // 当前项放到了头：keep-open 停在末尾（eof-reached），或 mpv 放完它以后接上了一个正在撤下的预载项（见 handleEndFile）。
+    const isAtEnd = () => mpv.eofReached || current?.movedPast === true;
+    // mpv 眼下放的是不是当前项：clearNext 和换曲撞上时，它可能已经在放一个正被撤下的预载项，那一项的位置和时长不归当前项。
+    const isOnCurrentEntry = () => Boolean(current?.started && current.mpvId === startedEntryId);
     // 时钟只在真出声时走：暂停、缓存见底、跳转途中都按停着报，渲染端不往前外推。
     const isClockPaused = () => !isPlayingEntry() || mpv.paused || mpv.pausedForCache || seekPending;
 
@@ -297,7 +301,7 @@ const createMpvSession = ({
         if (!proc) return starting ? 'starting' : 'stopped';
         if (pending) return 'loading';
         if (!current || !current.loaded) return 'idle';
-        if (mpv.eofReached && !next) return 'ended';
+        if (isAtEnd() && !next) return 'ended';
         return mpv.paused ? 'paused' : 'playing';
     };
 
@@ -362,8 +366,8 @@ const createMpvSession = ({
 
     // time-pos 每帧都变：最多每 clockIntervalMs 推一次，窗口内最后一个值用尾随定时器补上；跳转后的第一个值立刻推。
     const noteTimePos = value => {
-        // 当前项已经失败时 mpv 可能还在报别的项的位置（停下之前接上了预载项），不收。
-        if (typeof value !== 'number' || !Number.isFinite(value) || !current?.started || current.failed) return;
+        // 当前项已经失败时 mpv 可能还在报别的项的位置（停下之前接上了预载项），不收；mpv 在放别的项时也不收。
+        if (typeof value !== 'number' || !Number.isFinite(value) || !isOnCurrentEntry() || current.failed) return;
         mpv.timePos = value;
         if (forcedClockReason) {
             const reason = forcedClockReason;
@@ -636,6 +640,8 @@ const createMpvSession = ({
             next = null;
             entry.loaded = true;
             errorCode = null;
+            // 时长还是上一首的：这一首的随 file-loaded 推来，没推（两首一样长时 mpv 可能不推）就由 refreshFormat 读。
+            mpv.duration = null;
             logInfo(`[HiFi] gapless switch to ${entry.trackKey}`);
         }
         entry.started = true;
@@ -657,12 +663,14 @@ const createMpvSession = ({
     };
 
     // 同格式换曲时 mpv 不重开输出，audio-out-params 不会再推一次：开始播放时主动读一遍，读到非空就算载入成功。
+    // 时长一起读：无缝换曲时两首一样长，duration 不会再推。
     const refreshFormat = (record, entry) => {
-        void Promise.all([getProperty(record, 'audio-params'), getProperty(record, 'audio-out-params')])
-            .then(([params, outParams]) => {
+        void Promise.all([getProperty(record, 'audio-params'), getProperty(record, 'audio-out-params'), getProperty(record, 'duration')])
+            .then(([params, outParams, duration]) => {
                 if (!owns(record) || current !== entry) return;
                 mpv.audioParams = toAudioParams(params);
                 mpv.audioOutParams = toAudioParams(outParams);
+                if (numberOrNull(duration) !== null) mpv.duration = numberOrNull(duration);
                 scheduleState();
                 if (mpv.audioOutParams && pending?.entry === entry && entry.started) resolveAttempt(pending);
             });
@@ -714,7 +722,17 @@ const createMpvSession = ({
             // 后面排着预载项时 keep-open 不起作用，放完的那一首报 end-file eof 而不是 eof-reached。
             if (entry !== current || !entry.loaded || entry.failed) return;
             const code = sourceBrokeEarly(entry);
-            if (code) failPlayingEntry(entry, code, 'source ended early');
+            if (code) {
+                failPlayingEntry(entry, code, 'source ended early');
+                return;
+            }
+            // 没有预载项却报了 eof：clearNext 正在撤的那一项没来得及删掉，mpv 已经接上了它（随后被删掉，mpv 停下）。
+            // 当前这首就是放完了，按 ended 报，渲染端照常换下一首；不然状态会一直停在“在放”。
+            if (!next) {
+                entry.movedPast = true;
+                logInfo(`[HiFi] ${entry.trackKey} reached the end while its queued song was being removed`);
+                scheduleState();
+            }
             return;
         }
         if (message.reason !== 'error') return;
@@ -797,6 +815,8 @@ const createMpvSession = ({
             return;
         }
         case 'duration':
+            // 正被撤下的预载项（mpv 已经接上了它）的时长不归当前项。
+            if (current?.movedPast && !isOnCurrentEntry()) return;
             mpv.duration = numberOrNull(value);
             break;
         case 'eof-reached':
@@ -1017,6 +1037,8 @@ const createMpvSession = ({
         seekAfterLoad: null,
         /** 预载项的 append 晚于上一首的 EOF 才到 mpv。 */
         queuedAfterEof: false,
+        /** 放完以后 mpv 接上了正被撤下的预载项：这一项算放完了（ended）。 */
+        movedPast: false,
     });
 
     // 在来源桥上登记，拿到给 mpv 的 127.0.0.1 地址；Navidrome 带凭据的地址只留在桥里。
@@ -1171,7 +1193,7 @@ const createMpvSession = ({
      * keep-open 停在末尾时已经把 pause 置上，这时再 append，mpv 会接上下一首却停在暂停里，渲染端该走普通载入。
      */
     const preloadNext = async (request, { ownerId = null } = {}) => {
-        if (disposed || circuitOpen || !proc || pending || !current?.loaded || mpv.eofReached) return false;
+        if (disposed || circuitOpen || !proc || pending || !current?.loaded || isAtEnd()) return false;
         if (!request || !request.source || (request.source.kind !== 'local' && request.source.kind !== 'navidrome')) return false;
         const record = proc;
         const base = current;
@@ -1183,7 +1205,7 @@ const createMpvSession = ({
             logWarn('[HiFi] bridge did not start for the queued song', error);
             return false;
         }
-        if (proc !== record || current !== base || pending || !current.loaded || mpv.eofReached) return false;
+        if (proc !== record || current !== base || pending || !current.loaded || isAtEnd()) return false;
         let url;
         try {
             url = registerSource(entry, request.source);

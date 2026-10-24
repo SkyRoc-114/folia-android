@@ -361,9 +361,10 @@ describe('buildSignalPath', () => {
         expect(dsd.stages[2]).toMatchObject({ id: 'decode', status: 'converted', conversions: ['dsd-to-pcm'] });
         expect(dsd.stages[4]).toMatchObject({ id: 'output', status: 'passthrough', conversions: [] });
 
+        // 应用音量 65% 时 mpv 的 volume 是它的立方根乘 100（selectHifiEngineConfig）。
         const volume = buildSignalPath(
             pcmSpec(16, 44100),
-            engine({ volume: 65, audioParams: params('s16', 44100), audioOutParams: params('s16', 44100) }),
+            engine({ volume: Math.cbrt(0.65) * 100, audioParams: params('s16', 44100), audioOutParams: params('s16', 44100) }),
             { ...settings, softwareVolume: true, volume: 65 },
         );
         expect(volume.stages[3]).toMatchObject({ id: 'process', status: 'converted', conversions: ['volume'], detail: '65%' });
@@ -371,6 +372,20 @@ describe('buildSignalPath', () => {
         const dop = buildSignalPath(dsdSpec, engine({ spdif: 'dsd', audioParams: params('s32', 176400), audioOutParams: params('s32', 176400) }), settings);
         expect(dop.stages[4]).toMatchObject({ status: 'passthrough', conversions: ['dop'] });
         expect(dop.stages[4].format?.dsdRate).toBe(2822400);
+    });
+
+    it('shows the app volume, not the cube-root value mpv holds', () => {
+        const at = (mpvVolume: number) => buildSignalPath(
+            pcmSpec(16, 44100),
+            engine({ volume: mpvVolume, audioParams: params('s16', 44100), audioOutParams: params('s16', 44100) }),
+            { ...settings, softwareVolume: true, volume: 50 },
+        ).stages[3];
+        // 应用 50% → mpv 79.37；mpv 自己的数字是 79%。
+        expect(at(79.37)).toMatchObject({ status: 'converted', conversions: ['volume'], detail: '50%' });
+        expect(at(Math.cbrt(0.2) * 100).detail).toBe('20%');
+        expect(at(0).detail).toBe('0%');
+        // 软件音量开着时，满音量也算改了采样值（规则没变）。
+        expect(at(100)).toMatchObject({ status: 'converted', conversions: ['volume'], detail: '100%' });
     });
 
     it('does not apply software volume to DoP', () => {

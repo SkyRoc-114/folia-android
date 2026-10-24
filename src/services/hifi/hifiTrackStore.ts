@@ -3,6 +3,7 @@ import type { SongResult } from '../../types';
 import type { HifiErrorCode, HifiSourceSpec } from '../../types/hifi';
 import { createHifiClock, type HifiClockSync } from './hifiClock';
 import { hifiMediaShim } from './hifiMediaShim';
+import type { HifiTrackSource } from './hifiTrackLoad';
 
 // src/services/hifi/hifiTrackStore.ts
 // HiFi 路线上的当前曲目：是哪一首、载入到哪一步、源是什么格式，以及按 mpv 推来的位置外推的播放时钟。只有 hifiPlayback 写它。
@@ -20,7 +21,15 @@ export type HifiTrack = {
      * 免得把那次更新的播放顶掉。没有时算一直要。
      */
     stillWanted?: () => boolean;
+    /**
+     * mpv 无缝接上了预载的这一首，播放器那一侧（队列、歌词、封面）还停在上一首：桥让 playSong 换过去，beginHifiTrack 认领它
+     * （不重新载入）时清掉。
+     */
+    promotedByGapless?: boolean;
 };
+
+/** 用 loadfile append 交给 mpv 预载、等着无缝接上的下一首，带着它的源（接上时读源格式要用）。 */
+export type HifiNextTrack = HifiTrack & { source: HifiTrackSource };
 
 /**
  * deferred：恢复时没有播放意图，先不载入、不开输出设备；曲目照样显示，位置和时长取自恢复的数据。第一次播放、跳转或自动播放时
@@ -35,9 +44,11 @@ export type HifiTrackStoreState = {
     loadError: HifiErrorCode | null;
     /** 后台读出的源格式；还没读完或读不出时为 null。 */
     sourceSpec: HifiSourceSpec | null;
+    /** 预载在 mpv 里、排在当前曲目后面的下一首（hifiGapless）；换上任何一首新的当前曲目时清掉。 */
+    next: HifiNextTrack | null;
 };
 
-const EMPTY_TRACK_STATE: HifiTrackStoreState = { current: null, loadState: 'idle', loadError: null, sourceSpec: null };
+const EMPTY_TRACK_STATE: HifiTrackStoreState = { current: null, loadState: 'idle', loadError: null, sourceSpec: null, next: null };
 
 export const useHifiTrackStore = create<HifiTrackStoreState>(() => ({ ...EMPTY_TRACK_STATE }));
 

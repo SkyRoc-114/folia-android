@@ -40,7 +40,8 @@ vi.mock('@/services/hifi/sourceSpec', async importOriginal => ({
     })),
 }));
 
-const { resumeHifiPlayback, seekHifiRoute, useHifiPlaybackBridge } = await import('@/components/hifi/useHifiPlaybackBridge');
+const { useHifiPlaybackBridge } = await import('@/components/hifi/useHifiPlaybackBridge');
+const { resumeHifiPlayback, seekHifiRoute } = await import('@/components/hifi/hifiRouteTransport');
 const { beginHifiTrack, getHifiPosition, leaveHifiRoute, useHifiTrackStore } = await import('@/services/hifi/hifiPlayback');
 const { startPlay } = await import('@/components/app/playback/currentSong');
 const { hifiEngine, useHifiEngineStore } = await import('@/services/hifi/hifiEngine');
