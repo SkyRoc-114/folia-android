@@ -11,6 +11,7 @@ const { createMpvIpcClient, connectNamedPipe } = require('./mpvIpcClient.cjs');
 const OBSERVED_PROPERTIES = Object.freeze([
     'time-pos',
     'pause',
+    'paused-for-cache',
     'duration',
     'eof-reached',
     'audio-params',
@@ -26,8 +27,10 @@ const RECENT_LOG_LIMIT = 20;
 const QUIT_GRACE_MS = 2000;
 const STDERR_TAIL_CHARS = 2000;
 const FAILURE_LOG_LEVELS = new Set(['fatal', 'error', 'warn']);
-// Linux 上绕过混音器直连声卡的 ALSA 设备名。
-const DIRECT_ALSA_DEVICE = /^alsa\/(plug)?hw:/i;
+// Linux 上绕过混音器直连声卡的 ALSA 设备名；plughw 会在 mpv 背后转采样率和格式，不算直连。
+const DIRECT_ALSA_DEVICE = /^alsa\/hw:/i;
+// 桥记着源的错时，停在离时长这么远之外的“放完”算源中途断了，不算正常放到底。
+const END_TOLERANCE_SEC = 2;
 
 // 渲染端还没推设置时的取值：不独占，免得没人要求就把设备锁住。
 const DEFAULT_CONFIG = Object.freeze({
@@ -117,6 +120,8 @@ const createFileProps = () => ({
 const createMpvProps = () => ({
     ...createFileProps(),
     paused: false,
+    /** mpv 的缓存见底、在等数据（paused-for-cache）。 */
+    pausedForCache: false,
     currentAo: null,
     audioDevice: null,
     volume: null,
@@ -188,9 +193,15 @@ const createMpvSession = ({
     let lastClockAt = Number.NEGATIVE_INFINITY;
     let clockTimer = null;
     let forcedClockReason = null;
+    /** 发了 seek、还没等到它的 playback-restart：这段时间 mpv 在找位置，时钟不走。 */
+    let seekPending = false;
+    /** pause() 被调过几次；预载和 EOF 撞车时据此分辨暂停是用户按的还是 keep-open 加的。 */
+    let pauseRequests = 0;
 
     const owns = record => record !== null && (record === proc || record === launching);
     const isPlayingEntry = () => Boolean(current && !current.failed);
+    // 时钟只在真出声时走：暂停、缓存见底、跳转途中都按停着报，渲染端不往前外推。
+    const isClockPaused = () => !isPlayingEntry() || mpv.paused || mpv.pausedForCache || seekPending;
 
     const callListener = (listener, value, what) => {
         try {
@@ -268,7 +279,7 @@ const createMpvSession = ({
         callListener(onClock, {
             trackKey: current?.trackKey ?? null,
             positionSec: position(),
-            paused: isPlayingEntry() ? mpv.paused : true,
+            paused: isClockPaused(),
             reason,
             seq: clockSeq,
         }, 'clock');
@@ -276,7 +287,8 @@ const createMpvSession = ({
 
     // time-pos 每帧都变：最多每 clockIntervalMs 推一次，窗口内最后一个值用尾随定时器补上；跳转后的第一个值立刻推。
     const noteTimePos = value => {
-        if (typeof value !== 'number' || !Number.isFinite(value) || !current?.started) return;
+        // 当前项已经失败时 mpv 可能还在报别的项的位置（停下之前接上了预载项），不收。
+        if (typeof value !== 'number' || !Number.isFinite(value) || !current?.started || current.failed) return;
         mpv.timePos = value;
         if (forcedClockReason) {
             const reason = forcedClockReason;
@@ -426,7 +438,7 @@ const createMpvSession = ({
         if (entry.seekAfterLoad !== null && proc) {
             const target = entry.seekAfterLoad;
             entry.seekAfterLoad = null;
-            void runCommand(proc, ['seek', target, 'absolute']);
+            void seekTo(proc, target);
         }
         attempt.settle({ ok: true, state: buildState() });
         scheduleState();
@@ -443,7 +455,8 @@ const createMpvSession = ({
     };
 
     const killChild = record => {
-        if (record.exited) return;
+        if (record.exited || record.killSent) return;
+        record.killSent = true;
         try {
             record.child.kill();
         } catch (error) {
@@ -467,6 +480,7 @@ const createMpvSession = ({
             track = null;
             startedEntryId = null;
             forcedClockReason = null;
+            seekPending = false;
             clearClockTimer();
         }
         if (launching === record) launching = null;
@@ -540,6 +554,7 @@ const createMpvSession = ({
         entry.started = true;
         mpv.timePos = null;
         mpv.eofReached = false;
+        seekPending = false;
         track = null;
         flushRetired();
         if (entry.loaded) pushClock('load');
@@ -566,6 +581,34 @@ const createMpvSession = ({
             });
     };
 
+    // 已经在放的那一首中途出错（源断了、输出设备没了）：报给渲染端回落。预载的下一首也不接着放，
+    // 渲染端会把这一首换到 Web 重放；mpv 停下，keep-open 留着的输出（独占的设备）随之放开。
+    const failPlayingEntry = (entry, code, detail) => {
+        entry.loaded = false;
+        entry.failed = true;
+        errorCode = code;
+        seekPending = false;
+        revokeEntry(entry);
+        if (next) {
+            retire(next);
+            next = null;
+        }
+        if (proc) void runCommand(proc, ['stop']);
+        logWarn(`[HiFi] ${entry.trackKey} stopped with an error (${code}): ${sanitizeDetail(detail)}`);
+        callListener(onError, { code, trackKey: entry.trackKey, detail: sanitizeDetail(detail), fatal: true }, 'error');
+        armIdleTimer();
+        scheduleState();
+    };
+
+    // mpv 读到截断的流（来源桥断了连接，ffmpeg 重连几次后放弃）只会报放完：桥记着这个源的错，
+    // 位置又明显没到时长（或时长不知道），就是源中途断了。返回桥记的码，正常放完时为 null。
+    const sourceBrokeEarly = entry => {
+        const code = entry.token ? bridge.getSourceError(entry.token) : null;
+        if (!code) return null;
+        if (mpv.duration !== null && position() >= mpv.duration - END_TOLERANCE_SEC) return null;
+        return code;
+    };
+
     const handleEndFile = message => {
         const id = message.playlist_entry_id;
         const retiredEntry = retiredById(id);
@@ -578,6 +621,13 @@ const createMpvSession = ({
         if (!entry) return;
         if (message.reason === 'redirect' && pending?.entry === entry) {
             failAttempt(pending, 'FORMAT_UNSUPPORTED', 'redirect', { stopPlayback: true });
+            return;
+        }
+        if (message.reason === 'eof') {
+            // 后面排着预载项时 keep-open 不起作用，放完的那一首报 end-file eof 而不是 eof-reached。
+            if (entry !== current || !entry.loaded || entry.failed) return;
+            const code = sourceBrokeEarly(entry);
+            if (code) failPlayingEntry(entry, code, 'source ended early');
             return;
         }
         if (message.reason !== 'error') return;
@@ -596,15 +646,7 @@ const createMpvSession = ({
             return;
         }
         if (entry.failed) return;
-        // 已经在放的那一首中途出错（源断了、输出设备没了）：报给渲染端回落。
-        entry.loaded = false;
-        entry.failed = true;
-        errorCode = code;
-        revokeEntry(entry);
-        logWarn(`[HiFi] ${entry.trackKey} stopped with an error (${code}): ${sanitizeDetail(detail)}`);
-        callListener(onError, { code, trackKey: entry.trackKey, detail: sanitizeDetail(detail), fatal: true }, 'error');
-        armIdleTimer();
-        scheduleState();
+        failPlayingEntry(entry, code, detail);
     };
 
     const handleEvent = (record, message) => {
@@ -629,6 +671,12 @@ const createMpvSession = ({
             if (current?.started && current.mpvId === startedEntryId) {
                 forcedClockReason = current.restarted ? 'seek' : 'load';
                 current.restarted = true;
+                if (seekPending) {
+                    // 我们发的跳转落定了：立刻推一次让时钟接着走（跳转时推的那次是停着的）。
+                    seekPending = false;
+                    forcedClockReason = null;
+                    pushClock(isClockPaused() ? 'seek' : 'resume');
+                }
                 refreshFormat(record, current);
             }
             break;
@@ -653,12 +701,31 @@ const createMpvSession = ({
             if (current?.started) pushClock(paused ? 'pause' : 'resume');
             break;
         }
+        case 'paused-for-cache': {
+            // 缓存见底只停时钟，不算暂停（像 <audio> 的 waiting，paused 不变），状态里也不体现。
+            const buffering = value === true;
+            if (buffering === mpv.pausedForCache) return;
+            mpv.pausedForCache = buffering;
+            if (current?.started) pushClock('tick');
+            return;
+        }
         case 'duration':
             mpv.duration = numberOrNull(value);
             break;
         case 'eof-reached':
             mpv.eofReached = value === true;
-            if (mpv.eofReached && current?.loaded && !next) logInfo(`[HiFi] ${current.trackKey} reached the end`);
+            if (!mpv.eofReached) break;
+            seekPending = false;
+            // 排着预载项时 keep-open 本不会停在末尾：说明 append 晚于 EOF 才到 mpv，它接上时会停在暂停里。
+            if (next && !next.started) next.queuedAfterEof = true;
+            if (current?.loaded && !current.failed) {
+                const code = sourceBrokeEarly(current);
+                if (code) {
+                    failPlayingEntry(current, code, 'source ended early');
+                    return;
+                }
+                if (!next) logInfo(`[HiFi] ${current.trackKey} reached the end`);
+            }
             break;
         case 'audio-params':
             mpv.audioParams = toAudioParams(value);
@@ -714,8 +781,9 @@ const createMpvSession = ({
     // 拉起一个 mpv 并连好 IPC：Unix 走 spawn 出的 socketpair（fd 3，父进程没了 mpv 也跟着退），Windows 走随机命名管道。
     const spawnProcess = async () => {
         const runtime = await resolveRuntime();
+        // 检测途中会话被收掉了（退出时的 killSync）：不再拉起。
+        if (disposed) throw createHifiError('LOAD_FAILED', 'stopped');
         if (!runtime || typeof runtime.path !== 'string' || runtime.path === '') throw createHifiError('MPV_NOT_FOUND');
-        if (disposed) throw createHifiError('LOAD_FAILED', 'session disposed');
         const spawnConfig = { ...config };
         const pipePath = isWindows ? buildPipeName(randomBytes(16).toString('hex')) : null;
         const args = buildMpvArgs({
@@ -740,6 +808,7 @@ const createMpvSession = ({
             child,
             client: null,
             exited: false,
+            killSent: false,
             intentional: false,
             stderrTail: '',
             killTimer: null,
@@ -795,6 +864,8 @@ const createMpvSession = ({
         } catch (error) {
             if (launching === record) launching = null;
             void retireProcess(record, { graceful: false });
+            // 是 dispose / killSync 在启动途中把它收掉的：不算 mpv 起不来，也不计进熔断。
+            if (disposed) throw createHifiError('LOAD_FAILED', 'stopped');
             logWarn('[HiFi] mpv did not start', error);
             throw createHifiError('MPV_SPAWN_FAILED', detailOf(error) ?? error?.code);
         }
@@ -802,7 +873,7 @@ const createMpvSession = ({
         if (disposed || launching !== record) {
             if (launching === record) launching = null;
             void retireProcess(record, { graceful: false });
-            throw createHifiError('LOAD_FAILED', 'session stopped during startup');
+            throw createHifiError('LOAD_FAILED', 'stopped');
         }
         launching = null;
         proc = record;
@@ -855,6 +926,8 @@ const createMpvSession = ({
         loaded: false,
         failed: false,
         seekAfterLoad: null,
+        /** 预载项的 append 晚于上一首的 EOF 才到 mpv。 */
+        queuedAfterEof: false,
     });
 
     // 在来源桥上登记，拿到给 mpv 的 127.0.0.1 地址；Navidrome 带凭据的地址只留在桥里。
@@ -900,7 +973,8 @@ const createMpvSession = ({
 
     /** 用 loadfile replace 载入一首；声音输出真的开起来（audio-out-params 非空）才算成功。 */
     const load = (request, { ownerId = null } = {}) => {
-        if (disposed) return Promise.resolve({ ok: false, errorCode: 'LOAD_FAILED', detail: 'disposed' });
+        // 会话已收掉（dispose，或退出时的 killSync）：和被 stop 收掉的载入同样回 'stopped'，渲染端不当成失败。
+        if (disposed) return Promise.resolve({ ok: false, errorCode: 'LOAD_FAILED', detail: 'stopped' });
         if (circuitOpen) return Promise.resolve({ ok: false, errorCode: 'CIRCUIT_OPEN' });
         if (!request || !request.source || (request.source.kind !== 'local' && request.source.kind !== 'navidrome')) {
             return Promise.resolve({ ok: false, errorCode: 'INVALID_REQUEST' });
@@ -925,6 +999,7 @@ const createMpvSession = ({
         track = null;
         mpv = { ...mpv, ...createFileProps(), paused: request.paused === true };
         forcedClockReason = null;
+        seekPending = false;
         if (previousAttempt) failAttempt(previousAttempt, 'LOAD_FAILED', 'superseded');
         attempt.timer = setTimeoutFn(() => {
             failAttempt(attempt, 'LOAD_FAILED', 'timeout', { stopPlayback: true });
@@ -937,17 +1012,38 @@ const createMpvSession = ({
         return result;
     };
 
+    // 先按目标位置推一次停着的时钟（mpv 还在找位置、没出声），跳完的 playback-restart 时再推一次让它接着走。
+    // seek 命令失败就等不到 playback-restart：当场放开时钟。
+    const seekTo = async (record, target) => {
+        mpv.timePos = target;
+        mpv.eofReached = false;
+        seekPending = true;
+        // 上一次 playback-restart 留下的“下一个 time-pos 立刻推”作废：这次跳转自己会推。
+        forcedClockReason = null;
+        pushClock('seek');
+        try {
+            await send(record, ['seek', target, 'absolute']);
+        } catch (error) {
+            logWarn(`[HiFi] mpv seek ${target} failed`, error);
+            if (seekPending && proc === record) {
+                seekPending = false;
+                pushClock('seek');
+            }
+        }
+    };
+
     const play = async () => {
         const record = proc;
         if (!record || !current || current.failed) return;
         // keep-open 停在了末尾：像 <audio> 那样从头再放。
-        if (current.loaded && mpv.eofReached && !next) await runCommand(record, ['seek', 0, 'absolute']);
+        if (current.loaded && mpv.eofReached && !next) await seekTo(record, 0);
         await runCommand(record, ['set_property', 'pause', false]);
     };
 
     const pause = async () => {
         const record = proc;
         if (!record || !current || current.failed) return;
+        pauseRequests += 1;
         await runCommand(record, ['set_property', 'pause', true]);
     };
 
@@ -960,11 +1056,7 @@ const createMpvSession = ({
             current.seekAfterLoad = target;
             return;
         }
-        // 先按目标位置推一次，跳完的 playback-restart 之后再按 mpv 的实际位置推一次。
-        mpv.timePos = target;
-        mpv.eofReached = false;
-        pushClock('seek');
-        await runCommand(record, ['seek', target, 'absolute']);
+        await seekTo(record, target);
     };
 
     const setLoopFile = async loop => {
@@ -983,12 +1075,16 @@ const createMpvSession = ({
         await runCommand(record, ['playlist-remove', index]);
     };
 
-    /** 用 loadfile append 预载下一首，接在当前这首后面无缝播放；当前没在放时返回 false。 */
+    /**
+     * 用 loadfile append 预载下一首，接在当前这首后面无缝播放。当前没在放、或已经放到末尾时返回 false：
+     * keep-open 停在末尾时已经把 pause 置上，这时再 append，mpv 会接上下一首却停在暂停里，渲染端该走普通载入。
+     */
     const preloadNext = async (request, { ownerId = null } = {}) => {
-        if (disposed || circuitOpen || !proc || pending || !current?.loaded) return false;
+        if (disposed || circuitOpen || !proc || pending || !current?.loaded || mpv.eofReached) return false;
         if (!request || !request.source || (request.source.kind !== 'local' && request.source.kind !== 'navidrome')) return false;
         const record = proc;
         const base = current;
+        const pausesBefore = pauseRequests;
         const entry = createEntry({ ...request, startSec: 0 }, ownerId);
         try {
             await bridge.start();
@@ -996,7 +1092,7 @@ const createMpvSession = ({
             logWarn('[HiFi] bridge did not start for the queued song', error);
             return false;
         }
-        if (proc !== record || current !== base || pending || !current.loaded) return false;
+        if (proc !== record || current !== base || pending || !current.loaded || mpv.eofReached) return false;
         let url;
         try {
             url = registerSource(entry, request.source);
@@ -1020,6 +1116,11 @@ const createMpvSession = ({
             revokeEntry(entry);
             scheduleState();
             return false;
+        }
+        // append 在途时当前这首放到了头：keep-open 加的暂停会带到接上的这一首，没人按过暂停就放开。
+        if (entry.queuedAfterEof && pauseRequests === pausesBefore && proc === record && (next === entry || current === entry)) {
+            logInfo(`[HiFi] ${entry.trackKey} was queued after the end of the previous song, resuming`);
+            await runCommand(record, ['set_property', 'pause', false]);
         }
         return next === entry || current === entry;
     };
@@ -1049,6 +1150,7 @@ const createMpvSession = ({
         track = null;
         mpv = { ...mpv, ...createFileProps() };
         forcedClockReason = null;
+        seekPending = false;
         clearClockTimer();
         scheduleState();
         await stopped;
@@ -1105,10 +1207,16 @@ const createMpvSession = ({
         await Promise.all(records.map(record => retireProcess(record, { graceful: true })));
     };
 
-    /** app.exit 之类马上就走的路径：同步杀掉所有 mpv，不等也不推状态。 */
+    /**
+     * app.exit 之类马上就走的路径：同步杀掉所有 mpv，不等也不推状态。会话从此收掉：之后的 load / listDevices /
+     * preloadNext 不再拉起 mpv，正在检测或连 IPC 的那次拉起一落地就被杀掉。
+     */
     const killSync = () => {
+        disposed = true;
         clearIdleTimer();
         clearClockTimer();
+        // 还在连 IPC 的那个：让它的启动立刻失败（Windows 上不再等管道），catch 里按 'stopped' 收尾。
+        launching?.failStartup(createHifiError('LOAD_FAILED', 'stopped'));
         for (const record of [proc, launching, ...dying]) {
             if (!record) continue;
             record.intentional = true;

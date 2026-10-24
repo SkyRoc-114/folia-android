@@ -306,6 +306,9 @@ const hifiSession = createMpvSession({
   onClock: update => hifiIpc?.broadcastClock(update),
   onError: event => hifiIpc?.broadcastError(event),
 });
+// The manual mpv path main itself got from the system file dialog. The renderer can only use or
+// clear it through hifi:configure, never name a program for main to run.
+const HIFI_MPV_MANUAL_PATH_KEY = 'hifi_mpv_manual_path';
 hifiIpc = registerHifiIpc({
   ipcMain,
   isTrustedSender: event => isTrustedMainWindowContents(event.sender),
@@ -315,6 +318,8 @@ hifiIpc = registerHifiIpc({
   dialog,
   getMainWindow: () => mainWindow,
   webContentsFromId: id => electronWebContents.fromId(id),
+  getApprovedMpvPath: () => store.get(HIFI_MPV_MANUAL_PATH_KEY, null),
+  setApprovedMpvPath: value => (value === null ? store.delete(HIFI_MPV_MANUAL_PATH_KEY) : store.set(HIFI_MPV_MANUAL_PATH_KEY, value)),
 });
 // Last resort for every way out, app.exit() included: an mpv left behind would keep playing.
 process.on('exit', () => hifiSession.killSync());
@@ -6246,6 +6251,9 @@ app.on('before-quit', (event) => {
   isQuitHeldForAccounts = false;
   transcodeService.dispose();
   hifiSession.killSync();
+  // An mpv download the quit cuts off is stopped: its partial files go now if there is time, or
+  // with the installer's sweep of leftovers next time.
+  hifiInstaller.cancel();
   videoExportFileWriter.disposeSync();
   isAppQuitting = true;
   clearPendingWindowPlaybackHandoffRequests();
@@ -7331,6 +7339,7 @@ ipcMain.handle('global-shortcuts-set', (event, accelerators) => {
 app.on('will-quit', () => {
   globalShortcutController?.dispose();
   hifiSession.killSync();
+  hifiInstaller.cancel();
 });
 
 ipcMain.handle('thumbar-update-buttons', (event, state) => {

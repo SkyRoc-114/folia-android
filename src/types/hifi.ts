@@ -6,6 +6,8 @@ export type PlaybackRoute = 'web' | 'hifi';
 /** 主进程只回传错误码，文案由渲染端按 hifi.errors.<code> 取。 */
 export type HifiErrorCode =
     | 'MPV_NOT_FOUND'
+    /** 找到的 mpv 比 0.39.0 旧，认不得我们的启动参数。 */
+    | 'MPV_TOO_OLD'
     | 'MPV_SPAWN_FAILED'
     | 'MPV_CRASHED'
     | 'IPC_TIMEOUT'
@@ -30,7 +32,7 @@ export type HifiRuntimeDownloadInfo = {
     supported: boolean;
     /** 清单推荐的版本。 */
     version: string | null;
-    /** userData 里已装好的最新版本。 */
+    /** userData 里已装好的最新版本；只算 `--version` 探测得通的，装了但起不来的不算。 */
     installedVersion: string | null;
     updateAvailable: boolean;
     /** 正在下载、校验或解压。 */
@@ -43,9 +45,12 @@ export type HifiRuntimeStatus = {
     /** 解析出的版本号，如 '0.41.0' 或 git 构建的 '0.41.0-123-gabcdef0'。 */
     version: string | null;
     source: HifiRuntimeSource | null;
-    /** 没找到时为 MPV_NOT_FOUND；手动路径不可用时也写在这里。 */
+    /**
+     * 没找到时为 MPV_NOT_FOUND；手动路径不可用时也写在这里。只找到比 0.39.0 旧的 mpv（或手动路径指向它）时为
+     * MPV_TOO_OLD：available 为 false 时 path / version / source 填的就是那个太旧的。
+     */
     errorCode: HifiErrorCode | null;
-    /** 设置了手动路径，但它不存在、不可执行或不是 mpv。 */
+    /** 设置了手动路径，但它不存在、不可执行、不是 mpv 或版本太旧。 */
     manualPathRejected: boolean;
     platform: string;
     arch: string;

@@ -32,6 +32,7 @@ const {
 // 和 src/types/hifi.ts 的联合类型逐项对照；那边加了码而这里没加，tsc 会在这行报错。
 const EXPECTED_CODES: Record<HifiErrorCode, true> = {
     MPV_NOT_FOUND: true,
+    MPV_TOO_OLD: true,
     MPV_SPAWN_FAILED: true,
     MPV_CRASHED: true,
     IPC_TIMEOUT: true,

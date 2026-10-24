@@ -8,6 +8,7 @@ const {
     executablePathFor,
     isExecutableFile,
     listInstalledVersions,
+    probeMpvVersion,
     resolveInstallTarget,
     runtimeRootFor,
 } = require('./mpvRuntime.cjs');
@@ -20,10 +21,18 @@ const PROGRESS_INTERVAL_MS = 200;
 const RESPOND_TIMEOUT_MS = 45_000;
 const EXTRACT_TIMEOUT_MS = 5 * 60_000;
 const KEEP_VERSIONS = 2;
+/** 核对上次留下的 zip 时每次读这么多。 */
+const VERIFY_CHUNK_BYTES = 1024 * 1024;
+/** Windows 上刚写完的文件常被杀毒、索引占着，改名失败先退避重试（100 ms 起翻倍到 1 s），总共等约 8 s。 */
+const RENAME_RETRY_BUDGET_MS = 8000;
+const RENAME_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
 const INSTALL_ERROR_CODES = new Set(['INSTALL_FAILED', 'INSTALL_CHECKSUM_MISMATCH', 'INSTALL_CANCELLED']);
 const VERSION_DIR_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 // Windows 构建里两百多 MB 的调试符号，运行用不到。
 const SKIPPED_ENTRY_PATTERN = /\.pdb$/i;
+// 中途退出留下的：下到一半的 `.part`、核对过还没解开的 zip、解到一半的 `<version>.tmp/`。
+const LEFTOVER_FILE_PATTERN = /\.(?:part|zip)$/i;
+const LEFTOVER_DIR_PATTERN = /\.tmp$/i;
 
 /**
  * zip 条目名拆成路径段。'..'、绝对路径、反斜杠和带冒号的段（盘符、NTFS 流）为 undefined，整包拒绝；
@@ -49,8 +58,8 @@ const createMpvRuntimeInstaller = ({
     getUserDataPath,
     fetchFn = (...args) => fetch(...args),
     fsp = require('fs/promises'),
-    fs = require('fs'),
-    unzipSync = require('fflate').unzipSync,
+    // fflate 的异步 unzip：大条目在 worker_threads 里解压，主线程不卡。
+    unzipFn = require('fflate').unzip,
     execFileFn = require('child_process').execFile,
     onProgress,
     now = Date.now,
@@ -61,10 +70,35 @@ const createMpvRuntimeInstaller = ({
     logInfo = (...args) => console.info(...args),
     logWarn = (...args) => console.warn(...args),
 } = {}) => {
-    /** 进行中的那一次：{ controller, promise }。 */
+    /** 进行中的那一次：{ controller, promise, layout }。 */
     let current = null;
 
     const runtimeRoot = () => runtimeRootFor(getUserDataPath(), path);
+
+    /** 一次安装用到的路径；清理遗留文件时跳过进行中那次的这几个。 */
+    const layoutFor = ({ version, build }) => {
+        const root = runtimeRoot();
+        const zipPath = path.join(root, assetNameOf(build.url));
+        return {
+            root,
+            zipPath,
+            partPath: `${zipPath}.part`,
+            tmpDir: path.join(root, `${version}.tmp`),
+            finalDir: path.join(root, version),
+        };
+    };
+
+    const checkExecutable = candidate => isExecutableFile(fsp, platform, candidate, { setTimeoutFn, clearTimeoutFn });
+
+    /** 装好的 mpv 真能跑 `--version`：文件在、能解析出版本号。 */
+    const probeInstalled = async (executablePath) => {
+        if (!(await checkExecutable(executablePath))) return null;
+        return probeMpvVersion({ execFileFn, platform, candidate: executablePath, isExecutable: checkExecutable });
+    };
+
+    const sleep = ms => new Promise((resolve) => {
+        setTimeoutFn(resolve, ms);
+    });
 
     const report = progress => {
         try {
@@ -77,13 +111,32 @@ const createMpvRuntimeInstaller = ({
     const removeQuietly = async target => {
         try {
             await fsp.rm(target, { recursive: true, force: true });
+            return true;
         } catch (error) {
             logWarn('[HiFi] install: could not remove', target, error);
+            return false;
         }
     };
 
     const throwIfCancelled = signal => {
         if (signal.aborted) throw createHifiError('INSTALL_CANCELLED');
+    };
+
+    /** 改名；Windows 上碰到 EPERM / EACCES / EBUSY 就退避重试，graceful-fs 也是这么对付杀毒和索引的。 */
+    const renameWithRetry = async (from, to, signal) => {
+        let waited = 0;
+        for (let delay = 100; ; delay = Math.min(delay * 2, 1000)) {
+            try {
+                await fsp.rename(from, to);
+                return;
+            } catch (error) {
+                const retryable = platform === 'win32' && RENAME_RETRY_CODES.has(error?.code);
+                if (!retryable || waited + delay > RENAME_RETRY_BUDGET_MS || signal.aborted) throw error;
+                if (waited === 0) logInfo(`[HiFi] install: ${path.basename(from)} is busy (${error.code}), retrying the rename`);
+                await sleep(delay);
+                waited += delay;
+            }
+        }
     };
 
     const run = (command, args, signal) => new Promise((resolve, reject) => {
@@ -105,12 +158,13 @@ const createMpvRuntimeInstaller = ({
         if (signal.aborted) abort();
         let deadline = setTimeoutFn(() => controller.abort(new Error('no response')), RESPOND_TIMEOUT_MS);
         let handle = null;
+        let response = null;
         let reader = null;
         const cancelReader = () => {
             reader?.cancel().catch(() => { });
         };
         try {
-            const response = await fetchFn(build.url, { redirect: 'follow', signal: controller.signal });
+            response = await fetchFn(build.url, { redirect: 'follow', signal: controller.signal });
             clearTimeoutFn(deadline);
             deadline = null;
             if (!response.ok || !response.body) {
@@ -143,27 +197,83 @@ const createMpvRuntimeInstaller = ({
             controller.signal.removeEventListener('abort', cancelReader);
             // 提前停下（字节超了、写盘失败）时别让连接挂着；读完的流取消也无妨。
             cancelReader();
+            // 还没拿 reader 就失败了（比如 .part 打不开）：直接取消响应体，连接同样不留。
+            if (!reader) response?.body?.cancel().catch(() => { });
             await handle?.close().catch(() => { });
         }
     };
 
-    /** Windows：fflate 在内存里解，逐个写出；条目名先过一遍，路径不安全就整包拒绝。 */
-    const unzipInto = async (zipPath, tmpDir) => {
+    /** 上次核对过、还没解开的 zip 还在，字节数和 sha256 也都对，就不必重下。 */
+    const verifiedZipOnDisk = async (zipPath, build, signal) => {
+        let handle = null;
+        try {
+            const stat = await fsp.stat(zipPath);
+            if (!stat.isFile() || stat.size !== build.bytes) return false;
+            handle = await fsp.open(zipPath, 'r');
+            const hash = createHash('sha256');
+            const buffer = Buffer.allocUnsafe(VERIFY_CHUNK_BYTES);
+            for (let offset = 0; offset < build.bytes;) {
+                throwIfCancelled(signal);
+                const length = Math.min(buffer.byteLength, build.bytes - offset);
+                const { bytesRead } = await handle.read(buffer, 0, length, offset);
+                if (bytesRead === 0) return false;
+                hash.update(buffer.subarray(0, bytesRead));
+                offset += bytesRead;
+            }
+            return hash.digest('hex') === build.sha256;
+        } catch (error) {
+            if (error?.code === 'INSTALL_CANCELLED') throw error;
+            return false;
+        } finally {
+            await handle?.close().catch(() => { });
+        }
+    };
+
+    /** 交给 fflate 的异步 unzip；取消时终止它的 worker。 */
+    const inflateZip = (data, filter, signal) => new Promise((resolve, reject) => {
+        let settled = false;
+        let terminate = null;
+        const finish = (error, entries) => {
+            if (settled) return;
+            settled = true;
+            signal.removeEventListener('abort', onAbort);
+            if (error) reject(error);
+            else resolve(entries);
+        };
+        const onAbort = () => {
+            try {
+                terminate?.();
+            } catch {
+                // worker 已经退出。
+            }
+            finish(createHifiError('INSTALL_CANCELLED'));
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+        try {
+            terminate = unzipFn(data, { filter }, finish);
+        } catch (error) {
+            finish(error);
+            return;
+        }
+        if (signal.aborted) onAbort();
+    });
+
+    /** Windows：fflate 在 worker 里解，逐个写出；条目名先过一遍，路径不安全就整包拒绝。 */
+    const unzipInto = async (zipPath, tmpDir, signal) => {
         const bytes = await fsp.readFile(zipPath);
         let unsafeName = null;
-        const entries = unzipSync(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength), {
-            filter: (file) => {
-                const segments = safeEntrySegments(file.name);
-                if (segments === undefined) {
-                    unsafeName ??= file.name;
-                    return false;
-                }
-                return segments !== null && !SKIPPED_ENTRY_PATTERN.test(file.name);
-            },
-        });
+        const entries = await inflateZip(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength), (file) => {
+            const segments = safeEntrySegments(file.name);
+            if (segments === undefined) {
+                unsafeName ??= file.name;
+                return false;
+            }
+            return segments !== null && !SKIPPED_ENTRY_PATTERN.test(file.name);
+        }, signal);
         if (unsafeName !== null) throw createHifiError('INSTALL_FAILED', `unsafe zip entry ${unsafeName}`);
         const root = path.resolve(tmpDir);
         for (const [name, data] of Object.entries(entries)) {
+            throwIfCancelled(signal);
             const destination = path.resolve(root, ...safeEntrySegments(name));
             if (!destination.startsWith(root + path.sep)) throw createHifiError('INSTALL_FAILED', `unsafe zip entry ${name}`);
             await fsp.mkdir(path.dirname(destination), { recursive: true });
@@ -187,13 +297,35 @@ const createMpvRuntimeInstaller = ({
             return;
         }
         if (platform === 'win32' && build.archive === 'zip') {
-            await unzipInto(zipPath, tmpDir);
+            await unzipInto(zipPath, tmpDir, signal);
             return;
         }
         throw createHifiError('INSTALL_FAILED', `cannot extract ${build.archive} on ${platform}`);
     };
 
-    /** 只留最新两个版本目录；刚装的那个无论新旧都留着。删不掉（Windows 上正在跑）只记一笔。 */
+    /** 删掉中途退出留下的 `.part`、zip 和 `<version>.tmp/`；进行中那次安装正用着的不动。 */
+    const pruneLeftovers = async () => {
+        let root = null;
+        try {
+            root = runtimeRoot();
+        } catch (error) {
+            logWarn('[HiFi] install: no runtime directory to clean', error);
+            return;
+        }
+        const entries = await fsp.readdir(root, { withFileTypes: true }).catch(() => []);
+        for (const entry of entries) {
+            const target = path.join(root, entry.name);
+            // 每条现查：清理途中可能刚好开始一次安装。
+            const layout = current?.layout;
+            if (layout && [layout.partPath, layout.zipPath, layout.tmpDir].includes(target)) continue;
+            const leftover = entry.isDirectory()
+                ? LEFTOVER_DIR_PATTERN.test(entry.name)
+                : entry.isFile() && LEFTOVER_FILE_PATTERN.test(entry.name);
+            if (leftover && await removeQuietly(target)) logInfo(`[HiFi] install: removed leftover ${entry.name}`);
+        }
+    };
+
+    /** 只留最新两个版本目录；刚装的那个无论新旧都留着。删不掉（Windows 上正在跑）只记一笔。顺带清掉遗留的下载。 */
     const prune = async (root, installedVersion) => {
         const entries = await fsp.readdir(root, { withFileTypes: true }).catch(() => []);
         const versions = entries
@@ -214,18 +346,20 @@ const createMpvRuntimeInstaller = ({
                 logWarn(`[HiFi] install: could not remove old mpv ${version}`, error);
             }
         }
+        await pruneLeftovers();
     };
 
-    /** 一次完整安装：下载 → 校验 → 解压到 <version>.tmp → 核对可执行文件 → 改名到位 → 清旧版本。 */
-    const runInstall = async ({ version, build }, signal) => {
-        const root = runtimeRoot();
-        const zipPath = path.join(root, assetNameOf(build.url));
-        const partPath = `${zipPath}.part`;
-        const tmpDir = path.join(root, `${version}.tmp`);
-        const finalDir = path.join(root, version);
+    /**
+     * 一次完整安装：下载 → 校验 → 解压到 <version>.tmp → 核对可执行文件 → 改名到位 → 探测能跑 → 清旧版本。
+     * 已装的版本只有探测得通才算数，起不来的（缺了 DLL、被杀毒隔离）重新装。
+     */
+    const runInstall = async ({ version, build }, layout, signal) => {
+        const { root, zipPath, partPath, tmpDir, finalDir } = layout;
         const executablePath = executablePathFor(finalDir, build, path);
         let received = 0;
         let announced = 0;
+        // 最后一步改名失败（Windows 上被杀毒、索引占着）时留着核对过的 zip，再点一次不必重下；取消时照样删。
+        let keepZip = false;
         const emit = (phase, errorCode = null) => report({
             phase,
             version,
@@ -235,38 +369,45 @@ const createMpvRuntimeInstaller = ({
         });
 
         try {
-            if (isExecutableFile(fs, platform, executablePath)) {
+            if (await probeInstalled(executablePath)) {
                 received = build.bytes;
                 emit('done');
                 return { ok: true, errorCode: null, version, executablePath };
             }
             await fsp.mkdir(root, { recursive: true });
+            await pruneLeftovers();
             await removeQuietly(partPath);
-            await removeQuietly(zipPath);
             await removeQuietly(tmpDir);
 
-            logInfo(`[HiFi] install: downloading mpv ${version} from ${new URL(build.url).host}`);
-            announced = now();
-            emit('downloading');
-            const downloaded = await downloadTo(build, partPath, signal, (bytes) => {
-                received = bytes;
-                const at = now();
-                if (at - announced >= PROGRESS_INTERVAL_MS) {
-                    announced = at;
-                    emit('downloading');
-                }
-            });
-            emit('downloading');
+            if (await verifiedZipOnDisk(zipPath, build, signal)) {
+                received = build.bytes;
+                logInfo(`[HiFi] install: reusing the verified download of mpv ${version}`);
+                emit('verifying');
+            } else {
+                await removeQuietly(zipPath);
+                logInfo(`[HiFi] install: downloading mpv ${version} from ${new URL(build.url).host}`);
+                announced = now();
+                emit('downloading');
+                const downloaded = await downloadTo(build, partPath, signal, (bytes) => {
+                    received = bytes;
+                    const at = now();
+                    if (at - announced >= PROGRESS_INTERVAL_MS) {
+                        announced = at;
+                        emit('downloading');
+                    }
+                });
+                emit('downloading');
 
-            emit('verifying');
-            if (downloaded.received !== build.bytes || downloaded.digest !== build.sha256) {
-                throw createHifiError(
-                    'INSTALL_CHECKSUM_MISMATCH',
-                    `${downloaded.received} bytes, sha256 ${downloaded.digest.slice(0, 12)}`
-                    + ` (wanted ${build.bytes}, ${build.sha256.slice(0, 12)})`,
-                );
+                emit('verifying');
+                if (downloaded.received !== build.bytes || downloaded.digest !== build.sha256) {
+                    throw createHifiError(
+                        'INSTALL_CHECKSUM_MISMATCH',
+                        `${downloaded.received} bytes, sha256 ${downloaded.digest.slice(0, 12)}`
+                        + ` (wanted ${build.bytes}, ${build.sha256.slice(0, 12)})`,
+                    );
+                }
+                await renameWithRetry(partPath, zipPath, signal);
             }
-            await fsp.rename(partPath, zipPath);
             throwIfCancelled(signal);
 
             emit('extracting');
@@ -277,10 +418,17 @@ const createMpvRuntimeInstaller = ({
             if (!stat?.isFile()) throw createHifiError('INSTALL_FAILED', `archive has no ${build.executable}`);
             if (platform !== 'win32') await fsp.chmod(stagedExecutable, 0o755);
 
-            await fsp.rm(finalDir, { recursive: true, force: true });
-            await fsp.rename(tmpDir, finalDir);
+            // 旧的那份可能还被占着（Windows），rm 自己会对 EBUSY / EPERM 重试几次。
+            keepZip = true;
+            await fsp.rm(finalDir, { recursive: true, force: true, maxRetries: platform === 'win32' ? 5 : 0, retryDelay: 200 });
+            await renameWithRetry(tmpDir, finalDir, signal);
+            keepZip = false;
             await removeQuietly(zipPath);
+
+            const probed = await probeInstalled(executablePath);
             await prune(root, version);
+            // 起不来的这份留在原处：下次 install() 再探一次，还不行才删掉重下。
+            if (!probed) throw createHifiError('INSTALL_FAILED', `${build.executable} does not run`);
 
             emit('done');
             logInfo(`[HiFi] install: mpv ${version} installed at ${finalDir}`);
@@ -289,8 +437,8 @@ const createMpvRuntimeInstaller = ({
             const code = signal.aborted ? 'INSTALL_CANCELLED' : toHifiErrorCode(error, 'INSTALL_FAILED');
             const errorCode = INSTALL_ERROR_CODES.has(code) ? code : 'INSTALL_FAILED';
             await removeQuietly(partPath);
-            await removeQuietly(zipPath);
             await removeQuietly(tmpDir);
+            if (errorCode === 'INSTALL_CANCELLED' || !keepZip) await removeQuietly(zipPath);
             if (errorCode === 'INSTALL_CANCELLED') {
                 logInfo(`[HiFi] install: mpv ${version} cancelled`);
                 emit('cancelled', errorCode);
@@ -310,31 +458,55 @@ const createMpvRuntimeInstaller = ({
             logInfo(`[HiFi] install: no mpv build for ${platform}-${arch}`);
             return Promise.resolve({ ok: false, errorCode: 'UNSUPPORTED_PLATFORM', version: null, executablePath: null });
         }
+        let layout = null;
+        try {
+            layout = layoutFor(target);
+        } catch (error) {
+            logWarn('[HiFi] install: no runtime directory', error);
+            return Promise.resolve({ ok: false, errorCode: 'INSTALL_FAILED', version: target.version, executablePath: null });
+        }
         const controller = new AbortController();
-        const promise = runInstall(target, controller.signal).finally(() => {
-            if (current?.controller === controller) current = null;
+        // 先登记再开始，runInstall 里清遗留文件时才认得出自己这次的路径。
+        const entry = { controller, layout, promise: null };
+        current = entry;
+        entry.promise = runInstall(target, layout, controller.signal).finally(() => {
+            if (current === entry) current = null;
         });
-        current = { controller, promise };
-        return promise;
+        return entry.promise;
     };
 
+    /** 取消进行中的安装；返回那次安装的结果（清理做完才落定），没在装时为 null。 */
     const cancel = () => {
-        current?.controller.abort(new Error('cancelled'));
+        if (!current) return Promise.resolve(null);
+        current.controller.abort(new Error('cancelled'));
+        return current.promise;
     };
 
     const isInstalling = () => current !== null;
 
-    const listInstalled = () => {
+    /** 装好且探测得通的版本，新的在前。 */
+    const listInstalled = async () => {
         try {
-            return listInstalledVersions({ fs, manifest, platform, arch, root: runtimeRoot(), pathModule: path })
-                .map(entry => entry.version);
+            const present = await listInstalledVersions({
+                manifest,
+                platform,
+                arch,
+                root: runtimeRoot(),
+                pathModule: path,
+                isExecutable: checkExecutable,
+            });
+            const runnable = [];
+            for (const entry of present) {
+                if (await probeInstalled(entry.executablePath)) runnable.push(entry.version);
+            }
+            return runnable;
         } catch (error) {
             logWarn('[HiFi] install: could not list installed mpv', error);
             return [];
         }
     };
 
-    return { install, cancel, isInstalling, listInstalled };
+    return { install, cancel, isInstalling, listInstalled, pruneLeftovers };
 };
 
 module.exports = {

@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createHifiEngine, hifiEngine, type HifiApi } from '@/services/hifi/hifiEngine';
+import { createHifiEngine, hifiEngine, isHifiLoadCancelled, type HifiApi } from '@/services/hifi/hifiEngine';
 import type {
     HifiClockUpdate,
+    HifiEngineConfig,
     HifiEngineState,
+    HifiErrorCode,
     HifiErrorEvent,
     HifiInstallProgress,
     HifiLoadRequest,
@@ -12,7 +14,8 @@ import type {
 
 // test/unit/hifi/hifiEngine.test.ts
 // 渲染端的 HiFi 引擎客户端：订阅只做一次、按 seq 丢旧状态、时钟只放行认得的曲目、读请求经真的 responder 回给主进程、
-// 回落 Web 的歌记在会话里，没有 window.electron.hifi 时每个方法回安全的默认值。
+// 回落 Web 的歌记在会话里，相同的配置不重发、mpv 路径变了或 mpv 不能用时刷新运行时，取消的载入不算失败，
+// 没有 window.electron.hifi 时每个方法回安全的默认值。
 
 const engineState = (overrides: Partial<HifiEngineState> = {}): HifiEngineState => ({
     status: 'playing',
@@ -63,6 +66,16 @@ const clock = (overrides: Partial<HifiClockUpdate> = {}): HifiClockUpdate => ({
     ...overrides,
 });
 
+const engineConfig = (overrides: Partial<HifiEngineConfig> = {}): HifiEngineConfig => ({
+    mpvPath: null,
+    audioDevice: 'auto',
+    exclusive: true,
+    dsdMode: 'pcm',
+    softwareVolume: false,
+    volume: 100,
+    ...overrides,
+});
+
 const loadRequest = (trackKey: string): HifiLoadRequest => ({
     trackKey,
     songKey: trackKey.split('#')[0],
@@ -87,12 +100,12 @@ const makeApi = () => {
         return unsubscribe;
     });
     const api = {
-        getRuntimeStatus: vi.fn(async () => runtimeStatus()),
+        getRuntimeStatus: vi.fn<HifiApi['getRuntimeStatus']>(async () => runtimeStatus()),
         detectRuntime: vi.fn(async () => runtimeStatus({ source: 'manual' })),
         pickRuntimePath: vi.fn(async () => '/opt/mpv/mpv'),
-        installRuntime: vi.fn(async () => ({ ok: true, errorCode: null, status: runtimeStatus({ source: 'downloaded' }) })),
+        installRuntime: vi.fn<HifiApi['installRuntime']>(async () => ({ ok: true, errorCode: null, status: runtimeStatus({ source: 'downloaded' }) })),
         cancelInstall: vi.fn(async () => undefined),
-        configure: vi.fn(async () => undefined),
+        configure: vi.fn<HifiApi['configure']>(async () => undefined),
         listDevices: vi.fn(async () => [{ name: 'auto', description: 'Autoselect device', driver: 'auto', direct: false }]),
         load: vi.fn<HifiApi['load']>(async () => ({ ok: true, state: engineState({ status: 'paused', paused: true }) })),
         play: vi.fn(async () => undefined),
@@ -164,17 +177,28 @@ describe('hifi engine client', () => {
         expect(seen).toHaveBeenCalledTimes(2);
     });
 
-    it('answers getSnapshot with the newer pushed state when the snapshot is older', async () => {
+    it('takes a snapshot whose seq equals the last pushed one, since main builds snapshots without bumping seq', async () => {
         const { api, push, engine } = setup();
+        const seen = vi.fn();
+        engine.onState(seen);
         engine.attach();
-        push.state?.(engineState({ seq: 5, positionSec: 50 }));
-        api.getSnapshot.mockResolvedValueOnce(engineState({ seq: 4, positionSec: 40 }));
+        push.state?.(engineState({ seq: 5, status: 'paused', paused: true, positionSec: 30 }));
 
-        expect((await engine.getSnapshot())?.seq).toBe(5);
+        // 暂停在 30 秒时 seek 到 120 秒：主进程只推时钟，不推状态，快照的 seq 还是 5。
+        api.getSnapshot.mockResolvedValueOnce(engineState({ seq: 5, status: 'paused', paused: true, positionSec: 120 }));
+        expect((await engine.getSnapshot())?.positionSec).toBe(120);
+        expect(engine.store.getState().engine?.positionSec).toBe(120);
+        // 同一个 seq 只通知订阅者一次。
+        expect(seen).toHaveBeenCalledTimes(1);
 
         api.getSnapshot.mockResolvedValueOnce(engineState({ seq: 6, positionSec: 60 }));
         expect((await engine.getSnapshot())?.positionSec).toBe(60);
         expect(engine.store.getState().engine?.seq).toBe(6);
+        expect(seen).toHaveBeenCalledTimes(2);
+
+        // 推送仍然只收比上一份新的。
+        push.state?.(engineState({ seq: 6, positionSec: 61 }));
+        expect(engine.store.getState().engine?.positionSec).toBe(60);
     });
 
     it('fans the clock out only for the current, next or just-requested track', async () => {
@@ -250,6 +274,13 @@ describe('hifi engine client', () => {
         await engine.load(loadRequest('local:1#b'));
         expect(engine.store.getState().lastError).toBeNull();
 
+        // 还在载入时被 stop() 取消（比如路由守卫切去 Web）：和 superseded 一样只记 info。
+        api.load.mockResolvedValueOnce({ ok: false, errorCode: 'LOAD_FAILED', detail: 'stopped' });
+        await engine.load(loadRequest('local:1#e'));
+        expect(engine.store.getState().lastError).toBeNull();
+        expect(console.info).toHaveBeenCalledWith('[HiFi] load cancelled by stop', { trackKey: 'local:1#e', sourceKind: 'local' });
+        expect(console.warn).not.toHaveBeenCalled();
+
         api.load.mockResolvedValueOnce({ ok: false, errorCode: 'CIRCUIT_OPEN' });
         await engine.load(loadRequest('local:1#c'));
         expect(engine.store.getState().lastError).toMatchObject({ code: 'CIRCUIT_OPEN', trackKey: 'local:1#c', fatal: true });
@@ -257,6 +288,122 @@ describe('hifi engine client', () => {
 
         api.load.mockRejectedValueOnce(new Error('Error invoking remote method'));
         expect(await engine.load(loadRequest('local:1#d'))).toEqual({ ok: false, errorCode: 'UNKNOWN' });
+    });
+
+    it('tells a cancelled load (superseded or stopped) from a failed one', () => {
+        expect(isHifiLoadCancelled({ ok: false, errorCode: 'LOAD_FAILED', detail: 'superseded' })).toBe(true);
+        expect(isHifiLoadCancelled({ ok: false, errorCode: 'LOAD_FAILED', detail: 'stopped' })).toBe(true);
+        expect(isHifiLoadCancelled({ ok: false, errorCode: 'LOAD_FAILED', detail: 'timeout' })).toBe(false);
+        expect(isHifiLoadCancelled({ ok: false, errorCode: 'LOAD_FAILED', detail: 'constructor' })).toBe(false);
+        expect(isHifiLoadCancelled({ ok: false, errorCode: 'LOAD_FAILED' })).toBe(false);
+        expect(isHifiLoadCancelled({ ok: true, state: engineState() })).toBe(false);
+    });
+
+    const runtimeFailureCodes: string[] = ['MPV_NOT_FOUND', 'MPV_SPAWN_FAILED', 'MPV_TOO_OLD'];
+    it.each(runtimeFailureCodes)('refreshes the runtime when a load fails with %s', async (code) => {
+        const { api, engine } = setup();
+        api.getRuntimeStatus.mockResolvedValueOnce(runtimeStatus({ available: false, path: null, source: null, errorCode: 'MPV_NOT_FOUND' }));
+        api.load.mockResolvedValueOnce({ ok: false, errorCode: code as HifiErrorCode });
+
+        await engine.load(loadRequest('local:1#a'));
+        expect(api.getRuntimeStatus).toHaveBeenCalledTimes(1);
+        expect(engine.store.getState().runtime?.available).toBe(false);
+        expect(engine.store.getState().lastError).toMatchObject({ code, trackKey: 'local:1#a', fatal: true });
+    });
+
+    it('leaves the runtime alone when a load fails for a reason that is not about mpv itself', async () => {
+        const { api, engine } = setup();
+        for (const errorCode of ['LOAD_FAILED', 'DEVICE_BUSY', 'SOURCE_UNREACHABLE', 'MPV_CRASHED'] as const) {
+            api.load.mockResolvedValueOnce({ ok: false, errorCode });
+            await engine.load(loadRequest('local:1#a'));
+        }
+        api.load.mockResolvedValueOnce({ ok: false, errorCode: 'LOAD_FAILED', detail: 'stopped' });
+        await engine.load(loadRequest('local:1#b'));
+        expect(api.getRuntimeStatus).not.toHaveBeenCalled();
+    });
+
+    it('skips a configure identical to the last one sent, including volume while software volume is off', async () => {
+        const { api, engine } = setup();
+
+        await engine.configure(engineConfig());
+        await engine.configure(engineConfig());
+        // 不开软件音量时 mpv 固定 100：桥随音量推来的配置对主进程没区别。
+        await engine.configure(engineConfig({ volume: 40 }));
+        expect(api.configure).toHaveBeenCalledTimes(1);
+
+        await engine.configure(engineConfig({ volume: 40, exclusive: false }));
+        expect(api.configure).toHaveBeenCalledTimes(2);
+        expect(api.configure).toHaveBeenLastCalledWith(engineConfig({ volume: 40, exclusive: false }));
+
+        await engine.configure(engineConfig({ volume: 40, exclusive: false, softwareVolume: true }));
+        await engine.configure(engineConfig({ volume: 40, exclusive: false, softwareVolume: true }));
+        await engine.configure(engineConfig({ volume: 55, exclusive: false, softwareVolume: true }));
+        expect(api.configure).toHaveBeenCalledTimes(4);
+        expect(api.configure).toHaveBeenLastCalledWith(engineConfig({ volume: 55, exclusive: false, softwareVolume: true }));
+    });
+
+    it('does not let a caller mutating its config object defeat the comparison', async () => {
+        const { api, engine } = setup();
+        const config = engineConfig();
+        await engine.configure(config);
+        config.exclusive = false;
+        await engine.configure(config);
+        expect(api.configure).toHaveBeenCalledTimes(2);
+    });
+
+    it('refreshes the runtime after main took a config whose mpv path changed', async () => {
+        const { api, engine } = setup();
+
+        // 第一次发配置：启动时 refreshRuntime 可能先于它，主进程那次是按没有手动路径测的。
+        let finishConfigure: () => void = () => {};
+        api.configure.mockImplementationOnce(() => new Promise<void>((resolve) => { finishConfigure = resolve; }));
+        api.getRuntimeStatus.mockResolvedValueOnce(runtimeStatus({ source: 'manual', path: '/opt/mpv/mpv' }));
+        const pending = engine.configure(engineConfig({ mpvPath: '/opt/mpv/mpv' }));
+        await Promise.resolve();
+        expect(api.getRuntimeStatus).not.toHaveBeenCalled();
+        finishConfigure();
+        await pending;
+        expect(api.getRuntimeStatus).toHaveBeenCalledTimes(1);
+        expect(engine.store.getState().runtime?.path).toBe('/opt/mpv/mpv');
+
+        // 路径没变，别的设置变了：不刷新。
+        await engine.configure(engineConfig({ mpvPath: '/opt/mpv/mpv', exclusive: false }));
+        expect(api.configure).toHaveBeenCalledTimes(2);
+        expect(api.getRuntimeStatus).toHaveBeenCalledTimes(1);
+
+        // 清掉手动路径：系统里没有 mpv，路由要马上知道。
+        api.getRuntimeStatus.mockResolvedValueOnce(runtimeStatus({ available: false, path: null, source: null, errorCode: 'MPV_NOT_FOUND' }));
+        await engine.configure(engineConfig({ exclusive: false }));
+        expect(api.getRuntimeStatus).toHaveBeenCalledTimes(2);
+        expect(engine.store.getState().runtime?.available).toBe(false);
+    });
+
+    it('sends the same config again after main failed to take it, and does not refresh on the failure', async () => {
+        const { api, engine } = setup();
+        api.configure.mockRejectedValueOnce(new Error('ipc gone'));
+
+        await engine.configure(engineConfig({ mpvPath: '/opt/mpv/mpv' }));
+        expect(api.getRuntimeStatus).not.toHaveBeenCalled();
+        expect(console.warn).toHaveBeenCalledWith('[HiFi] configure failed', expect.any(Error));
+
+        await engine.configure(engineConfig({ mpvPath: '/opt/mpv/mpv' }));
+        expect(api.configure).toHaveBeenCalledTimes(2);
+        expect(api.getRuntimeStatus).toHaveBeenCalledTimes(1);
+    });
+
+    it('refreshes the runtime after an install settles, also when the install call itself failed', async () => {
+        const { api, engine } = setup();
+
+        await engine.install();
+        expect(engine.store.getState().runtime?.source).toBe('downloaded');
+        // 主进程装完会重新检测并带回状态，不用再问。
+        expect(api.getRuntimeStatus).not.toHaveBeenCalled();
+
+        api.installRuntime.mockRejectedValueOnce(new Error('Error invoking remote method'));
+        api.getRuntimeStatus.mockResolvedValueOnce(runtimeStatus({ source: 'system', version: '0.40.0' }));
+        expect(await engine.install()).toBeNull();
+        expect(api.getRuntimeStatus).toHaveBeenCalledTimes(1);
+        expect(engine.store.getState().runtime?.version).toBe('0.40.0');
     });
 
     it('keeps runtime, devices and install progress in the store', async () => {

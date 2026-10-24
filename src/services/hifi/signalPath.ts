@@ -85,10 +85,19 @@ const dsdRateOf = (spec: HifiSourceSpec | null, state: SignalPathEngineState): n
 /**
  * DSD 以 DoP 送出：输出格式名本身带 dsd/dop/spdif；或者 audio-spdif=dsd 时，mpv 把 DSD 打进 24/32 位整数 PCM，
  * 采样率是位速率的 1/16（DSD64 → 176400）。
+ * 只看整数输出会误认：解码端出浮点（floatp）说明 DSD 已经被转成了 PCM；DoP 帧也不会再被重采样，
+ * 所以还要求解码端和输出端的采样率相同。
  */
-const isDopOutput = (out: HifiMpvAudioParams, spdif: string | null, dsdRate: number | null) => {
+const isDopOutput = (
+    input: HifiMpvAudioParams | null,
+    out: HifiMpvAudioParams,
+    spdif: string | null,
+    dsdRate: number | null,
+) => {
     if (/dsd|dop|spdif/i.test(out.format)) return true;
     if (spdif !== 'dsd') return false;
+    if (!input || parseSampleFormat(input.format).kind === 'float') return false;
+    if (input.samplerate !== out.samplerate) return false;
     const format = parseSampleFormat(out.format);
     if (format.kind !== 'int' || format.width === null || format.width < 24) return false;
     return dsdRate === null ? DOP_SAMPLE_RATES.has(out.samplerate) : out.samplerate * 16 === dsdRate;
@@ -108,13 +117,20 @@ const isLosslessFormatChange = (input: HifiMpvAudioParams, out: HifiMpvAudioPara
     return to.width >= effectiveWidth;
 };
 
-/** 输出会不会经过系统混音器：PulseAudio 总是；ALSA 只有 hw: 直连不经过；其余看是否独占。 */
+/** 认 --audio-exclusive 的驱动：开了独占就绕过系统混音器。Core Audio 开独占时 mpv 会改用 coreaudio_exclusive。 */
+const EXCLUSIVE_CAPABLE_DRIVERS = new Set(['wasapi', 'coreaudio']);
+
+/**
+ * 输出会不会经过系统混音器。Linux 上只有 ALSA 的 hw: 直连不经过：PulseAudio、PipeWire、JACK 不管独占与否都混音
+ * （mpv 的 pipewire 输出没有独占，--audio-exclusive 对它不起作用，PipeWire 照样重采样到自己的工作采样率再混音）。
+ * 只有 WASAPI 和 Core Audio 看是否独占；别的有名字的驱动都算经过混音器；驱动还没回报时先按是否独占推断。
+ */
 const isSharedOutput = (ao: string | null, device: string | null, exclusive: boolean) => {
     const driver = (ao ?? '').trim().toLowerCase();
-    if (driver === 'pulse') return true;
     if (driver === 'alsa') return !/^(alsa\/)?hw:/i.test(device ?? '');
     if (driver === 'coreaudio_exclusive') return false;
-    return !exclusive;
+    if (!driver || EXCLUSIVE_CAPABLE_DRIVERS.has(driver)) return !exclusive;
+    return true;
 };
 
 const outputDetail = (ao: string | null, device: string | null): string | null => {
@@ -166,7 +182,7 @@ export const buildSignalPath = (
     const dsdRate = dsd ? dsdRateOf(sourceSpec, mpvState) : null;
     // audio-spdif 还没回报时按设置推断。
     const spdif = mpvState.spdif ?? (settings.dsdMode === 'dop' ? 'dsd' : null);
-    const dop = dsd && out !== null && isDopOutput(out, spdif, dsdRate);
+    const dop = dsd && out !== null && isDopOutput(input, out, spdif, dsdRate);
 
     const transportStage: HifiSignalStage = {
         id: 'transport',

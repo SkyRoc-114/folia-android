@@ -11,7 +11,8 @@ import path from 'node:path';
  * 渲染端换成进程内的假实现，按 sourceKey 直接从磁盘读字节回给来源桥；输出用 --ao=null，不出声。
  *
  * 走一遍：载入 → 等到在放 → 看时钟节流 → 跳转 → 暂停 / 继续 → stop（输出关掉）→ 无缝接下一首 → 短文件放到底
- * （ended）→ 源读不出时的错误码；每步打印 HifiEngineState 里的 audioParams / audioOutParams / track。
+ * （ended，之后预载被拒）→ 源读不出时的错误码 → 源在播放途中断掉（报错而不是 ended）→ killSync 之后不再拉起；
+ * 每步打印 HifiEngineState 里的 audioParams / audioOutParams / track。
  *
  * 用法：
  *   node test/manual/hifiMpvSmoke.mjs <第一首，如 96k/24 FLAC> <第二首，如 DSD64 .dsf> [--mpv /usr/bin/mpv]
@@ -52,11 +53,14 @@ const check = (ok, what) => {
 };
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-// 假渲染端：sourceKey → 磁盘上的文件。未登记的 key 回 unknown-source，标成坏的 key 回 failed。
+// 假渲染端：sourceKey → 磁盘上的文件。未登记的 key 回 unknown-source，标成坏的 key 回 failed，
+// 设了断点的 key 读到那个字节以后回 failed（源在播放途中断掉）。
 const registeredFiles = new Map();
 const brokenKeys = new Set();
+const failFromOffset = new Map();
 const requestRead = async (_ownerId, { sourceKey, offset, length }) => {
     if (brokenKeys.has(sourceKey)) return { status: 'failed' };
+    if (failFromOffset.has(sourceKey) && offset >= failFromOffset.get(sourceKey)) return { status: 'failed' };
     const file = registeredFiles.get(sourceKey);
     if (!file) return { status: 'unknown-source' };
     const handle = openSync(file, 'r');
@@ -69,13 +73,21 @@ const requestRead = async (_ownerId, { sourceKey, offset, length }) => {
     }
 };
 const quiet = () => {};
-const bridge = createSourceBridge({ requestRead, unknownSourceGiveUpMs: 600, logInfo: quiet });
+// 块小一点，源中途断掉那一步才断在文件中间。
+const bridge = createSourceBridge({ requestRead, chunkSize: 64 * 1024, unknownSourceGiveUpMs: 600, logInfo: quiet });
 
 let lastState = null;
 const stateWaiters = new Set();
 const clockLog = [];
+const errorLog = [];
+const statusLog = [];
+const children = [];
 const session = createMpvSession({
-    spawnFn: spawn,
+    spawnFn: (...args) => {
+        const child = spawn(...args);
+        children.push(child);
+        return child;
+    },
     platform: process.platform,
     resolveRuntime: async () => ({ path: mpvPath, version: null }),
     bridge,
@@ -86,13 +98,17 @@ const session = createMpvSession({
             console.log(`${stamp()} state #${state.seq} ${state.status} track=${state.trackKey} pos=${state.positionSec.toFixed(2)} ao=${state.currentAo}`);
         }
         lastState = state;
+        statusLog.push({ status: state.status, trackKey: state.trackKey });
         for (const waiter of [...stateWaiters]) waiter(state);
     },
     onClock: update => {
         clockLog.push({ at: Date.now(), ...update });
         if (update.reason !== 'tick') console.log(`${stamp()} clock ${update.reason} pos=${update.positionSec.toFixed(3)} paused=${update.paused}`);
     },
-    onError: event => console.log(`${stamp()} error ${JSON.stringify(event)}`),
+    onError: event => {
+        errorLog.push(event);
+        console.log(`${stamp()} error ${JSON.stringify(event)}`);
+    },
     logInfo: (...args) => console.log(`${stamp()}`, ...args),
     logWarn: (...args) => console.log(`${stamp()}`, ...args),
 });
@@ -165,7 +181,11 @@ try {
     await session.seek(2);
     const seekPush = clockLog.find(update => update.reason === 'seek');
     check(Boolean(seekPush) && Math.abs(seekPush.positionSec - 2) < 0.01, 'seek pushes the clock at once with the target');
+    check(seekPush?.paused === true, 'the seek push is paused until mpv has found the position');
     await sleep(400);
+    const restartPush = clockLog.find(update => update.reason === 'resume');
+    check(Boolean(restartPush) && !restartPush.paused && Math.abs(restartPush.positionSec - 2) < 0.1,
+        `playback-restart pushes a running clock (${restartPush ? `pos=${restartPush.positionSec.toFixed(3)}` : 'none'})`);
     check(lastState.positionSec >= 2 && lastState.positionSec < 3, `position after seek ${lastState.positionSec.toFixed(3)}`);
 
     console.log(`${stamp()} --- pause / play`);
@@ -208,6 +228,8 @@ try {
     const ended = await waitForState(state => state.status === 'ended' && state.trackKey === tail.trackKey, 'ended', 6000);
     check(ended.status === 'ended', 'eof-reached on the last entry reports ended');
     printFormat('state at the end', ended);
+    const lateQueue = await session.preloadNext(requestFor(first), { ownerId: 1 });
+    check(lateQueue === false, 'preloadNext after the end answers false (the renderer loads normally)');
 
     console.log(`${stamp()} --- source that cannot be read`);
     const broken = requestFor(first);
@@ -221,9 +243,39 @@ try {
     const unknownLoad = await session.load(unknown, { ownerId: 1 });
     check(unknownLoad.ok === false, `unknown source fails with ${unknownLoad.ok ? 'ok' : unknownLoad.errorCode}`);
 
+    console.log(`${stamp()} --- source that breaks off mid-play: ${path.basename(first)} fails from byte 256 KiB`);
+    const midway = requestFor(first);
+    failFromOffset.set(midway.source.sourceKey, 256 * 1024);
+    errorLog.length = 0;
+    statusLog.length = 0;
+    clockLog.length = 0;
+    const midwayLoad = await session.load(midway, { ownerId: 1 });
+    check(midwayLoad.ok === true, 'mid-play failure: the load itself resolves ok');
+    // ffmpeg 会重连几次（约 1 s、3 s、7 s）才放弃。
+    const brokeOff = await waitForState(state => state.trackKey === midway.trackKey && state.status === 'error', 'error after the source broke off', 25000);
+    const midwayError = errorLog.find(event => event.trackKey === midway.trackKey);
+    check(midwayError?.code === 'SOURCE_UNREACHABLE' && midwayError.fatal === true,
+        `the break is a fatal ${midwayError?.code ?? 'nothing'} at ${brokeOff.positionSec.toFixed(2)} / ${brokeOff.durationSec} s`);
+    check(!statusLog.some(entry => entry.trackKey === midway.trackKey && entry.status === 'ended'), 'the broken song never reports ended');
+    check(clockLog.some(update => update.trackKey === midway.trackKey && update.reason === 'tick' && update.paused),
+        'the clock stops while mpv waits for data that never comes');
+    await sleep(300);
+    check(lastState.audioOutParams === null && lastState.currentAo === null, `the output is closed after the failure (ao=${lastState.currentAo})`);
+
     console.log(`${stamp()} --- snapshot`);
     const snapshot = session.getSnapshot();
     console.log(`${stamp()} ${JSON.stringify({ status: snapshot.status, processRunning: snapshot.processRunning, errorCode: snapshot.errorCode, circuitOpen: snapshot.circuitOpen, seq: snapshot.seq })}`);
+
+    console.log(`${stamp()} --- killSync`);
+    session.killSync();
+    await sleep(300);
+    check(children.every(child => child.exitCode !== null || child.signalCode !== null), `every mpv is gone (${children.length} spawned)`);
+    const afterKill = await session.load(requestFor(first), { ownerId: 1 });
+    check(!afterKill.ok && afterKill.detail === 'stopped', `load after killSync answers ${afterKill.ok ? 'ok' : `${afterKill.errorCode} / ${afterKill.detail}`}`);
+    const devicesAfterKill = await session.listDevices();
+    check(devicesAfterKill.length === 0, 'listDevices after killSync spawns nothing');
+    await sleep(300);
+    check(children.every(child => child.exitCode !== null || child.signalCode !== null), `still no mpv running (${children.length} spawned)`);
 } catch (error) {
     check(false, `threw: ${error?.stack ?? error}`);
 } finally {

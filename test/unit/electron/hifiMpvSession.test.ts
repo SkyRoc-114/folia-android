@@ -57,6 +57,8 @@ class FakeMpvSocket extends EventEmitter {
     props: Record<string, unknown> = {};
     /** 这些命令不回话（模拟 mpv 卡死）。 */
     silent = new Set<string>();
+    /** 这些命令回 mpv 的错误。 */
+    failing = new Set<string>();
     nextEntryId = 1;
     writableFinished = false;
     ended = false;
@@ -81,6 +83,10 @@ class FakeMpvSocket extends EventEmitter {
 
     answer({ command, request_id: requestId }: MpvRequest) {
         const [name, ...args] = command;
+        if (this.failing.has(String(name))) {
+            this.feed({ request_id: requestId, error: 'invalid parameter' });
+            return;
+        }
         if (name === 'loadfile') {
             this.reply(requestId, { data: { playlist_entry_id: this.nextEntryId++ } });
             return;
@@ -429,7 +435,7 @@ describe('mpv session: spawn and load', () => {
 });
 
 describe('mpv session: transport and clock', () => {
-    it('pause / play / seek send the matching commands; seek pushes the clock at once', async () => {
+    it('pause / play / seek send the matching commands; seek pushes a stopped clock at once and a running one at playback-restart', async () => {
         const harness = createHarness();
         await loadAndStart(harness, localRequest('local:a#1'), 1);
         const mpv = harness.mpv();
@@ -439,7 +445,68 @@ describe('mpv session: transport and clock', () => {
         await harness.session.seek(42.5);
         expect(mpv.commands('set_property').slice(-2)).toEqual([['set_property', 'pause', true], ['set_property', 'pause', false]]);
         expect(mpv.commands('seek')).toEqual([['seek', 42.5, 'absolute']]);
-        expect(harness.clocks).toEqual([{ trackKey: 'local:a#1', positionSec: 42.5, paused: false, reason: 'seek', seq: expect.any(Number) }]);
+        // mpv 还在找位置：时钟按停着报，渲染端不往前外推。
+        expect(harness.clocks).toEqual([{ trackKey: 'local:a#1', positionSec: 42.5, paused: true, reason: 'seek', seq: expect.any(Number) }]);
+        // 状态里不算暂停：播放键不该在每次跳转时闪一下。
+        await flush();
+        expect(harness.lastState()).toMatchObject({ status: 'playing', paused: false });
+
+        await vi.advanceTimersByTimeAsync(400);
+        mpv.prop('time-pos', 42.5);
+        expect(harness.clocks.at(-1)).toMatchObject({ reason: 'tick', paused: true });
+        harness.clocks.length = 0;
+        mpv.event('playback-restart');
+        expect(harness.clocks).toEqual([{ trackKey: 'local:a#1', positionSec: 42.5, paused: false, reason: 'resume', seq: expect.any(Number) }]);
+        // 跳完的那次已经推过了，下一个 time-pos 照常节流。
+        mpv.prop('time-pos', 42.51);
+        expect(harness.clocks).toHaveLength(1);
+    });
+
+    it('a seek while paused stays paused through playback-restart', async () => {
+        const harness = createHarness();
+        await loadAndStart(harness, localRequest('local:a#1', { paused: true }), 1);
+        harness.mpv().prop('pause', true);
+        harness.clocks.length = 0;
+        await harness.session.seek(10);
+        harness.mpv().event('playback-restart');
+        expect(harness.clocks.map(({ reason, paused, positionSec }) => ({ reason, paused, positionSec }))).toEqual([
+            { reason: 'seek', paused: true, positionSec: 10 },
+            { reason: 'seek', paused: true, positionSec: 10 },
+        ]);
+    });
+
+    it('a seek mpv refuses releases the clock at once instead of waiting for a playback-restart that never comes', async () => {
+        const harness = createHarness();
+        await loadAndStart(harness, localRequest('local:a#1'), 1);
+        harness.mpv().failing.add('seek');
+        harness.clocks.length = 0;
+        await harness.session.seek(5);
+        expect(harness.clocks.map(({ reason, paused }) => ({ reason, paused }))).toEqual([
+            { reason: 'seek', paused: true },
+            { reason: 'seek', paused: false },
+        ]);
+    });
+
+    it('reports a paused clock while mpv waits for its cache, without calling it a pause', async () => {
+        const harness = createHarness();
+        await loadAndStart(harness, localRequest('local:a#1'), 1);
+        const mpv = harness.mpv();
+        mpv.prop('time-pos', 3);
+        harness.clocks.length = 0;
+        const statesBefore = harness.states.length;
+
+        mpv.prop('paused-for-cache', true);
+        expect(harness.clocks).toEqual([{ trackKey: 'local:a#1', positionSec: 3, paused: true, reason: 'tick', seq: expect.any(Number) }]);
+        // 缓存见底期间推的 tick 也是停着的。
+        await vi.advanceTimersByTimeAsync(300);
+        mpv.prop('time-pos', 3.01);
+        expect(harness.clocks.at(-1)).toMatchObject({ paused: true });
+
+        mpv.prop('paused-for-cache', false);
+        expect(harness.clocks.at(-1)).toMatchObject({ reason: 'tick', paused: false });
+        await flush();
+        expect(harness.states.length).toBe(statesBefore);
+        expect(harness.lastState()).toMatchObject({ status: 'playing', paused: false });
     });
 
     it('throttles time-pos to at most 4 pushes a second, but pushes the first value after a restart and pause flips at once', async () => {
@@ -502,6 +569,14 @@ describe('mpv session: transport and clock', () => {
         expect(harness.mpv().commands('set_property').at(-1)).toEqual(['set_property', 'pause', false]);
     });
 
+    it('the state reports volume 100 before mpv has said anything', async () => {
+        const harness = createHarness();
+        expect(harness.session.getSnapshot()).toMatchObject({ status: 'stopped', volume: 100 });
+        // 软件音量的值要等 mpv 起来才下发，在那之前 mpv 会是 --volume=100。
+        await harness.session.configure({ mpvPath: null, audioDevice: 'auto', exclusive: false, dsdMode: 'pcm', softwareVolume: true, volume: 0 });
+        expect(harness.session.getSnapshot().volume).toBe(100);
+    });
+
     it('setLoopFile sets loop-file inf / no', async () => {
         const harness = createHarness();
         await loadAndStart(harness, localRequest('local:a#1'), 1);
@@ -511,6 +586,103 @@ describe('mpv session: transport and clock', () => {
             ['set_property', 'loop-file', 'inf'],
             ['set_property', 'loop-file', 'no'],
         ]);
+    });
+});
+
+describe('mpv session: the source breaks off mid-play', () => {
+    const playAt = async (harness: Harness, positionSec: number, durationSec: number | null) => {
+        await loadAndStart(harness, localRequest('local:a#1'), 1);
+        if (durationSec !== null) harness.mpv().prop('duration', durationSec);
+        harness.mpv().prop('time-pos', positionSec);
+        await flush();
+    };
+
+    it('eof-reached well short of the duration with a bridge error is a fatal error, not the end', async () => {
+        const harness = createHarness();
+        await playAt(harness, 7.8, 30);
+        harness.bridge.errors.set('tok1', 'SOURCE_UNREACHABLE');
+        harness.mpv().prop('eof-reached', true);
+        await flush();
+
+        expect(harness.errors).toEqual([{ code: 'SOURCE_UNREACHABLE', trackKey: 'local:a#1', detail: 'source ended early', fatal: true }]);
+        expect(harness.states.some(state => state.status === 'ended')).toBe(false);
+        expect(harness.lastState()).toMatchObject({ status: 'error', errorCode: 'SOURCE_UNREACHABLE', trackKey: 'local:a#1', paused: true });
+        // keep-open 还开着输出：停下，独占的设备放开。
+        expect(harness.mpv().commands('stop')).toEqual([['stop']]);
+        expect(harness.bridge.revoke).toHaveBeenCalledWith('tok1');
+        // 失败之后 mpv 迟到的位置不再算进这一首。
+        harness.clocks.length = 0;
+        harness.mpv().prop('time-pos', 0.2);
+        expect(harness.clocks).toEqual([]);
+    });
+
+    it('with the duration unknown a bridge error at eof is a failure too', async () => {
+        const harness = createHarness();
+        await playAt(harness, 12, null);
+        harness.bridge.errors.set('tok1', 'SOURCE_REJECTED');
+        harness.mpv().prop('eof-reached', true);
+        await flush();
+        expect(harness.errors).toEqual([expect.objectContaining({ code: 'SOURCE_REJECTED', fatal: true })]);
+        expect(harness.lastState().status).toBe('error');
+    });
+
+    it('a bridge error with the position at the duration still ends normally', async () => {
+        const harness = createHarness();
+        await playAt(harness, 29.4, 30);
+        harness.bridge.errors.set('tok1', 'SOURCE_UNREACHABLE');
+        harness.mpv().prop('eof-reached', true);
+        await flush();
+        expect(harness.errors).toEqual([]);
+        expect(harness.lastState()).toMatchObject({ status: 'ended', errorCode: null });
+    });
+
+    it('no bridge error: eof-reached short of the duration is still the end (a seek past the last frame)', async () => {
+        const harness = createHarness();
+        await playAt(harness, 7.8, 30);
+        harness.mpv().prop('eof-reached', true);
+        await flush();
+        expect(harness.errors).toEqual([]);
+        expect(harness.lastState().status).toBe('ended');
+    });
+
+    it('end-file eof with a song queued: fails the current one, drops the queued one and stops mpv', async () => {
+        const harness = createHarness();
+        await playAt(harness, 5, 30);
+        expect(await harness.session.preloadNext(localRequest('local:b#2'))).toBe(true);
+        harness.bridge.errors.set('tok1', 'SOURCE_UNREACHABLE');
+        harness.mpv().event('end-file', { reason: 'eof', playlist_entry_id: 1 });
+        // mpv 已经接上了预载项，这次 start-file 不再算数。
+        harness.mpv().event('start-file', { playlist_entry_id: 2 });
+        await flush();
+
+        expect(harness.errors).toEqual([expect.objectContaining({ code: 'SOURCE_UNREACHABLE', trackKey: 'local:a#1', fatal: true })]);
+        expect(harness.lastState()).toMatchObject({ status: 'error', trackKey: 'local:a#1', next: null });
+        expect(harness.mpv().commands('stop')).toEqual([['stop']]);
+        harness.mpv().event('end-file', { reason: 'stop', playlist_entry_id: 2 });
+        await flush();
+        expect(harness.bridge.revoke).toHaveBeenCalledWith('tok2');
+    });
+
+    it('end-file eof without a bridge error is an ordinary gapless switch', async () => {
+        const harness = createHarness();
+        await playAt(harness, 5, 30);
+        await harness.session.preloadNext(localRequest('local:b#2'));
+        harness.mpv().event('end-file', { reason: 'eof', playlist_entry_id: 1 });
+        harness.mpv().event('start-file', { playlist_entry_id: 2 });
+        await flush();
+        expect(harness.errors).toEqual([]);
+        expect(harness.lastState()).toMatchObject({ status: 'playing', trackKey: 'local:b#2' });
+    });
+
+    it('end-file error on the playing song stops mpv from moving on to the queued one', async () => {
+        const harness = createHarness();
+        await playAt(harness, 5, 30);
+        await harness.session.preloadNext(localRequest('local:b#2'));
+        harness.mpv().event('end-file', { reason: 'error', playlist_entry_id: 1, file_error: 'loading failed' });
+        await flush();
+        expect(harness.errors).toEqual([expect.objectContaining({ code: 'SOURCE_UNREACHABLE', trackKey: 'local:a#1', fatal: true })]);
+        expect(harness.lastState()).toMatchObject({ status: 'error', next: null });
+        expect(harness.mpv().commands('stop')).toEqual([['stop']]);
     });
 });
 
@@ -562,6 +734,48 @@ describe('mpv session: gapless', () => {
         const harness = createHarness();
         expect(await harness.session.preloadNext(localRequest('local:b#2'))).toBe(false);
         expect(harness.spawnFn).not.toHaveBeenCalled();
+    });
+
+    it('preloadNext refuses once the current song is at its end (keep-open has paused it)', async () => {
+        const harness = createHarness();
+        await loadAndStart(harness, localRequest('local:a#1'), 1);
+        harness.mpv().prop('eof-reached', true);
+        harness.mpv().prop('pause', true);
+        await flush();
+        expect(harness.lastState().status).toBe('ended');
+        expect(await harness.session.preloadNext(localRequest('local:b#2'))).toBe(false);
+        expect(harness.mpv().commands('loadfile')).toHaveLength(1);
+        expect(harness.bridge.registerLocal).toHaveBeenCalledTimes(1);
+    });
+
+    it('an append that reaches mpv after the end unpauses the song it switches to', async () => {
+        const harness = createHarness();
+        await loadAndStart(harness, localRequest('local:a#1'), 1);
+        const mpv = harness.mpv();
+        mpv.silent.add('loadfile');
+        const appended = harness.session.preloadNext(localRequest('local:b#2'));
+        await flush();
+        // append 还在路上，当前这首先到了头：keep-open 把它停在暂停里。
+        mpv.prop('eof-reached', true);
+        mpv.prop('pause', true);
+        const append = mpv.requests.filter(request => request.command[0] === 'loadfile').at(-1)!;
+        mpv.answer(append);
+        expect(await appended).toBe(true);
+        expect(mpv.commands('set_property').at(-1)).toEqual(['set_property', 'pause', false]);
+    });
+
+    it('a pause the user pressed while the append was on its way is kept', async () => {
+        const harness = createHarness();
+        await loadAndStart(harness, localRequest('local:a#1'), 1);
+        const mpv = harness.mpv();
+        mpv.silent.add('loadfile');
+        const appended = harness.session.preloadNext(localRequest('local:b#2'));
+        await flush();
+        mpv.prop('eof-reached', true);
+        await harness.session.pause();
+        mpv.answer(mpv.requests.filter(request => request.command[0] === 'loadfile').at(-1)!);
+        expect(await appended).toBe(true);
+        expect(mpv.commands('set_property').at(-1)).toEqual(['set_property', 'pause', true]);
     });
 
     it('a new load drops the queued song too (replace clears the playlist)', async () => {
@@ -629,6 +843,96 @@ describe('mpv session: stop and exit', () => {
         expect(await pending).toEqual({ ok: false, errorCode: 'LOAD_FAILED', detail: 'stopped' });
         running.exit(null, 'SIGTERM');
         expect(harness.errors).toEqual([]);
+    });
+
+    it('a load cancelled by stop answers detail stopped, with mpv up and while it is still starting', async () => {
+        const harness = createHarness();
+        const whileUp = harness.session.load(localRequest('local:a#1'), { ownerId: 7 });
+        await flush();
+        await harness.session.stop();
+        expect(await whileUp).toEqual({ ok: false, errorCode: 'LOAD_FAILED', detail: 'stopped' });
+
+        let release: (runtime: { path: string; version: string }) => void = () => {};
+        const slow = createHarness({
+            resolveRuntime: () => new Promise(resolve => {
+                release = resolve;
+            }),
+        });
+        const whileStarting = slow.session.load(localRequest('local:b#2'), { ownerId: 7 });
+        await flush();
+        await slow.session.stop();
+        expect(await whileStarting).toEqual({ ok: false, errorCode: 'LOAD_FAILED', detail: 'stopped' });
+        release({ path: '/usr/bin/mpv', version: '0.41.0' });
+        await flush();
+        // 拉起照常落地，但没人要了：不发 loadfile，计空闲。
+        expect(slow.mpv().commands('loadfile')).toEqual([]);
+        expect(slow.errors).toEqual([]);
+    });
+
+    it('after killSync nothing spawns mpv again: load answers stopped, listDevices and preloadNext refuse', async () => {
+        const harness = createHarness();
+        await loadAndStart(harness, localRequest('local:a#1'), 1);
+        harness.session.killSync();
+        expect(harness.child().kill).toHaveBeenCalledTimes(1);
+
+        expect(await harness.session.load(localRequest('local:b#2'))).toEqual({ ok: false, errorCode: 'LOAD_FAILED', detail: 'stopped' });
+        expect(await harness.session.listDevices()).toEqual([]);
+        expect(await harness.session.preloadNext(localRequest('local:c#3'))).toBe(false);
+        await flush();
+        expect(harness.spawnFn).toHaveBeenCalledTimes(1);
+        harness.child().exit(null, 'SIGTERM');
+        expect(harness.errors).toEqual([]);
+    });
+
+    it('killSync while the runtime is being detected: the spawn never happens', async () => {
+        let release: (runtime: { path: string; version: string }) => void = () => {};
+        const harness = createHarness({
+            resolveRuntime: () => new Promise(resolve => {
+                release = resolve;
+            }),
+        });
+        const result = harness.session.load(localRequest('local:a#1'));
+        await flush();
+        harness.session.killSync();
+        expect(await result).toEqual({ ok: false, errorCode: 'LOAD_FAILED', detail: 'stopped' });
+        release({ path: '/usr/bin/mpv', version: '0.41.0' });
+        await flush();
+        expect(harness.spawnFn).not.toHaveBeenCalled();
+    });
+
+    it('killSync while mpv is connecting kills it as soon as it lands and does not count a crash', async () => {
+        const harness = createHarness({
+            onSpawn: child => child.socket.silent.add('observe_property'),
+        });
+        const result = harness.session.load(localRequest('local:a#1'));
+        await flush();
+        const launching = harness.child();
+        harness.session.killSync();
+        expect(launching.kill).toHaveBeenCalledTimes(1);
+        expect(await result).toEqual({ ok: false, errorCode: 'LOAD_FAILED', detail: 'stopped' });
+        await flush();
+        launching.exit(null, 'SIGTERM');
+        expect(launching.kill).toHaveBeenCalledTimes(1);
+        expect(harness.errors).toEqual([]);
+        expect(harness.session.getSnapshot().circuitOpen).toBe(false);
+    });
+
+    it('killSync while the Windows pipe is being connected aborts the connect', async () => {
+        let connectSignal: AbortSignal | null = null;
+        const harness = createHarness({
+            platform: 'win32',
+            randomBytes: (size: number) => Buffer.alloc(size, 0xcd),
+            connectPipe: vi.fn((_path: string, { signal }: { signal: AbortSignal }) => {
+                connectSignal = signal;
+                return new Promise(() => {});
+            }),
+        });
+        const result = harness.session.load(localRequest('local:a#1'));
+        await flush();
+        harness.session.killSync();
+        expect(connectSignal!.aborted).toBe(true);
+        expect(harness.child().kill).toHaveBeenCalledTimes(1);
+        expect(await result).toEqual({ ok: false, errorCode: 'LOAD_FAILED', detail: 'stopped' });
     });
 
     it('dispose asks mpv to quit', async () => {
@@ -749,7 +1053,7 @@ describe('mpv session: configure and devices', () => {
         expect(mpv.commands('set_property').length).toBe(before + 6);
     });
 
-    it('lists devices from audio-device-list and marks Linux hw: devices as direct', async () => {
+    it('lists devices from audio-device-list and marks only Linux hw: devices as direct (plughw converts behind mpv)', async () => {
         const harness = createHarness({
             idleExitMs: 1000,
             onSpawn: child => {
@@ -757,6 +1061,7 @@ describe('mpv session: configure and devices', () => {
                     { name: 'auto', description: 'Autoselect device' },
                     { name: 'pipewire', description: 'Default (pipewire)' },
                     { name: 'alsa/hw:CARD=D10,DEV=0', description: 'D10, USB Audio' },
+                    { name: 'alsa/plughw:CARD=D10,DEV=0', description: 'D10, USB Audio (plug)' },
                 ];
             },
         });
@@ -764,6 +1069,7 @@ describe('mpv session: configure and devices', () => {
             { name: 'auto', description: 'Autoselect device', driver: 'auto', direct: false },
             { name: 'pipewire', description: 'Default (pipewire)', driver: 'pipewire', direct: false },
             { name: 'alsa/hw:CARD=D10,DEV=0', description: 'D10, USB Audio', driver: 'alsa', direct: true },
+            { name: 'alsa/plughw:CARD=D10,DEV=0', description: 'D10, USB Audio (plug)', driver: 'alsa', direct: false },
         ]);
         // 只为列设备拉起的进程空闲后退出。
         await vi.advanceTimersByTimeAsync(1000);

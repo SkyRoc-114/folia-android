@@ -189,4 +189,13 @@ describe('main.cjs wiring', () => {
         expect(hifiIpc).toContain("require('../ipcAccessGuard.cjs')");
         expect(hifiIpc).toContain('createSenderGuardedHandler({');
     });
+
+    it('keeps the approved manual mpv path in main\'s own store, out of the renderer\'s reach', () => {
+        // 渲染端经 configure 只能选用或清掉主进程从文件框拿到的路径；批准存在 main 的 electron-store 里。
+        expect(mainCjs).toContain("const HIFI_MPV_MANUAL_PATH_KEY = 'hifi_mpv_manual_path';");
+        const site = mainCjs.match(/registerHifiIpc\(\{[\s\S]{0,900}?\}\);/);
+        expect(site, 'no registerHifiIpc call').not.toBeNull();
+        expect(site?.[0]).toContain('getApprovedMpvPath: () => store.get(HIFI_MPV_MANUAL_PATH_KEY, null)');
+        expect(site?.[0]).toContain('setApprovedMpvPath: value => (value === null ? store.delete(HIFI_MPV_MANUAL_PATH_KEY) : store.set(HIFI_MPV_MANUAL_PATH_KEY, value))');
+    });
 });

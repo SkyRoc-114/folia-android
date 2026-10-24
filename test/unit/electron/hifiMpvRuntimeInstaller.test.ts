@@ -8,11 +8,17 @@ import { zipSync } from 'fflate';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { HifiErrorCode, HifiInstallProgress } from '../../../src/types/hifi';
 
-// 钉住 mpv 运行时安装：用 fflate 现做的 zip 走一遍下载、校验、解压、改名、清旧版本，以及校验失败、取消、macOS 的 ditto。
+// 钉住 mpv 运行时安装：用 fflate 现做的 zip 走一遍下载、校验、解压、改名、探测、清旧版本和遗留文件，以及校验失败、
+// 取消、Windows 上改名重试、macOS 的 ditto。
 
-type ExecFileCallback = (error: Error | null) => void;
+type ExecFileCallback = (error: Error | null, stdout?: string, stderr?: string) => void;
 type ExecFileFn = (file: string, args: string[], options: Record<string, unknown>, callback: ExecFileCallback) => void;
 type FetchFn = (url: string, init: { redirect: string; signal: AbortSignal }) => Promise<Response>;
+type UnzipFn = (
+    data: Uint8Array,
+    options: { filter: (file: { name: string }) => boolean },
+    callback: (error: Error | null, entries: Record<string, Uint8Array> | null) => void,
+) => () => void;
 
 interface InstallerOptions {
     manifest: unknown;
@@ -20,9 +26,12 @@ interface InstallerOptions {
     arch: string;
     getUserDataPath: () => string;
     fetchFn: FetchFn;
+    fsp?: unknown;
+    unzipFn?: UnzipFn;
     execFileFn?: ExecFileFn;
     onProgress?: (progress: HifiInstallProgress) => void;
     now?: () => number;
+    setTimeoutFn?: (callback: () => void, ms: number) => unknown;
     systemVersion?: string | null;
     logInfo?: (...args: unknown[]) => void;
     logWarn?: (...args: unknown[]) => void;
@@ -37,9 +46,10 @@ interface InstallResult {
 
 interface MpvRuntimeInstaller {
     install: () => Promise<InstallResult>;
-    cancel: () => void;
+    cancel: () => Promise<InstallResult | null>;
     isInstalling: () => boolean;
-    listInstalled: () => string[];
+    listInstalled: () => Promise<string[]>;
+    pruneLeftovers: () => Promise<void>;
 }
 
 const require = createRequire(import.meta.url);
@@ -53,7 +63,42 @@ const ASSET_URL = 'https://github.example.test/mpv-player/mpv/releases/download/
 const MPV_EXE = new Uint8Array(randomBytes(200_000));
 const silent = { logInfo: () => { }, logWarn: () => { } };
 
+const PROBE_OUTPUT = 'mpv v0.41.0-dev-g41f6a6450 Copyright © 2000-2025 mpv/MPlayer/mplayer2 projects\n';
+
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+
+/** 等到 condition 成立（下载、写盘都是真的异步）。 */
+const until = async (condition: () => boolean) => {
+    for (let index = 0; index < 200 && !condition(); index += 1) {
+        await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    expect(condition()).toBe(true);
+};
+
+/** 重试的退避（≤ 1 s）立刻到；2 s 的检查超时和 45 s 的响应超时照旧。 */
+const fastRetrySetTimeout = (callback: () => void, ms: number) => setTimeout(callback, ms <= 1000 ? 0 : ms);
+
+/**
+ * 假的 execFile：`--version` 时，文件真在磁盘上且 runs(file) 为真就印版本号，否则像起不来那样报错；
+ * 别的命令（ditto、tar）交给 other。calls 记下每次调用。
+ */
+const createProbeExec = ({ runs = () => true, other }: { runs?: (file: string) => boolean; other?: ExecFileFn } = {}) => {
+    const calls: Array<{ file: string; args: string[] }> = [];
+    const execFileFn: ExecFileFn = (file, args, options, callback) => {
+        calls.push({ file, args });
+        if (args[0] === '--version') {
+            if (fs.existsSync(file) && runs(file)) callback(null, PROBE_OUTPUT, '');
+            else callback(Object.assign(new Error(`spawn ${file} UNKNOWN`), { code: 'UNKNOWN' }), '', '');
+            return;
+        }
+        if (other) other(file, args, options, callback);
+        else callback(new Error(`unexpected ${file}`));
+    };
+    return { execFileFn, calls };
+};
+
+/** 真正的 mpv.exe 是解出来的那 200 000 字节；别的（手写的坏文件）一律起不来。 */
+const runsOnlyRealExe = (file: string) => file.endsWith('mpv.exe') && fs.statSync(file).size === MPV_EXE.byteLength;
 
 const windowsZip = (extra: Record<string, Uint8Array> = {}) => zipSync({
     'mpv.exe': MPV_EXE,
@@ -78,8 +123,10 @@ const windowsManifest = (zip: Uint8Array, overrides: Record<string, unknown> = {
     ...overrides,
 });
 
-/** 把 bytes 分成小块慢慢给；stallAfter 块之后就不再给，也不结束（模拟卡住的下载）。 */
-const streamOf = (bytes: Uint8Array, { chunkSize = 8192, stallAfter = Infinity } = {}) => {
+type StreamOptions = { chunkSize?: number; stallAfter?: number; onCancel?: () => void };
+
+/** 把 bytes 分成小块慢慢给；stallAfter 块之后就不再给，也不结束（模拟卡住的下载）。onCancel 在流被取消时调用。 */
+const streamOf = (bytes: Uint8Array, { chunkSize = 8192, stallAfter = Infinity, onCancel }: StreamOptions = {}) => {
     let offset = 0;
     let served = 0;
     return new ReadableStream<Uint8Array>({
@@ -94,20 +141,25 @@ const streamOf = (bytes: Uint8Array, { chunkSize = 8192, stallAfter = Infinity }
             served += 1;
             return undefined;
         },
+        cancel() {
+            onCancel?.();
+        },
     });
 };
 
-const createFakeFetch = (bytes: Uint8Array, options: { stallAfter?: number; status?: number } = {}) => {
+const createFakeFetch = (bytes: Uint8Array, options: StreamOptions & { status?: number } = {}) => {
     const calls: Array<{ url: string; init: { redirect: string; signal: AbortSignal } }> = [];
     const fetchFn: FetchFn = async (url, init) => {
         calls.push({ url, init });
         if (options.status && options.status !== 200) return new Response('nope', { status: options.status });
-        return new Response(streamOf(bytes, { stallAfter: options.stallAfter }), {
+        return new Response(streamOf(bytes, options), {
             headers: { 'content-length': String(bytes.byteLength) },
         });
     };
     return { fetchFn, calls };
 };
+
+const errnoError = (code: string, target: string) => Object.assign(new Error(`${code}: ${target}`), { code });
 
 describe('safeEntrySegments', () => {
     it('splits plain names, skips directories and refuses traversal', () => {
@@ -143,6 +195,7 @@ describe('createMpvRuntimeInstaller', () => {
             fetchFn,
             onProgress: event => progress.push(event),
             now: () => 0,
+            execFileFn: createProbeExec().execFileFn,
             ...silent,
             ...extra,
         });
@@ -150,6 +203,7 @@ describe('createMpvRuntimeInstaller', () => {
     };
 
     const leftovers = async () => (await fsp.readdir(root).catch(() => [] as string[])).sort();
+    const zipName = 'mpv-test-win.zip';
 
     it('downloads, verifies, extracts and moves the runtime into place', async () => {
         const zip = windowsZip();
@@ -170,7 +224,7 @@ describe('createMpvRuntimeInstaller', () => {
         // .part、zip 和 .tmp 都不留。
         expect(await leftovers()).toEqual(['0.41.0']);
         expect(installer.isInstalling()).toBe(false);
-        expect(installer.listInstalled()).toEqual(['0.41.0']);
+        expect(await installer.listInstalled()).toEqual(['0.41.0']);
         expect(fetch.calls).toHaveLength(1);
         expect(fetch.calls[0].url).toBe(ASSET_URL);
         expect(fetch.calls[0].init.redirect).toBe('follow');
@@ -180,9 +234,56 @@ describe('createMpvRuntimeInstaller', () => {
         expect(progress[0]).toEqual({ phase: 'downloading', version: '0.41.0', receivedBytes: 0, totalBytes: zip.byteLength, errorCode: null });
         expect(progress.at(-1)).toMatchObject({ receivedBytes: zip.byteLength, totalBytes: zip.byteLength });
 
-        // 再装一次：已经装好，不再下载。
+        // 再装一次：已经装好、探测得通，不再下载。
         expect((await installer.install()).ok).toBe(true);
         expect(fetch.calls).toHaveLength(1);
+    });
+
+    it('inflates a large entry off the main thread and writes it intact', async () => {
+        // 512 KB 以上、压得动的条目，fflate 交给 worker 解。
+        const big = new Uint8Array(3 * 1024 * 1024).map((_, index) => index % 251);
+        const zip = windowsZip({ 'big.dll': big });
+        const { installer } = windowsInstaller(windowsManifest(zip), createFakeFetch(zip).fetchFn);
+        expect((await installer.install()).ok).toBe(true);
+        // 逐字节 toEqual 比 3 MB 太慢，比哈希。
+        expect(sha256(await fsp.readFile(path.join(root, '0.41.0', 'big.dll')))).toBe(sha256(big));
+    });
+
+    it('reinstalls when the installed executable does not run, and counts only runnable versions', async () => {
+        await fsp.mkdir(path.join(root, '0.41.0'), { recursive: true });
+        await fsp.writeFile(path.join(root, '0.41.0', 'mpv.exe'), 'broken');
+        const zip = windowsZip();
+        const fetch = createFakeFetch(zip);
+        const { installer } = windowsInstaller(windowsManifest(zip), fetch.fetchFn, {
+            execFileFn: createProbeExec({ runs: runsOnlyRealExe }).execFileFn,
+        });
+        expect(await installer.listInstalled()).toEqual([]);
+        const result = await installer.install();
+        expect(result.ok).toBe(true);
+        expect(fetch.calls).toHaveLength(1);
+        expect(new Uint8Array(await fsp.readFile(path.join(root, '0.41.0', 'mpv.exe')))).toEqual(MPV_EXE);
+        expect(await installer.listInstalled()).toEqual(['0.41.0']);
+    });
+
+    it('fails when the freshly installed mpv does not run, and keeps it for the next try', async () => {
+        const zip = windowsZip();
+        const exec = createProbeExec({ runs: () => false });
+        const { installer, progress } = windowsInstaller(windowsManifest(zip), createFakeFetch(zip).fetchFn, {
+            execFileFn: exec.execFileFn,
+        });
+        const result = await installer.install();
+        expect(result).toEqual({ ok: false, errorCode: 'INSTALL_FAILED', version: '0.41.0', executablePath: null });
+        expect(progress.at(-1)).toMatchObject({ phase: 'error', errorCode: 'INSTALL_FAILED' });
+        expect(await leftovers()).toEqual(['0.41.0']);
+        // mpv.exe 读不到版本时也问过旁边的 mpv.com。
+        expect(exec.calls.filter(call => call.args[0] === '--version').map(call => path.basename(call.file)))
+            .toEqual(['mpv.exe', 'mpv.com']);
+
+        // 这次能跑了（比如杀毒扫完了）：不必重下。
+        const fetch = createFakeFetch(zip);
+        const again = windowsInstaller(windowsManifest(zip), fetch.fetchFn);
+        expect((await again.installer.install()).ok).toBe(true);
+        expect(fetch.calls).toHaveLength(0);
     });
 
     it('reports download progress at most every 200 ms', async () => {
@@ -214,7 +315,7 @@ describe('createMpvRuntimeInstaller', () => {
         expect(result).toEqual({ ok: false, errorCode: 'INSTALL_CHECKSUM_MISMATCH', version: '0.41.0', executablePath: null });
         expect(await leftovers()).toEqual([]);
         expect(progress.at(-1)).toMatchObject({ phase: 'error', errorCode: 'INSTALL_CHECKSUM_MISMATCH' });
-        expect(installer.listInstalled()).toEqual([]);
+        expect(await installer.listInstalled()).toEqual([]);
     });
 
     it('treats too few or too many bytes as a mismatch', async () => {
@@ -234,6 +335,64 @@ describe('createMpvRuntimeInstaller', () => {
         expect(result.errorCode).toBe('INSTALL_FAILED');
         expect(await leftovers()).toEqual([]);
         expect(progress.at(-1)?.phase).toBe('error');
+    });
+
+    it('cancels while a read is stalled and releases the response body', async () => {
+        const zip = windowsZip();
+        let sourceCancelled = false;
+        const fetch = createFakeFetch(zip, { stallAfter: 2, onCancel: () => { sourceCancelled = true; } });
+        const { installer, progress } = windowsInstaller(windowsManifest(zip), fetch.fetchFn);
+        const pending = installer.install();
+        const partPath = path.join(root, `${zipName}.part`);
+        // 两块都写进 .part 之后，下一次 read() 就挂在卡住的流上。
+        await until(() => fs.existsSync(partPath) && fs.statSync(partPath).size === 2 * 8192);
+        await new Promise(resolve => setTimeout(resolve, 5));
+        void installer.cancel();
+        const result = await Promise.race([
+            pending,
+            new Promise(resolve => setTimeout(() => resolve('still waiting'), 2000)),
+        ]);
+        expect(result).toEqual({ ok: false, errorCode: 'INSTALL_CANCELLED', version: '0.41.0', executablePath: null });
+        expect(sourceCancelled).toBe(true);
+        expect(await leftovers()).toEqual([]);
+        expect(installer.isInstalling()).toBe(false);
+        expect(progress.at(-1)).toMatchObject({ phase: 'cancelled' });
+    });
+
+    it('releases the response body when the .part file cannot be opened', async () => {
+        const zip = windowsZip();
+        let sourceCancelled = false;
+        const fetch = createFakeFetch(zip, { onCancel: () => { sourceCancelled = true; } });
+        const failingOpen = {
+            ...fsp,
+            open: async (target: string, flags?: string) => {
+                if (String(target).endsWith('.part')) throw errnoError('EMFILE', target);
+                return fsp.open(target, flags);
+            },
+        };
+        const { installer } = windowsInstaller(windowsManifest(zip), fetch.fetchFn, { fsp: failingOpen });
+        expect((await installer.install()).errorCode).toBe('INSTALL_FAILED');
+        expect(fetch.calls).toHaveLength(1);
+        expect(sourceCancelled).toBe(true);
+        expect(await leftovers()).toEqual([]);
+    });
+
+    it('cancels during extraction and stops the unzip workers', async () => {
+        const zip = windowsZip();
+        let terminated = 0;
+        let installer: MpvRuntimeInstaller | null = null;
+        const unzipFn: UnzipFn = () => {
+            setTimeout(() => void installer?.cancel(), 0);
+            return () => {
+                terminated += 1;
+            };
+        };
+        const built = windowsInstaller(windowsManifest(zip), createFakeFetch(zip).fetchFn, { unzipFn });
+        installer = built.installer;
+        const result = await installer.install();
+        expect(result.errorCode).toBe('INSTALL_CANCELLED');
+        expect(terminated).toBe(1);
+        expect(await leftovers()).toEqual([]);
     });
 
     it('cancels mid-download and removes the partial file', async () => {
@@ -263,6 +422,138 @@ describe('createMpvRuntimeInstaller', () => {
         expect(installer.isInstalling()).toBe(false);
         expect(progress.at(-1)).toMatchObject({ phase: 'cancelled', errorCode: 'INSTALL_CANCELLED' });
         expect(fetch.calls[0].init.signal.aborted).toBe(true);
+    });
+
+    it('retries a busy rename on Windows', async () => {
+        const zip = windowsZip();
+        const renames: string[] = [];
+        let failures = 3;
+        const busyRename = {
+            ...fsp,
+            rename: async (from: string, to: string) => {
+                renames.push(path.basename(from));
+                if (from.endsWith('.tmp') && failures > 0) {
+                    failures -= 1;
+                    throw errnoError('EPERM', from);
+                }
+                return fsp.rename(from, to);
+            },
+        };
+        const { installer } = windowsInstaller(windowsManifest(zip), createFakeFetch(zip).fetchFn, {
+            fsp: busyRename,
+            setTimeoutFn: fastRetrySetTimeout,
+        });
+        expect((await installer.install()).ok).toBe(true);
+        expect(renames).toEqual([`${zipName}.part`, '0.41.0.tmp', '0.41.0.tmp', '0.41.0.tmp', '0.41.0.tmp']);
+        expect(await leftovers()).toEqual(['0.41.0']);
+    });
+
+    it('keeps the verified zip when the final rename keeps failing, and reuses it next time', async () => {
+        const zip = windowsZip();
+        let attempts = 0;
+        const stuckRename = {
+            ...fsp,
+            rename: async (from: string, to: string) => {
+                if (from.endsWith('.tmp')) {
+                    attempts += 1;
+                    throw errnoError('EBUSY', from);
+                }
+                return fsp.rename(from, to);
+            },
+        };
+        const { installer } = windowsInstaller(windowsManifest(zip), createFakeFetch(zip).fetchFn, {
+            fsp: stuckRename,
+            setTimeoutFn: fastRetrySetTimeout,
+        });
+        expect((await installer.install()).errorCode).toBe('INSTALL_FAILED');
+        // 100 + 200 + 400 + 800 + 1000 × 6 ≤ 8 s：一次加十次重试。
+        expect(attempts).toBe(11);
+        expect(await leftovers()).toEqual([zipName]);
+
+        const fetch = createFakeFetch(zip);
+        const again = windowsInstaller(windowsManifest(zip), fetch.fetchFn);
+        expect((await again.installer.install()).ok).toBe(true);
+        expect(fetch.calls).toHaveLength(0);
+        expect(again.progress.map(event => event.phase)).toEqual(['verifying', 'extracting', 'done']);
+        expect(await leftovers()).toEqual(['0.41.0']);
+    });
+
+    it('downloads again when the zip left on disk does not match the manifest', async () => {
+        const zip = windowsZip();
+        await fsp.mkdir(root, { recursive: true });
+        const tampered = new Uint8Array(zip);
+        tampered[100] ^= 0xff;
+        await fsp.writeFile(path.join(root, zipName), tampered);
+        const fetch = createFakeFetch(zip);
+        const { installer } = windowsInstaller(windowsManifest(zip), fetch.fetchFn);
+        expect((await installer.install()).ok).toBe(true);
+        expect(fetch.calls).toHaveLength(1);
+        expect(await leftovers()).toEqual(['0.41.0']);
+    });
+
+    it('does not retry a busy rename on other platforms', async () => {
+        const zip = zipSync({ 'mpv.tar.gz': new Uint8Array([1]) });
+        let attempts = 0;
+        const installer = createMpvRuntimeInstaller({
+            manifest: manifestFor('darwin-arm64', {
+                url: 'https://github.example.test/mpv-v0.41.0-macos-14-arm.zip',
+                bytes: zip.byteLength,
+                sha256: sha256(zip),
+                archive: 'zip',
+                executable: 'mpv.app/Contents/MacOS/mpv',
+            }),
+            platform: 'darwin',
+            arch: 'arm64',
+            getUserDataPath: () => userData,
+            fetchFn: createFakeFetch(zip).fetchFn,
+            fsp: {
+                ...fsp,
+                rename: async (from: string) => {
+                    attempts += 1;
+                    throw errnoError('EPERM', from);
+                },
+            },
+            setTimeoutFn: fastRetrySetTimeout,
+            ...silent,
+        });
+        expect((await installer.install()).errorCode).toBe('INSTALL_FAILED');
+        expect(attempts).toBe(1);
+    });
+
+    it('prunes leftover downloads but not version folders or what an install in progress uses', async () => {
+        await fsp.mkdir(path.join(root, '0.40.0.tmp', 'doc'), { recursive: true });
+        await fsp.mkdir(path.join(root, '0.41.0'), { recursive: true });
+        await fsp.mkdir(path.join(root, 'notes'), { recursive: true });
+        await fsp.writeFile(path.join(root, '0.41.0', 'mpv.exe'), 'old');
+        await fsp.writeFile(path.join(root, 'mpv-v0.40.0-x86_64-pc-windows-msvc.zip'), 'zip');
+        await fsp.writeFile(path.join(root, 'mpv-v0.40.0-x86_64-pc-windows-msvc.zip.part'), 'part');
+        await fsp.writeFile(path.join(root, 'notes.txt'), 'keep');
+        const zip = windowsZip();
+        const { installer } = windowsInstaller(windowsManifest(zip), createFakeFetch(zip, { stallAfter: 1 }).fetchFn, {
+            execFileFn: createProbeExec({ runs: runsOnlyRealExe }).execFileFn,
+        });
+        await installer.pruneLeftovers();
+        expect(await leftovers()).toEqual(['0.41.0', 'notes', 'notes.txt']);
+
+        // 正在下载时清理：这次安装的 .part 不动。
+        const pending = installer.install();
+        const partPath = path.join(root, `${zipName}.part`);
+        await until(() => fs.existsSync(partPath) && fs.statSync(partPath).size > 0);
+        await fsp.mkdir(path.join(root, '0.39.0.tmp'));
+        await installer.pruneLeftovers();
+        expect(await leftovers()).toEqual(['0.41.0', 'mpv-test-win.zip.part', 'notes', 'notes.txt']);
+        await installer.cancel();
+        expect((await pending).errorCode).toBe('INSTALL_CANCELLED');
+        expect(await installer.cancel()).toBeNull();
+    });
+
+    it('clears leftovers of other versions after a successful install', async () => {
+        await fsp.mkdir(path.join(root, '0.40.0.tmp'), { recursive: true });
+        await fsp.writeFile(path.join(root, 'mpv-v0.40.0-x86_64-pc-windows-msvc.zip.part'), 'part');
+        const zip = windowsZip();
+        const { installer } = windowsInstaller(windowsManifest(zip), createFakeFetch(zip).fetchFn);
+        expect((await installer.install()).ok).toBe(true);
+        expect(await leftovers()).toEqual(['0.41.0']);
     });
 
     it('keeps only the newest two versions, and always the one just installed', async () => {
@@ -317,7 +608,7 @@ describe('createMpvRuntimeInstaller', () => {
         expect(fetch.calls).toHaveLength(0);
         expect(fs.existsSync(root)).toBe(false);
         expect(installer.isInstalling()).toBe(false);
-        expect(installer.listInstalled()).toEqual([]);
+        expect(await installer.listInstalled()).toEqual([]);
     });
 
     it('treats a macOS older than the build needs as unsupported', async () => {
@@ -349,7 +640,11 @@ describe('createMpvRuntimeInstaller', () => {
         const calls: Array<{ file: string; args: string[] }> = [];
         const execFileFn: ExecFileFn = (file, args, _options, callback) => {
             calls.push({ file, args });
-            // 假的 ditto 解出 mpv.tar.gz，假的 tar 解出不带执行位的 mpv.app。
+            // 假的 ditto 解出 mpv.tar.gz，假的 tar 解出不带执行位的 mpv.app，装好后的 mpv 答得上版本号。
+            if (args[0] === '--version') {
+                callback(null, PROBE_OUTPUT, '');
+                return;
+            }
             if (file === 'ditto') {
                 fs.writeFileSync(path.join(args[3], 'mpv.tar.gz'), 'tarball');
             } else if (file === 'tar') {
@@ -373,16 +668,17 @@ describe('createMpvRuntimeInstaller', () => {
 
         const zipPath = path.join(root, 'mpv-v0.41.0-macos-14-arm.zip');
         const tmpDir = path.join(root, '0.41.0.tmp');
+        const executablePath = path.join(root, '0.41.0', 'mpv.app', 'Contents', 'MacOS', 'mpv');
         expect(calls).toEqual([
             { file: 'ditto', args: ['-x', '-k', zipPath, tmpDir] },
             { file: 'tar', args: ['-xzf', path.join(tmpDir, 'mpv.tar.gz'), '-C', tmpDir] },
+            { file: executablePath, args: ['--version'] },
         ]);
-        const executablePath = path.join(root, '0.41.0', 'mpv.app', 'Contents', 'MacOS', 'mpv');
         expect(result).toEqual({ ok: true, errorCode: null, version: '0.41.0', executablePath });
         expect(fs.statSync(executablePath).mode & 0o777).toBe(0o755);
         expect(fs.existsSync(path.join(root, '0.41.0', 'mpv.tar.gz'))).toBe(false);
         expect(await leftovers()).toEqual(['0.41.0']);
-        expect(installer.listInstalled()).toEqual(['0.41.0']);
+        expect(await installer.listInstalled()).toEqual(['0.41.0']);
     });
 
     it('fails cleanly when ditto fails', async () => {
@@ -410,6 +706,14 @@ describe('createMpvRuntimeInstaller', () => {
 });
 
 describe('shared/mpvRuntimeManifest.json', () => {
+    it('lists only versions our launch arguments work with', () => {
+        const manifest = require('../../../shared/mpvRuntimeManifest.json') as { versions: Array<{ version: string }> };
+        const { isSupportedMpvVersion } = require('../../../electron/hifi/mpvRuntime.cjs') as {
+            isSupportedMpvVersion: (version: string) => boolean;
+        };
+        for (const entry of manifest.versions) expect(isSupportedMpvVersion(entry.version)).toBe(true);
+    });
+
     it('lists official v0.41.0 builds with a hash, a size and an executable for each platform', () => {
         const manifest = require('../../../shared/mpvRuntimeManifest.json') as {
             schema: number;

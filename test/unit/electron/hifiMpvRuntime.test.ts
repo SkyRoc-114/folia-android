@@ -2,28 +2,32 @@ import { createRequire } from 'module';
 import { describe, expect, it } from 'vitest';
 import type { HifiRuntimeStatus } from '../../../src/types/hifi';
 
-// 钉住 mpv 版本解析和排序、DoP 判断，以及检测顺序：手动路径 → 下载的运行时 → FOLIA_MPV_PATH → PATH → 常见位置。
+// 钉住 mpv 版本解析和排序、最低版本和 DoP 判断，以及检测顺序：手动路径 → 下载的运行时 → FOLIA_MPV_PATH → PATH → 常见位置。
 
 type ExecFileCallback = (error: Error | null, stdout: string, stderr: string) => void;
 type ExecFileFn = (file: string, args: string[], options: Record<string, unknown>, callback: ExecFileCallback) => void;
 
-interface FakeFs {
+interface FakeFsp {
     constants: { X_OK: number };
-    statSync: (target: string) => { isFile: () => boolean };
-    accessSync: (target: string, mode?: number) => void;
+    stat: (target: string) => Promise<{ isFile: () => boolean }>;
+    access: (target: string, mode?: number) => Promise<void>;
 }
+
+type TimerFn = (callback: () => void, ms: number) => unknown;
 
 interface RuntimeOptions {
     platform: string;
     arch: string;
     env?: Record<string, string>;
-    fs: FakeFs;
+    fsp: FakeFsp;
     execFileFn: ExecFileFn;
     getUserDataPath: () => string;
     manifest?: unknown;
     homedir?: () => string;
     isInstalling?: () => boolean;
     systemVersion?: string | null;
+    setTimeoutFn?: TimerFn;
+    clearTimeoutFn?: (handle: unknown) => void;
     logInfo?: (...args: unknown[]) => void;
     logWarn?: (...args: unknown[]) => void;
 }
@@ -35,29 +39,46 @@ interface MpvRuntime {
 }
 
 const require = createRequire(import.meta.url);
-const { parseMpvVersion, compareMpvVersions, isDopCapable, createMpvRuntime } = require('../../../electron/hifi/mpvRuntime.cjs') as {
+const {
+    CHECK_TIMEOUT_MS,
+    MIN_MPV_VERSION,
+    parseMpvVersion,
+    compareMpvVersions,
+    isSupportedMpvVersion,
+    isDopCapable,
+    createMpvRuntime,
+} = require('../../../electron/hifi/mpvRuntime.cjs') as {
+    CHECK_TIMEOUT_MS: number;
+    MIN_MPV_VERSION: string;
     parseMpvVersion: (stdout: unknown) => { version: string; raw: string } | null;
     compareMpvVersions: (a: unknown, b: unknown) => number;
+    isSupportedMpvVersion: (version: unknown) => boolean;
     isDopCapable: (platform: string, version: unknown) => boolean;
     createMpvRuntime: (options: RuntimeOptions) => MpvRuntime;
 };
 
 const VERSION_OUTPUT = 'mpv v0.41.0 Copyright © 2000-2025 mpv/MPlayer/mplayer2 projects\n built on Dec 21 2025\n';
 
-type FileSpec = { executable?: boolean; directory?: boolean };
+type FileSpec = { executable?: boolean; directory?: boolean; hang?: boolean };
 
-/** 只认 files 里列出的路径；executable 决定 X_OK。 */
-const createFakeFs = (files: Record<string, FileSpec>): FakeFs => ({
-    constants: { X_OK: 1 },
-    statSync: (target) => {
-        const spec = files[target];
-        if (!spec) throw Object.assign(new Error(`ENOENT: ${target}`), { code: 'ENOENT' });
-        return { isFile: () => !spec.directory };
-    },
-    accessSync: (target) => {
-        if (!files[target]?.executable) throw Object.assign(new Error(`EACCES: ${target}`), { code: 'EACCES' });
-    },
-});
+/** 只认 files 里列出的路径；executable 决定 X_OK，hang 的 stat 永远不回（断开的网络盘）。stats 记下每次 stat。 */
+const createFakeFsp = (files: Record<string, FileSpec>): FakeFsp & { stats: string[] } => {
+    const stats: string[] = [];
+    return {
+        stats,
+        constants: { X_OK: 1 },
+        stat: async (target) => {
+            stats.push(target);
+            const spec = files[target];
+            if (spec?.hang) return new Promise(() => { });
+            if (!spec) throw Object.assign(new Error(`ENOENT: ${target}`), { code: 'ENOENT' });
+            return { isFile: () => !spec.directory };
+        },
+        access: async (target) => {
+            if (!files[target]?.executable) throw Object.assign(new Error(`EACCES: ${target}`), { code: 'EACCES' });
+        },
+    };
+};
 
 /** outputs 里有的路径照着回 stdout，其余像找不到文件那样报错；calls 记下每次探测。 */
 const createFakeExecFile = (outputs: Record<string, string>) => {
@@ -71,6 +92,14 @@ const createFakeExecFile = (outputs: Record<string, string>) => {
 };
 
 const silent = { logInfo: () => { }, logWarn: () => { } };
+
+/** 等到 condition 成立；检测里每一步都是异步的，假的 execFile 回调要等它真被调到再触发。 */
+const until = async (condition: () => boolean) => {
+    for (let index = 0; index < 100 && !condition(); index += 1) {
+        await new Promise(resolve => setTimeout(resolve, 0));
+    }
+    expect(condition()).toBe(true);
+};
 
 const twoVersionManifest = {
     schema: 1,
@@ -154,6 +183,25 @@ describe('isDopCapable', () => {
     });
 });
 
+describe('isSupportedMpvVersion', () => {
+    it('needs 0.39.0 or newer, counting the official -dev-g form as its base', () => {
+        expect(MIN_MPV_VERSION).toBe('0.39.0');
+        // Ubuntu 24.04 带 0.37.0：没有 --media-controls，也不认带位置的五元素 loadfile。
+        expect(isSupportedMpvVersion(parseMpvVersion('mpv v0.37.0 Copyright © 2000-2023 mpv/MPlayer/mplayer2 projects')?.version)).toBe(false);
+        // 0.38.0 认五元素 loadfile，但还没有 --media-controls。
+        expect(isSupportedMpvVersion(parseMpvVersion('mpv v0.38.0 Copyright')?.version)).toBe(false);
+        expect(isSupportedMpvVersion('0.38.0-512-gabcdef0')).toBe(false);
+        expect(isSupportedMpvVersion(parseMpvVersion('mpv v0.39.0 Copyright')?.version)).toBe(true);
+        expect(isSupportedMpvVersion('0.39.0-dirty')).toBe(true);
+        expect(isSupportedMpvVersion(parseMpvVersion(VERSION_OUTPUT)?.version)).toBe(true);
+        expect(isSupportedMpvVersion(parseMpvVersion('mpv v0.41.0-dev-g41f6a6450 Copyright')?.version)).toBe(true);
+        expect(isSupportedMpvVersion('0.41.0-58-g1a2b3c4d5')).toBe(true);
+        for (const garbage of ['garbage', '', null, undefined]) {
+            expect(isSupportedMpvVersion(garbage)).toBe(false);
+        }
+    });
+});
+
 describe('createMpvRuntime detect', () => {
     const userData = '/Users/lia/Library/Application Support/Folia';
     const downloaded = `${userData}/hifi-runtime/mpv/0.41.0/mpv.app/Contents/MacOS/mpv`;
@@ -177,7 +225,7 @@ describe('createMpvRuntime detect', () => {
             platform: 'darwin',
             arch: 'arm64',
             env: { FOLIA_MPV_PATH: sources.env, PATH: '/path/bin:/usr/bin' },
-            fs: createFakeFs(files),
+            fsp: createFakeFsp(files),
             execFileFn: exec.execFileFn,
             getUserDataPath: () => userData,
             homedir: () => '/Users/lia',
@@ -239,7 +287,7 @@ describe('createMpvRuntime detect', () => {
             platform: 'darwin',
             arch: 'arm64',
             env: {},
-            fs: createFakeFs({ '/opt/not-mpv': { executable: true }, [sources.downloaded]: { executable: true } }),
+            fsp: createFakeFsp({ '/opt/not-mpv': { executable: true }, [sources.downloaded]: { executable: true } }),
             execFileFn: exec.execFileFn,
             getUserDataPath: () => userData,
             ...silent,
@@ -253,7 +301,7 @@ describe('createMpvRuntime detect', () => {
             platform: 'darwin',
             arch: 'arm64',
             env: {},
-            fs: createFakeFs({ '/Applications/mpv.app': { directory: true } }),
+            fsp: createFakeFsp({ '/Applications/mpv.app': { directory: true } }),
             execFileFn: createFakeExecFile({}).execFileFn,
             getUserDataPath: () => userData,
             ...silent,
@@ -275,7 +323,7 @@ describe('createMpvRuntime detect', () => {
             platform: 'darwin',
             arch: 'arm64',
             env: {},
-            fs: createFakeFs({ [sources.common]: { executable: false } }),
+            fsp: createFakeFsp({ [sources.common]: { executable: false } }),
             execFileFn: exec.execFileFn,
             getUserDataPath: () => userData,
             ...silent,
@@ -306,7 +354,7 @@ describe('createMpvRuntime detect', () => {
             },
             dopCapable: false,
         });
-        expect(runtime.getCachedStatus()).toBe(status);
+        expect(runtime.getCachedStatus()).toEqual(status);
         expect(runtime.downloadedRuntimeDir()).toBe(`${userData}/hifi-runtime/mpv`);
     });
 
@@ -317,7 +365,7 @@ describe('createMpvRuntime detect', () => {
             platform: 'darwin',
             arch: 'arm64',
             env: {},
-            fs: createFakeFs({ [older]: { executable: true } }),
+            fsp: createFakeFsp({ [older]: { executable: true } }),
             execFileFn: exec.execFileFn,
             getUserDataPath: () => userData,
             manifest: twoVersionManifest,
@@ -344,7 +392,7 @@ describe('createMpvRuntime detect', () => {
             platform: 'darwin',
             arch: 'arm64',
             env: {},
-            fs: createFakeFs(files),
+            fsp: createFakeFsp(files),
             execFileFn: createFakeExecFile({ [newer]: VERSION_OUTPUT, [older]: 'mpv v0.40.0' }).execFileFn,
             getUserDataPath: () => userData,
             manifest: twoVersionManifest,
@@ -356,7 +404,7 @@ describe('createMpvRuntime detect', () => {
             platform: 'darwin',
             arch: 'arm64',
             env: {},
-            fs: createFakeFs(files),
+            fsp: createFakeFsp(files),
             execFileFn: createFakeExecFile({ [older]: 'mpv v0.40.0' }).execFileFn,
             getUserDataPath: () => userData,
             manifest: twoVersionManifest,
@@ -364,8 +412,181 @@ describe('createMpvRuntime detect', () => {
         });
         const status = await brokenNewest.detect();
         expect(status.path).toBe(older);
-        expect(status.download.installedVersion).toBe('0.41.0');
-        expect(status.download.updateAvailable).toBe(false);
+        // 0.41.0 的文件在，但起不来：不算装好，界面才会提供重新下载。
+        expect(status.download.installedVersion).toBe('0.40.0');
+        expect(status.download.updateAvailable).toBe(true);
+    });
+
+    it('reports no installed version when the only download does not run', async () => {
+        const broken = `${userData}/hifi-runtime/mpv/0.41.0/mpv.app/Contents/MacOS/mpv`;
+        const runtime = createMpvRuntime({
+            platform: 'darwin',
+            arch: 'arm64',
+            env: {},
+            fsp: createFakeFsp({ [broken]: { executable: true }, [sources.common]: { executable: true } }),
+            execFileFn: createFakeExecFile({ [sources.common]: VERSION_OUTPUT }).execFileFn,
+            getUserDataPath: () => userData,
+            ...silent,
+        });
+        const status = await runtime.detect();
+        expect(status).toMatchObject({ available: true, source: 'system', path: sources.common });
+        expect(status.download).toMatchObject({ installedVersion: null, updateAvailable: false, supported: true });
+    });
+
+    it('probes a download once per detect, and still probes it when a manual path wins', async () => {
+        const installedPath = `${userData}/hifi-runtime/mpv/0.41.0/mpv.app/Contents/MacOS/mpv`;
+        const files = { [installedPath]: { executable: true }, [sources.manual]: { executable: true } };
+        const exec = createFakeExecFile({ [installedPath]: VERSION_OUTPUT, [sources.manual]: VERSION_OUTPUT });
+        const runtime = createMpvRuntime({
+            platform: 'darwin',
+            arch: 'arm64',
+            env: {},
+            fsp: createFakeFsp(files),
+            execFileFn: exec.execFileFn,
+            getUserDataPath: () => userData,
+            ...silent,
+        });
+        const plain = await runtime.detect();
+        expect(plain).toMatchObject({ source: 'downloaded', download: { installedVersion: '0.41.0' } });
+        expect(exec.calls.map(call => call.file)).toEqual([installedPath]);
+
+        exec.calls.length = 0;
+        const manual = await runtime.detect({ manualPath: sources.manual });
+        expect(manual).toMatchObject({ source: 'manual', download: { installedVersion: '0.41.0' } });
+        expect(exec.calls.map(call => call.file)).toEqual([sources.manual, installedPath]);
+    });
+
+    it('skips an mpv older than 0.39.0 and keeps looking', async () => {
+        const exec = createFakeExecFile({
+            '/path/bin/mpv': 'mpv v0.38.0 Copyright',
+            '/usr/bin/mpv': 'mpv v0.41.0-dev-g41f6a6450 Copyright',
+        });
+        const runtime = createMpvRuntime({
+            platform: 'linux',
+            arch: 'x64',
+            env: { PATH: '/path/bin' },
+            fsp: createFakeFsp({ '/path/bin/mpv': { executable: true }, '/usr/bin/mpv': { executable: true } }),
+            execFileFn: exec.execFileFn,
+            getUserDataPath: () => '/home/lia/.config/Folia',
+            ...silent,
+        });
+        const status = await runtime.detect();
+        expect(status).toMatchObject({
+            available: true,
+            path: '/usr/bin/mpv',
+            version: '0.41.0-dev-g41f6a6450',
+            source: 'system',
+            errorCode: null,
+        });
+    });
+
+    it('names the too-old mpv when it is the only one', async () => {
+        for (const version of ['0.37.0', '0.38.0']) {
+            const runtime = createMpvRuntime({
+                platform: 'linux',
+                arch: 'x64',
+                env: { PATH: '/usr/bin' },
+                fsp: createFakeFsp({ '/usr/bin/mpv': { executable: true } }),
+                execFileFn: createFakeExecFile({ '/usr/bin/mpv': `mpv v${version} Copyright` }).execFileFn,
+                getUserDataPath: () => '/home/lia/.config/Folia',
+                ...silent,
+            });
+            const status = await runtime.detect();
+            expect(status).toMatchObject({
+                available: false,
+                path: '/usr/bin/mpv',
+                version,
+                source: 'system',
+                errorCode: 'MPV_TOO_OLD',
+                manualPathRejected: false,
+                dopCapable: false,
+            });
+        }
+
+        const current = createMpvRuntime({
+            platform: 'linux',
+            arch: 'x64',
+            env: { PATH: '/usr/bin' },
+            fsp: createFakeFsp({ '/usr/bin/mpv': { executable: true } }),
+            execFileFn: createFakeExecFile({ '/usr/bin/mpv': 'mpv v0.39.0 Copyright' }).execFileFn,
+            getUserDataPath: () => '/home/lia/.config/Folia',
+            ...silent,
+        });
+        expect(await current.detect()).toMatchObject({ available: true, version: '0.39.0', errorCode: null });
+    });
+
+    it('rejects a too-old manual mpv with MPV_TOO_OLD, with or without a fallback', async () => {
+        const oldManual = '/opt/old/mpv';
+        const withFallback = createMpvRuntime({
+            platform: 'linux',
+            arch: 'x64',
+            env: {},
+            fsp: createFakeFsp({ [oldManual]: { executable: true }, '/usr/bin/mpv': { executable: true } }),
+            execFileFn: createFakeExecFile({ [oldManual]: 'mpv v0.37.0', '/usr/bin/mpv': VERSION_OUTPUT }).execFileFn,
+            getUserDataPath: () => '/home/lia/.config/Folia',
+            ...silent,
+        });
+        expect(await withFallback.detect({ manualPath: oldManual })).toMatchObject({
+            available: true,
+            path: '/usr/bin/mpv',
+            version: '0.41.0',
+            manualPathRejected: true,
+            errorCode: 'MPV_TOO_OLD',
+        });
+
+        const alone = createMpvRuntime({
+            platform: 'linux',
+            arch: 'x64',
+            env: {},
+            fsp: createFakeFsp({ [oldManual]: { executable: true } }),
+            execFileFn: createFakeExecFile({ [oldManual]: 'mpv v0.37.0' }).execFileFn,
+            getUserDataPath: () => '/home/lia/.config/Folia',
+            ...silent,
+        });
+        expect(await alone.detect({ manualPath: oldManual })).toMatchObject({
+            available: false,
+            path: oldManual,
+            version: '0.37.0',
+            source: 'manual',
+            manualPathRejected: true,
+            errorCode: 'MPV_TOO_OLD',
+        });
+    });
+
+    it('gives up on a path whose stat hangs and does not pile up more stats on it', async () => {
+        const hung = '/net/bin/mpv';
+        const fsp = createFakeFsp({ [hung]: { hang: true }, '/usr/bin/mpv': { executable: true } });
+        const delays: number[] = [];
+        // 只把 2 s 的检查超时换成立刻到；其余计时照旧。
+        const setTimeoutFn: TimerFn = (callback, ms) => {
+            delays.push(ms);
+            return setTimeout(callback, ms === CHECK_TIMEOUT_MS ? 0 : ms);
+        };
+        const runtime = createMpvRuntime({
+            platform: 'linux',
+            arch: 'x64',
+            env: { PATH: '/net/bin' },
+            fsp,
+            execFileFn: createFakeExecFile({ '/usr/bin/mpv': VERSION_OUTPUT }).execFileFn,
+            getUserDataPath: () => '/home/lia/.config/Folia',
+            setTimeoutFn,
+            clearTimeoutFn: handle => clearTimeout(handle as ReturnType<typeof setTimeout>),
+            ...silent,
+        });
+        expect(await runtime.detect()).toMatchObject({ available: true, path: '/usr/bin/mpv' });
+        expect(delays).toContain(CHECK_TIMEOUT_MS);
+        await runtime.detect();
+        expect(fsp.stats.filter(target => target === hung)).toHaveLength(1);
+    });
+
+    it('serves the live installing flag from the cached status', async () => {
+        let installing = false;
+        const { runtime } = darwinRuntime([], { isInstalling: () => installing });
+        await runtime.detect();
+        expect(runtime.getCachedStatus()?.download.installing).toBe(false);
+        installing = true;
+        expect(runtime.getCachedStatus()?.download.installing).toBe(true);
+        expect(runtime.getCachedStatus()?.errorCode).toBe('MPV_NOT_FOUND');
     });
 
     it('says Linux has no download and an old macOS cannot take the build', async () => {
@@ -373,7 +594,7 @@ describe('createMpvRuntime detect', () => {
             platform: 'linux',
             arch: 'x64',
             env: { PATH: '/usr/bin' },
-            fs: createFakeFs({ '/usr/bin/mpv': { executable: true } }),
+            fsp: createFakeFsp({ '/usr/bin/mpv': { executable: true } }),
             execFileFn: createFakeExecFile({ '/usr/bin/mpv': VERSION_OUTPUT }).execFileFn,
             getUserDataPath: () => '/home/lia/.config/Folia',
             ...silent,
@@ -386,7 +607,7 @@ describe('createMpvRuntime detect', () => {
             platform: 'darwin',
             arch: 'x64',
             env: {},
-            fs: createFakeFs({}),
+            fsp: createFakeFsp({}),
             execFileFn: createFakeExecFile({}).execFileFn,
             getUserDataPath: () => userData,
             systemVersion: '13.6.1',
@@ -403,7 +624,7 @@ describe('createMpvRuntime detect', () => {
             platform: 'win32',
             arch: 'x64',
             env: { Path: 'C:\\Windows\\System32;"D:\\tools\\mpv"' },
-            fs: createFakeFs({ [fromPath]: {}, [shim]: {} }),
+            fsp: createFakeFsp({ [fromPath]: {}, [shim]: {} }),
             execFileFn: exec.execFileFn,
             getUserDataPath: () => 'C:\\Users\\lia\\AppData\\Roaming\\Folia',
             homedir: () => 'C:\\Users\\lia',
@@ -416,7 +637,7 @@ describe('createMpvRuntime detect', () => {
             platform: 'win32',
             arch: 'x64',
             env: {},
-            fs: createFakeFs({ [shim]: {} }),
+            fsp: createFakeFsp({ [shim]: {} }),
             execFileFn: exec.execFileFn,
             getUserDataPath: () => 'C:\\Users\\lia\\AppData\\Roaming\\Folia',
             homedir: () => 'C:\\Users\\lia',
@@ -425,6 +646,45 @@ describe('createMpvRuntime detect', () => {
         const shimStatus = await shimOnly.detect({ manualPath: 'C:\\missing\\mpv.exe' });
         expect(shimStatus).toMatchObject({ path: shim, dopCapable: false, manualPathRejected: true });
         expect(shimStatus.download).toMatchObject({ supported: true, version: '0.41.0' });
+    });
+
+    it('asks mpv.com for the version when mpv.exe prints nothing, and keeps mpv.exe as the path', async () => {
+        const exe = 'D:\\tools\\mpv\\mpv.exe';
+        const com = 'D:\\tools\\mpv\\mpv.com';
+        const windows = (files: Record<string, FileSpec>, outputs: Record<string, string>) => {
+            const exec = createFakeExecFile(outputs);
+            const runtime = createMpvRuntime({
+                platform: 'win32',
+                arch: 'x64',
+                env: { Path: 'D:\\tools\\mpv' },
+                fsp: createFakeFsp(files),
+                execFileFn: exec.execFileFn,
+                getUserDataPath: () => 'C:\\Users\\lia\\AppData\\Roaming\\Folia',
+                homedir: () => 'C:\\Users\\lia',
+                ...silent,
+            });
+            return { runtime, calls: exec.calls };
+        };
+
+        // GUI 子系统的 mpv.exe 往管道里什么都没写。
+        const silentExe = windows({ [exe]: {}, [com]: {} }, { [exe]: '', [com]: 'mpv v0.41.0-dev-g41f6a6450 Copyright' });
+        expect(await silentExe.runtime.detect()).toMatchObject({
+            available: true,
+            path: exe,
+            version: '0.41.0-dev-g41f6a6450',
+        });
+        expect(silentExe.calls.map(call => call.file)).toEqual([exe, com]);
+        expect(silentExe.calls[1]).toMatchObject({ args: ['--version'], options: { timeout: 8000, windowsHide: true } });
+
+        // 能直接读到版本时不再问 mpv.com。
+        const talkingExe = windows({ [exe]: {}, [com]: {} }, { [exe]: VERSION_OUTPUT, [com]: VERSION_OUTPUT });
+        await talkingExe.runtime.detect();
+        expect(talkingExe.calls.map(call => call.file)).toEqual([exe]);
+
+        // 旁边没有 mpv.com：这个 mpv.exe 不算。
+        const noWrapper = windows({ [exe]: {} }, { [exe]: '', [com]: VERSION_OUTPUT });
+        expect(await noWrapper.runtime.detect()).toMatchObject({ available: false, errorCode: 'MPV_NOT_FOUND' });
+        expect(noWrapper.calls.map(call => call.file)).toEqual([exe]);
     });
 
     it('keeps the status of the detect that started last', async () => {
@@ -436,14 +696,14 @@ describe('createMpvRuntime detect', () => {
             platform: 'darwin',
             arch: 'arm64',
             env: {},
-            fs: createFakeFs({ '/first/mpv': { executable: true }, '/second/mpv': { executable: true } }),
+            fsp: createFakeFsp({ '/first/mpv': { executable: true }, '/second/mpv': { executable: true } }),
             execFileFn,
             getUserDataPath: () => userData,
             ...silent,
         });
         const first = runtime.detect({ manualPath: '/first/mpv' });
         const second = runtime.detect({ manualPath: '/second/mpv' });
-        await Promise.resolve();
+        await until(() => pending.length === 2);
         pending[1]();
         await second;
         pending[0]();

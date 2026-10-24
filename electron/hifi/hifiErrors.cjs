@@ -5,6 +5,7 @@
 /** 和 src/types/hifi.ts 的 HifiErrorCode 成员一致；主进程只回传码，文案在渲染端。 */
 const HIFI_ERROR_CODES = Object.freeze([
     'MPV_NOT_FOUND',
+    'MPV_TOO_OLD',
     'MPV_SPAWN_FAILED',
     'MPV_CRASHED',
     'IPC_TIMEOUT',

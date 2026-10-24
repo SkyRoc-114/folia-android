@@ -193,6 +193,14 @@ function createSourceBridge(options = {}) {
         if (sources.get(token) === entry && !sourceErrors.has(token)) sourceErrors.set(token, code);
     };
 
+    // 同一个令牌后来有一次请求把它要的范围完整送到了（mpv 重连成功）：之前记的错作废，
+    // 免得会话把一次已经恢复的断流当成这首歌放完时、或之后不相干的出错时的原因。
+    const clearError = (token, entry) => {
+        if (sources.get(token) === entry && sourceErrors.delete(token)) {
+            logInfo(`[HiFi] bridge ${tokenLabel(token)} served a full request again, dropping the earlier error`);
+        }
+    };
+
     // 跟住一条 mpv 连接：响应发完、mpv 断开（seek 时会断）或令牌被撤销后 closed 为 true，之后不再写也不再拉。
     const watchConnection = (token, res, onGone = () => {}) => {
         const connection = {
@@ -292,6 +300,7 @@ function createSourceBridge(options = {}) {
             res.destroy();
             return;
         }
+        res.once('finish', () => clearError(token, entry));
         res.end();
     };
 
@@ -350,11 +359,13 @@ function createSourceBridge(options = {}) {
         body.once('error', error => {
             if (!connection.closed) upstreamError = error;
         });
-        await new Promise(resolve => pipeline(body, res, () => resolve()));
+        const pipeError = await new Promise(resolve => pipeline(body, res, error => resolve(error ?? null)));
         if (upstreamError) {
             recordError(token, entry, 'SOURCE_UNREACHABLE');
             logWarn(`[HiFi] bridge ${label} stream from ${entry.host} broke off`, redactRemoteError(upstreamError, entry.url));
+            return;
         }
+        if (!pipeError && res.writableFinished) clearError(token, entry);
     };
 
     const handleRequest = (req, res) => {

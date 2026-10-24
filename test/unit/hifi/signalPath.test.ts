@@ -39,6 +39,9 @@ const dsdSpec: HifiSourceSpec = {
     bitrate: 5644800,
 };
 
+/** Navidrome without the OpenSubsonic fields: the suffix says DSD, the rates are unknown. */
+const dsdSpecWithoutRates: HifiSourceSpec = { ...dsdSpec, origin: 'navidrome', bitDepth: null, sampleRate: null, dsdRate: null, bitrate: null };
+
 const engine = (fields: Partial<SignalPathEngineState>): SignalPathEngineState => ({
     sourceKind: 'local',
     audioParams: null,
@@ -135,6 +138,69 @@ const cases: Case[] = [
         conversions: ['shared-mixer'],
     },
     {
+        // mpv's pipewire AO has no exclusive mode: PipeWire still resamples to the graph rate and mixes.
+        name: 'PipeWire with exclusive asked for still goes through the mixer',
+        spec: pcmSpec(24, 96000),
+        state: engine({
+            currentAo: 'pipewire',
+            audioDevice: 'pipewire',
+            exclusive: true,
+            audioParams: params('s32', 96000),
+            audioOutParams: params('s32', 96000),
+        }),
+        verdict: 'shared-mixer',
+        conversions: ['shared-mixer'],
+    },
+    {
+        name: 'a PipeWire sink picked by name with exclusive asked for',
+        spec: pcmSpec(16, 44100),
+        state: engine({
+            currentAo: 'pipewire',
+            audioDevice: 'pipewire/alsa_output.usb-Topping_D10-00.analog-stereo',
+            exclusive: true,
+            audioParams: params('s16', 44100),
+            audioOutParams: params('s16', 44100),
+        }),
+        verdict: 'shared-mixer',
+        conversions: ['shared-mixer'],
+    },
+    {
+        name: 'JACK with exclusive asked for',
+        spec: pcmSpec(16, 44100),
+        state: engine({ currentAo: 'jack', audioDevice: 'auto', audioParams: params('float', 44100), audioOutParams: params('float', 44100) }),
+        verdict: 'shared-mixer',
+        conversions: ['shared-mixer'],
+    },
+    {
+        name: 'a driver without exclusive support, such as SDL',
+        spec: pcmSpec(16, 44100),
+        state: engine({ currentAo: 'sdl', audioDevice: 'auto', audioParams: params('s16', 44100), audioOutParams: params('s16', 44100) }),
+        verdict: 'shared-mixer',
+        conversions: ['shared-mixer'],
+    },
+    {
+        name: 'Core Audio in hog mode (coreaudio_exclusive)',
+        spec: pcmSpec(24, 96000),
+        state: engine({ currentAo: 'coreaudio_exclusive', audioDevice: 'auto', audioParams: params('s32', 96000), audioOutParams: params('s32', 96000) }),
+        verdict: 'bit-perfect',
+        conversions: [],
+    },
+    {
+        name: 'Core Audio without exclusive',
+        spec: pcmSpec(24, 96000),
+        state: engine({ currentAo: 'coreaudio', audioDevice: 'auto', exclusive: false, audioParams: params('s32', 96000), audioOutParams: params('s32', 96000) }),
+        settings: { exclusive: false },
+        verdict: 'shared-mixer',
+        conversions: ['shared-mixer'],
+    },
+    {
+        name: 'driver not reported yet: inferred from exclusive',
+        spec: pcmSpec(16, 44100),
+        state: engine({ currentAo: null, audioDevice: 'auto', audioParams: params('s16', 44100), audioOutParams: params('s16', 44100) }),
+        verdict: 'bit-perfect',
+        conversions: [],
+    },
+    {
         name: 'WASAPI shared mode',
         spec: pcmSpec(16, 44100),
         state: engine({ exclusive: false, audioParams: params('s16', 44100), audioOutParams: params('s16', 44100) }),
@@ -206,6 +272,31 @@ const cases: Case[] = [
         settings: { dsdMode: 'dop' },
         verdict: 'converted',
         conversions: ['dsd-to-pcm', 'format'],
+    },
+    {
+        // A float decode proves mpv converted DSD to PCM, even though 352.8 kHz is a DoP rate for DSD128.
+        name: 'DSD decoded to floatp and sent as s32 at a DoP rate, DSD rate unknown, is not DoP',
+        spec: dsdSpecWithoutRates,
+        state: engine({ spdif: 'dsd', audioParams: params('floatp', 352800), audioOutParams: params('s32', 352800) }),
+        settings: { dsdMode: 'dop' },
+        verdict: 'converted',
+        conversions: ['dsd-to-pcm', 'format'],
+    },
+    {
+        name: 'DSD decoded to floatp and resampled to s32 at a 16th of the DSD rate is not DoP',
+        spec: dsdSpec,
+        state: engine({ spdif: 'dsd', audioParams: params('floatp', 352800), audioOutParams: params('s32', 176400) }),
+        settings: { dsdMode: 'dop' },
+        verdict: 'converted',
+        conversions: ['dsd-to-pcm', 'resample', 'format'],
+    },
+    {
+        name: 'DSD with integer output at a 16th of the DSD rate but resampled on the way is not DoP',
+        spec: dsdSpec,
+        state: engine({ spdif: 'dsd', audioParams: params('s32', 352800), audioOutParams: params('s32', 176400) }),
+        settings: { dsdMode: 'dop' },
+        verdict: 'converted',
+        conversions: ['dsd-to-pcm', 'resample'],
     },
     {
         name: 'DSD recognised from the mpv codec when the spec is missing',

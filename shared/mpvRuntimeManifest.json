@@ -6,7 +6,8 @@
     "Windows 选 msvc 构建：mpv.exe 在 zip 根目录、静态链接 CRT；zip 里 200 多 MB 的 mpv.pdb 解压时跳过。",
     "macOS 的 zip 里只有一个 mpv.tar.gz（mpv.app 在里面）：先 ditto 解 zip，再用系统 tar 解它。",
     "macOS 构建的最低系统版本取自 Mach-O 的 LC_BUILD_VERSION（Info.plist 没写）；Intel 只有 macos-15 一种构建。",
-    "官方 0.41.0 构建的 `mpv --version` 打印 `mpv v0.41.0-dev-g41f6a6450`，这是它们 CI 里 git describe 找不到标签时的写法。"
+    "官方 0.41.0 构建的 `mpv --version` 打印 `mpv v0.41.0-dev-g41f6a6450`，这是它们 CI 里 git describe 找不到标签时的写法。",
+    "列出的版本不能低于 mpvRuntime.cjs 的 MIN_MPV_VERSION（0.39.0）：更旧的 mpv 认不得启动参数，检测会跳过它。"
   ],
   "schema": 1,
   "recommended": "0.41.0",

@@ -16,6 +16,7 @@ const {
     validateLoadRequest,
     validateEngineConfig,
     resolvePickedRuntimePath,
+    isAllowedRuntimePath,
 } = require('../../../electron/hifi/hifiIpc.cjs') as {
     INVOKE_CHANNELS: readonly string[];
     READ_RESULT_CHANNEL: string;
@@ -30,6 +31,7 @@ const {
     validateLoadRequest: (request: unknown) => HifiLoadRequest | null;
     validateEngineConfig: (config: unknown) => Record<string, unknown> | null;
     resolvePickedRuntimePath: (picked: string, platform: string) => string;
+    isAllowedRuntimePath: (value: unknown, platform: string) => boolean;
 };
 
 class FakeContents extends EventEmitter {
@@ -93,8 +95,17 @@ const validConfig = (overrides: Record<string, unknown> = {}) => ({
     ...overrides,
 });
 
-const createHarness = (overrides: Record<string, unknown> = {}) => {
+type HarnessOptions = Record<string, unknown> & { approvedPath?: unknown };
+
+const createHarness = ({ approvedPath = null, ...overrides }: HarnessOptions = {}) => {
     const handlers = new Map<string, Handler>();
+    // 主进程的 electron-store 里那一项。
+    const approval = { value: approvedPath as unknown };
+    const getApprovedMpvPath = vi.fn(() => approval.value);
+    const setApprovedMpvPath = vi.fn((value: unknown) => {
+        approval.value = value;
+    });
+    const logWarn = vi.fn();
     const ipcMain = { handle: vi.fn((channel: string, handler: Handler) => handlers.set(channel, handler)) };
     let mainWindow: ReturnType<typeof createWindow> | null = createWindow(1);
     const contents = new Map<number, FakeContents>();
@@ -138,9 +149,12 @@ const createHarness = (overrides: Record<string, unknown> = {}) => {
         getMainWindow: () => mainWindow,
         webContentsFromId: (id: number) => contents.get(id),
         onRuntimeChanged,
+        getApprovedMpvPath,
+        setApprovedMpvPath,
         platform: 'linux',
         randomUUID: () => `read-${++readCounter}-0000-0000-0000-000000000000`,
-        logWarn: () => {},
+        logInfo: () => {},
+        logWarn,
         ...overrides,
     });
     const invokeAs = (senderId: number, channel: string, ...args: unknown[]) => {
@@ -156,6 +170,9 @@ const createHarness = (overrides: Record<string, unknown> = {}) => {
         installer,
         dialog,
         onRuntimeChanged,
+        approval,
+        setApprovedMpvPath,
+        logWarn,
         contents,
         register,
         invoke: (channel: string, ...args: unknown[]) => invokeAs(1, channel, ...args),
@@ -321,23 +338,128 @@ describe('hifi ipc: payload validation', () => {
     });
 });
 
-describe('hifi ipc: runtime', () => {
-    it('configure stores the manual mpv path; detect and the getter use it', async () => {
+describe('hifi ipc: the manual mpv path', () => {
+    it('configure uses a path only when it is the one picked in the file dialog; detection re-runs when it changes', async () => {
         const harness = createHarness();
-        await harness.invoke('hifi:configure', validConfig({ mpvPath: '/opt/mpv/mpv' }));
-        expect(harness.session.configure).toHaveBeenCalledWith(validConfig({ mpvPath: '/opt/mpv/mpv' }));
-        await expect(harness.invoke('hifi:detect-runtime')).resolves.toMatchObject({ path: '/opt/mpv/mpv' });
-        expect(harness.runtime.detect).toHaveBeenLastCalledWith({ manualPath: '/opt/mpv/mpv' });
-        expect(harness.onRuntimeChanged).toHaveBeenCalledTimes(1);
+        await expect(harness.invoke('hifi:pick-runtime-path')).resolves.toBe('/opt/mpv/bin/mpv');
+        expect(harness.setApprovedMpvPath).toHaveBeenLastCalledWith('/opt/mpv/bin/mpv');
+        // 选完还没 configure：检测仍按之前的（没有手动路径）。
+        expect(harness.runtime.detect).not.toHaveBeenCalled();
 
-        // 缓存是按同一个路径测的：直接用。
-        await harness.invoke('hifi:get-runtime-status');
+        await harness.invoke('hifi:configure', validConfig({ mpvPath: '/opt/mpv/bin/mpv' }));
+        expect(harness.session.configure).toHaveBeenCalledWith(validConfig({ mpvPath: '/opt/mpv/bin/mpv' }));
+        // 实际用的路径变了：configure 当场重测。
         expect(harness.runtime.detect).toHaveBeenCalledTimes(1);
-        // 路径换了：重新测。
+        expect(harness.runtime.detect).toHaveBeenLastCalledWith({ manualPath: '/opt/mpv/bin/mpv' });
+        // 缓存是按同一个路径测的：直接用。
+        await expect(harness.invoke('hifi:get-runtime-status')).resolves.toMatchObject({ path: '/opt/mpv/bin/mpv' });
+        await harness.invoke('hifi:configure', validConfig({ mpvPath: '/opt/mpv/bin/mpv', volume: 40 }));
+        expect(harness.runtime.detect).toHaveBeenCalledTimes(1);
+        await expect(harness.api.resolveRuntime()).resolves.toEqual({ path: '/opt/mpv/bin/mpv', version: '0.41.0' });
+        expect(harness.runtime.detect).toHaveBeenLastCalledWith({ manualPath: '/opt/mpv/bin/mpv' });
+    });
+
+    it('a path the dialog never returned is ignored with a warning, detection runs without it, and the approval stays', async () => {
+        const harness = createHarness({ approvedPath: '/opt/mpv/bin/mpv' });
+        await harness.invoke('hifi:configure', validConfig({ mpvPath: '/tmp/evil' }));
+        expect(harness.session.configure).toHaveBeenLastCalledWith(validConfig({ mpvPath: null }));
+        expect(harness.runtime.detect).toHaveBeenLastCalledWith({ manualPath: null });
+        expect(harness.runtime.detect.mock.calls.every(([options]) => options.manualPath !== '/tmp/evil')).toBe(true);
+        expect(harness.logWarn).toHaveBeenCalledWith(expect.stringMatching(/^\[HiFi\] ignoring an mpv path .*\/tmp\/evil/));
+        expect(harness.setApprovedMpvPath).not.toHaveBeenCalled();
+        expect(harness.approval.value).toBe('/opt/mpv/bin/mpv');
+        await expect(harness.api.resolveRuntime()).resolves.toEqual({ path: '/usr/bin/mpv', version: '0.41.0' });
+
+        // 之后传回已批准的那个，照用。
+        await harness.invoke('hifi:configure', validConfig({ mpvPath: '/opt/mpv/bin/mpv' }));
+        expect(harness.runtime.detect).toHaveBeenLastCalledWith({ manualPath: '/opt/mpv/bin/mpv' });
+    });
+
+    it('configure with mpvPath null clears the stored approval and detects without a manual path', async () => {
+        const harness = createHarness({ approvedPath: '/opt/mpv/bin/mpv' });
         await harness.invoke('hifi:configure', validConfig({ mpvPath: null }));
-        await expect(harness.invoke('hifi:get-runtime-status')).resolves.toMatchObject({ path: '/usr/bin/mpv' });
+        expect(harness.setApprovedMpvPath).toHaveBeenCalledWith(null);
+        expect(harness.approval.value).toBeNull();
+        expect(harness.runtime.detect).toHaveBeenLastCalledWith({ manualPath: null });
+        // 批准没了：同一个路径再传回来也不用。
+        await harness.invoke('hifi:configure', validConfig({ mpvPath: '/opt/mpv/bin/mpv' }));
+        await harness.api.resolveRuntime();
         expect(harness.runtime.detect).toHaveBeenLastCalledWith({ manualPath: null });
     });
+
+    it('the stored approval is used from startup, before the renderer has configured anything', async () => {
+        const harness = createHarness({ approvedPath: '/opt/mpv/bin/mpv' });
+        await expect(harness.invoke('hifi:get-runtime-status')).resolves.toMatchObject({ path: '/opt/mpv/bin/mpv' });
+        expect(harness.runtime.detect).toHaveBeenLastCalledWith({ manualPath: '/opt/mpv/bin/mpv' });
+        // 渲染端随后推来同一个路径：没变，不重测。
+        await harness.invoke('hifi:configure', validConfig({ mpvPath: '/opt/mpv/bin/mpv' }));
+        expect(harness.runtime.detect).toHaveBeenCalledTimes(1);
+    });
+
+    it('a stored value that is not a usable path counts as no approval', async () => {
+        for (const stored of [42, '', 'mpv', 'relative/mpv', '/bin/mpv\u0007']) {
+            const harness = createHarness({ approvedPath: stored });
+            await harness.invoke('hifi:get-runtime-status');
+            expect(harness.runtime.detect, String(stored)).toHaveBeenLastCalledWith({ manualPath: null });
+        }
+        const harness = createHarness({ getApprovedMpvPath: () => { throw new Error('store is broken'); } });
+        await harness.invoke('hifi:get-runtime-status');
+        expect(harness.runtime.detect).toHaveBeenLastCalledWith({ manualPath: null });
+    });
+
+    it('overlapping implicit detections of one path share a probe; an install gets a probe of its own', async () => {
+        const harness = createHarness();
+        let finish: () => void = () => {};
+        harness.runtime.detect.mockImplementationOnce(() => new Promise(resolve => {
+            finish = () => resolve(status({ version: '0.40.0' }));
+        }));
+        const first = harness.invoke('hifi:get-runtime-status');
+        const second = harness.api.resolveRuntime();
+        expect(harness.runtime.detect).toHaveBeenCalledTimes(1);
+        // 装完时那次旧探测还没回来：装完要的是一次新的。
+        const installed = harness.invoke('hifi:install-runtime');
+        for (let round = 0; round < 10; round += 1) await Promise.resolve();
+        expect(harness.runtime.detect).toHaveBeenCalledTimes(2);
+        finish();
+        await expect(first).resolves.toMatchObject({ version: '0.40.0' });
+        await expect(second).resolves.toEqual({ path: '/usr/bin/mpv', version: '0.40.0' });
+        await expect(installed).resolves.toMatchObject({ ok: true, status: { version: '0.41.0' } });
+    });
+
+    it('Windows: a path on a network share is refused both from the dialog and from a stored approval', async () => {
+        const unc = '\\\\server\\share\\mpv.exe';
+        const picker = createHarness({ platform: 'win32' });
+        for (const picked of [unc, '\\\\?\\UNC\\server\\share\\mpv.exe', '//server/share/mpv.exe', '\\\\.\\UNC\\server\\share\\mpv.exe']) {
+            picker.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [picked] });
+            await expect(picker.invoke('hifi:pick-runtime-path'), picked).resolves.toBeNull();
+        }
+        expect(picker.setApprovedMpvPath).not.toHaveBeenCalled();
+        picker.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: ['C:\\Program Files\\mpv\\mpv.exe'] });
+        await expect(picker.invoke('hifi:pick-runtime-path')).resolves.toBe('C:\\Program Files\\mpv\\mpv.exe');
+
+        // 旧版本存下的 UNC 批准也不认，configure 传回同一个值也不用。
+        const stored = createHarness({ platform: 'win32', approvedPath: unc });
+        await stored.invoke('hifi:configure', validConfig({ mpvPath: unc }));
+        await stored.api.resolveRuntime();
+        expect(stored.runtime.detect.mock.calls.map(([options]) => options.manualPath)).toEqual([null]);
+    });
+
+    it('decides which paths may be run', () => {
+        expect(isAllowedRuntimePath('/usr/local/bin/mpv', 'linux')).toBe(true);
+        expect(isAllowedRuntimePath('/Applications/mpv.app/Contents/MacOS/mpv', 'darwin')).toBe(true);
+        expect(isAllowedRuntimePath('C:\\mpv\\mpv.exe', 'win32')).toBe(true);
+        expect(isAllowedRuntimePath('\\\\?\\C:\\mpv\\mpv.exe', 'win32')).toBe(true);
+        expect(isAllowedRuntimePath('D:/tools/mpv.exe', 'win32')).toBe(true);
+        for (const value of ['\\\\server\\share\\mpv.exe', '\\\\?\\UNC\\server\\share\\mpv.exe', '//server/share/mpv.exe', '\\\\.\\pipe\\x', 'C:mpv.exe', 'mpv.exe']) {
+            expect(isAllowedRuntimePath(value, 'win32'), value).toBe(false);
+        }
+        for (const value of [null, 42, '', 'mpv', './mpv', '/bin/mpv\n', `/${'a'.repeat(4096)}`]) {
+            expect(isAllowedRuntimePath(value, 'linux'), String(value).slice(0, 20)).toBe(false);
+        }
+    });
+});
+
+describe('hifi ipc: runtime', () => {
 
     it('resolveRuntime re-detects and hands the session a path, or null when nothing was found', async () => {
         const harness = createHarness();
@@ -356,12 +478,22 @@ describe('hifi ipc: runtime', () => {
         expect(harness.installer.cancel).toHaveBeenCalledTimes(1);
     });
 
-    it('pick-runtime-path opens a file dialog on the main window; cancel answers null', async () => {
+    it('pick-runtime-path opens a file dialog on the main window; cancel answers null and approves nothing', async () => {
         const harness = createHarness();
         await expect(harness.invoke('hifi:pick-runtime-path')).resolves.toBe('/opt/mpv/bin/mpv');
         expect(harness.dialog.showOpenDialog).toHaveBeenCalledWith(harness.getMainWindow(), { properties: ['openFile'] });
+        harness.setApprovedMpvPath.mockClear();
         harness.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] });
         await expect(harness.invoke('hifi:pick-runtime-path')).resolves.toBeNull();
+        expect(harness.setApprovedMpvPath).not.toHaveBeenCalled();
+        expect(harness.approval.value).toBe('/opt/mpv/bin/mpv');
+    });
+
+    it('macOS: a picked mpv.app is approved as the executable inside it', async () => {
+        const harness = createHarness({ platform: 'darwin' });
+        harness.dialog.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: ['/Applications/mpv.app'] });
+        await expect(harness.invoke('hifi:pick-runtime-path')).resolves.toBe('/Applications/mpv.app/Contents/MacOS/mpv');
+        expect(harness.approval.value).toBe('/Applications/mpv.app/Contents/MacOS/mpv');
     });
 
     it('a picked mpv.app on macOS resolves to the executable inside it', () => {

@@ -390,6 +390,34 @@ describe('source bridge: local sources', () => {
         expect(bridge.getSourceError(token)).toBe('SOURCE_UNREACHABLE');
     });
 
+    it('drops the recorded error once a reconnect serves its whole range, not while one is cut short', async () => {
+        const bytes = patternBytes(SIZE);
+        let failNext = true;
+        const requestRead = vi.fn<RequestRead>(async (_ownerId, request) => {
+            if (request.offset === 1024 && failNext) {
+                failNext = false;
+                return { status: 'failed' };
+            }
+            return { status: 'ok', data: bytes.subarray(request.offset, request.offset + request.length) };
+        });
+        const { bridge, logInfo } = await startBridge({ requestRead, chunkSize: 1024 });
+        const { token, url } = registerLocal(bridge);
+
+        expect((await send(url)).complete).toBe(false);
+        expect(bridge.getSourceError(token)).toBe('SOURCE_UNREACHABLE');
+        // HEAD 什么都没送，不算恢复。
+        await send(url, { method: 'HEAD' });
+        expect(bridge.getSourceError(token)).toBe('SOURCE_UNREACHABLE');
+
+        // ffmpeg 从断开的地方重连，这次一直送到了头。
+        const reconnect = await send(url, { headers: { Range: 'bytes=1024-' } });
+        expect(reconnect.status).toBe(206);
+        expect(reconnect.complete).toBe(true);
+        expect(reconnect.body.equals(bytes.subarray(1024))).toBe(true);
+        await vi.waitFor(() => expect(bridge.getSourceError(token)).toBeNull());
+        expect(loggedText(logInfo)).toContain('dropping the earlier error');
+    });
+
     it('cuts a streaming connection off when its token is revoked', async () => {
         const bytes = patternBytes(SIZE);
         let release: () => void = () => {};
@@ -510,6 +538,22 @@ describe('source bridge: remote sources', () => {
         const reply = await send(url);
         expect(reply.status).toBe(404);
         expect(bridge.getSourceError(token)).toBe('SOURCE_UNREACHABLE');
+        expectNoCredentials(logInfo, logWarn);
+    });
+
+    it('drops the recorded error once a later request streams its whole body', async () => {
+        const fetchFn = vi.fn<FetchFn>()
+            .mockResolvedValueOnce(audioResponse('down', 503, { 'Content-Type': 'text/plain' }))
+            .mockResolvedValueOnce(audioResponse('abcdef', 206, { 'Content-Type': 'audio/flac', 'Content-Length': '6', 'Content-Range': 'bytes 10-15/16' }));
+        const { bridge, logInfo, logWarn } = await startBridge({ fetchFn });
+        const { token, url } = bridge.registerRemote({ url: REMOTE_URL, fileName: 'song-1.flac' });
+
+        expect((await send(url)).status).toBe(503);
+        expect(bridge.getSourceError(token)).toBe('SOURCE_UNREACHABLE');
+        const retry = await send(url, { headers: { Range: 'bytes=10-' } });
+        expect(retry.status).toBe(206);
+        expect(retry.body.toString()).toBe('abcdef');
+        await vi.waitFor(() => expect(bridge.getSourceError(token)).toBeNull());
         expectNoCredentials(logInfo, logWarn);
     });
 

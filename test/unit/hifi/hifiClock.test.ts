@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createHifiClock } from '@/services/hifi/hifiClock';
+import { MAX_EXTRAPOLATION_SEC, createHifiClock } from '@/services/hifi/hifiClock';
 
 // test/unit/hifi/hifiClock.test.ts
 // The extrapolated HiFi position: it moves on between mpv's ticks while playing, holds while paused,
-// and never leaves [0, duration].
+// never runs more than MAX_EXTRAPOLATION_SEC past the last sync, and never leaves [0, duration].
 
 describe('createHifiClock', () => {
     it('starts at zero, paused, with no duration', () => {
@@ -27,12 +27,32 @@ describe('createHifiClock', () => {
         expect(clock.state().startedAtMs).toBeNull();
     });
 
-    it('clamps to the duration once known, and does not cap an unknown one', () => {
+    it('clamps to the duration once known, and does not clamp an unknown one', () => {
         const clock = createHifiClock();
-        clock.sync({ positionSec: 199, paused: false, durationSec: 200, nowMs: 0 });
-        expect(clock.read(5000)).toBe(200);
-        clock.sync({ positionSec: 199, paused: false, durationSec: null, nowMs: 0 });
-        expect(clock.read(5000)).toBe(204);
+        clock.sync({ positionSec: 199.5, paused: false, durationSec: 200, nowMs: 0 });
+        expect(clock.read(800)).toBe(200);
+        clock.sync({ positionSec: 199.5, paused: false, durationSec: null, nowMs: 0 });
+        expect(clock.read(800)).toBeCloseTo(200.3);
+    });
+
+    it('stops extrapolating one second after the last sync until the next one arrives', () => {
+        expect(MAX_EXTRAPOLATION_SEC).toBe(1);
+        const clock = createHifiClock();
+        clock.sync({ positionSec: 30, paused: false, durationSec: 200, nowMs: 0 });
+        expect(clock.read(1000)).toBe(31);
+        // mpv is buffering after a seek and no tick has come for three seconds: the position waits.
+        expect(clock.read(3000)).toBe(31);
+        clock.sync({ positionSec: 30.2, paused: false, nowMs: 3000 });
+        expect(clock.read(3250)).toBeCloseTo(30.45);
+        expect(clock.read(9000)).toBeCloseTo(31.2);
+    });
+
+    it('holds while main reports the buffering pause, then moves on from the resumed position', () => {
+        const clock = createHifiClock();
+        clock.sync({ positionSec: 120, paused: true, durationSec: 200, nowMs: 0 });
+        expect(clock.read(2000)).toBe(120);
+        clock.sync({ positionSec: 120, paused: false, nowMs: 2000 });
+        expect(clock.read(2500)).toBeCloseTo(120.5);
     });
 
     it('keeps the previous duration when a sync leaves it out', () => {

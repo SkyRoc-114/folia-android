@@ -131,6 +131,24 @@ const resolvePickedRuntimePath = (picked, platform) => {
     return path.posix.join(picked.replace(/\/+$/, ''), 'Contents', 'MacOS', 'mpv');
 };
 
+// Windows 上两个分隔符开头的路径：UNC（\\server\share、//server/share）和 \\?\UNC\…、\\.\UNC\… 都走网络，
+// 只放行指向本机盘符的 \\?\C:\…、\\.\C:\…。
+const WINDOWS_DOUBLE_SEPARATOR = /^[\\/]{2}/;
+const WINDOWS_LOCAL_DEVICE_PATH = /^[\\/]{2}[?.][\\/][A-Za-z]:[\\/]/;
+
+/**
+ * 手动 mpv 路径能不能拿去运行：绝对路径、不带控制字符，Windows 上不在网络共享上
+ * （UNC / WebDAV 路径也能 stat，执行它就是运行别人机器上的程序）。
+ */
+const isAllowedRuntimePath = (value, platform) => {
+    if (typeof value !== 'string' || value === '' || value.length > MAX_TEXT_CHARS || CONTROL_CHARS.test(value)) return false;
+    if (platform === 'win32') {
+        if (WINDOWS_DOUBLE_SEPARATOR.test(value) && !WINDOWS_LOCAL_DEVICE_PATH.test(value)) return false;
+        return path.win32.isAbsolute(value);
+    }
+    return path.posix.isAbsolute(value);
+};
+
 const registerHifiIpc = ({
     ipcMain,
     isTrustedSender,
@@ -141,17 +159,45 @@ const registerHifiIpc = ({
     getMainWindow,
     webContentsFromId,
     onRuntimeChanged = () => {},
+    getApprovedMpvPath = () => null,
+    setApprovedMpvPath = () => {},
     platform = process.platform,
     randomUUID = cryptoRandomUUID,
     setTimeoutFn = (callback, ms) => setTimeout(callback, ms),
     clearTimeoutFn = timer => clearTimeout(timer),
     readTimeoutMs = DEFAULT_READ_TIMEOUT_MS,
+    logInfo = (...args) => console.info(...args),
     logWarn = (...args) => console.warn(...args),
 } = {}) => {
-    /** 渲染端设置里的手动 mpv 路径；检测和拉起都用它。 */
-    let manualPath = null;
+    const readApprovedPath = () => {
+        try {
+            const stored = getApprovedMpvPath();
+            return isAllowedRuntimePath(stored, platform) ? stored : null;
+        } catch (error) {
+            logWarn('[HiFi] could not read the approved mpv path', error);
+            return null;
+        }
+    };
+
+    const writeApprovedPath = value => {
+        try {
+            setApprovedMpvPath(value);
+        } catch (error) {
+            logWarn('[HiFi] could not store the approved mpv path', error);
+        }
+    };
+
+    /**
+     * 主进程自己从系统文件框拿到的手动 mpv 路径（存在 electron-store，跨重启保留）。渲染端经 configure 只能
+     * 选用它或清掉它，不能自己指定一个路径让主进程去运行：主窗口里被注入的脚本也拿不到执行任意程序的能力。
+     */
+    let approvedPath = readApprovedPath();
+    /** 检测和拉起实际用的手动路径：null，或 configure 时与 approvedPath 一致的那个。启动时先按已批准的路径测。 */
+    let manualPath = approvedPath;
     /** 运行时缓存是按哪个手动路径测出来的；undefined 表示还没测过。 */
     let detectedFor;
+    /** 正在跑的检测：{ forPath, promise }；顺带的检测（状态查询、拉起、改路径）叠在一起时共用它。 */
+    let detecting = null;
     /** readId → { webContentsId, length, settle } */
     const pendingReads = new Map();
 
@@ -172,12 +218,43 @@ const registerHifiIpc = ({
         }
     };
 
-    const detect = async () => {
+    // fresh：用户点了重新检测、或刚装完，要一次从现在开始的探测，不接在装之前就开始的那次后面。
+    const detect = ({ fresh = false } = {}) => {
         const forPath = manualPath;
-        const status = await runtime.detect({ manualPath: forPath });
-        detectedFor = forPath;
-        notifyRuntime(status);
-        return status;
+        if (!fresh && detecting && detecting.forPath === forPath) return detecting.promise;
+        const run = {
+            forPath,
+            promise: (async () => {
+                try {
+                    const status = await runtime.detect({ manualPath: forPath });
+                    detectedFor = forPath;
+                    notifyRuntime(status);
+                    return status;
+                } finally {
+                    if (detecting === run) detecting = null;
+                }
+            })(),
+        };
+        detecting = run;
+        return run.promise;
+    };
+
+    /**
+     * 渲染端设置里的 mpvPath 换成实际用的手动路径：null 清掉批准，与已批准的路径一模一样才用它，
+     * 别的一律不用（当成 null 去检测，批准留着）。
+     */
+    const effectiveManualPath = requested => {
+        if (requested === null) {
+            if (approvedPath !== null) {
+                logInfo('[HiFi] manual mpv path cleared');
+                approvedPath = null;
+                writeApprovedPath(null);
+            }
+            return null;
+        }
+        if (requested === approvedPath && isAllowedRuntimePath(requested, platform)) return approvedPath;
+        logWarn(`[HiFi] ignoring an mpv path that was not picked in the file dialog: ${JSON.stringify(requested)}`);
+        return null;
     };
 
     const currentRuntimeStatus = async () => {
@@ -255,7 +332,8 @@ const registerHifiIpc = ({
     });
 
     handle('hifi:get-runtime-status', () => currentRuntimeStatus(), () => null);
-    handle('hifi:detect-runtime', () => detect());
+    handle('hifi:detect-runtime', () => detect({ fresh: true }));
+    // 用户在系统文件框里选的路径记成已批准；configure 之后传回同一个路径才真的用它。
     handle('hifi:pick-runtime-path', async () => {
         const win = getMainWindow();
         const options = { properties: ['openFile'] };
@@ -263,11 +341,19 @@ const registerHifiIpc = ({
             ? await dialog.showOpenDialog(win, options)
             : await dialog.showOpenDialog(options);
         if (!result || result.canceled || !Array.isArray(result.filePaths) || result.filePaths.length === 0) return null;
-        return resolvePickedRuntimePath(result.filePaths[0], platform);
+        const picked = typeof result.filePaths[0] === 'string' ? resolvePickedRuntimePath(result.filePaths[0], platform) : null;
+        if (!isAllowedRuntimePath(picked, platform)) {
+            logWarn(`[HiFi] the picked mpv path is not a local absolute path, ignoring it: ${JSON.stringify(picked)}`);
+            return null;
+        }
+        approvedPath = picked;
+        writeApprovedPath(picked);
+        logInfo(`[HiFi] manual mpv path picked: ${picked}`);
+        return picked;
     });
     handle('hifi:install-runtime', async () => {
         const result = await installer.install();
-        const status = await detect();
+        const status = await detect({ fresh: true });
         const ok = result?.ok === true;
         return { ok, errorCode: ok ? null : (result?.errorCode ?? 'INSTALL_FAILED'), status };
     });
@@ -277,8 +363,17 @@ const registerHifiIpc = ({
     handle('hifi:configure', async (_event, config) => {
         const valid = validateEngineConfig(config);
         if (!valid) throw createHifiError('INVALID_REQUEST', 'configure');
-        manualPath = valid.mpvPath;
-        await session.configure(valid);
+        const effective = effectiveManualPath(valid.mpvPath);
+        const changed = effective !== manualPath;
+        manualPath = effective;
+        await session.configure({ ...valid, mpvPath: effective });
+        if (!changed) return;
+        // 实际用的手动路径变了：当场重测，之后的状态查询和拉起直接用新结果。
+        try {
+            await detect();
+        } catch (error) {
+            logWarn('[HiFi] mpv detection after a path change failed', error);
+        }
     });
     handle('hifi:list-devices', async () => {
         try {
@@ -349,5 +444,6 @@ module.exports = {
     validateEngineConfig,
     normalizeReadResponse,
     resolvePickedRuntimePath,
+    isAllowedRuntimePath,
     registerHifiIpc,
 };

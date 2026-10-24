@@ -35,8 +35,10 @@ export type HifiEngine = {
     install: () => Promise<HifiInstallResult | null>;
     cancelInstall: () => Promise<void>;
     pickRuntimePath: () => Promise<string | null>;
+    /** 和上一次发出的配置相同就不发；手动 mpv 路径变了，主进程收下后重新取运行时状态。 */
     configure: (config: HifiEngineConfig) => Promise<void>;
     listDevices: () => Promise<HifiDevice[]>;
+    /** 取消的载入（见 isHifiLoadCancelled）不记 lastError；mpv 找不到、起不来或太旧时顺带刷新运行时状态。 */
     load: (request: HifiLoadRequest) => Promise<HifiLoadResult>;
     play: () => Promise<void>;
     pause: () => Promise<void>;
@@ -45,7 +47,7 @@ export type HifiEngine = {
     setLoopFile: (loop: boolean) => Promise<void>;
     preloadNext: (request: HifiLoadRequest) => Promise<boolean>;
     clearNext: () => Promise<void>;
-    /** 主动拉一次引擎状态；比已收下的旧时返回已收下的那份。 */
+    /** 主动拉一次引擎状态；seq 和已收下的相同也收（主进程拼快照不加 seq），更旧时返回已收下的那份。 */
     getSnapshot: () => Promise<HifiEngineState | null>;
     onState: (listener: (state: HifiEngineState) => void) => () => void;
     onClock: (listener: (update: HifiClockUpdate) => void) => () => void;
@@ -84,6 +86,34 @@ const isLoadResult = (value: unknown): value is HifiLoadResult => (
     typeof value === 'object' && value !== null && typeof (value as { ok?: unknown }).ok === 'boolean'
 );
 
+/**
+ * HifiLoadResult 失败时 detail 有两个值不算失败，是这次载入被取消了（errorCode 仍是 LOAD_FAILED）：
+ * - 'superseded'：一次更新的 load 顶替了它；
+ * - 'stopped'：还在载入时被 stop() 取消，比如路由守卫切去 Web 引擎。
+ * 这两种不提示、不记 lastError、不让这首歌回落 Web。
+ */
+const CANCELLED_LOAD_DETAILS: Record<string, string> = {
+    superseded: 'superseded by a newer one',
+    stopped: 'cancelled by stop',
+};
+
+type CancelledLoadResult = Extract<HifiLoadResult, { ok: false }> & { detail: string };
+
+export const isHifiLoadCancelled = (result: HifiLoadResult): result is CancelledLoadResult => (
+    !result.ok && typeof result.detail === 'string' && Object.hasOwn(CANCELLED_LOAD_DETAILS, result.detail)
+);
+
+/** 这几种失败说明 mpv 本身不能用了（没找到、拉不起来、版本太旧）：运行时状态要重新取，路由才会及时改走 Web。 */
+const RUNTIME_FAILURE_CODES: ReadonlySet<string> = new Set(['MPV_NOT_FOUND', 'MPV_SPAWN_FAILED', 'MPV_TOO_OLD']);
+
+/** 两份配置对主进程是否一样；不开软件音量时 mpv 固定 100，音量不同也算一样。 */
+const isSameEngineConfig = (a: HifiEngineConfig, b: HifiEngineConfig) => {
+    const keys = new Set([...Object.keys(a), ...Object.keys(b)] as Array<keyof HifiEngineConfig>);
+    return [...keys].every(key => (
+        Object.is(a[key], b[key]) || (key === 'volume' && !a.softwareVolume && !b.softwareVolume)
+    ));
+};
+
 /** store 默认是新建的一份，测试互不干扰；单例传入 useHifiEngineStore。 */
 export const createHifiEngine = (
     getApi: () => HifiApi | undefined = getWindowHifiApi,
@@ -98,6 +128,10 @@ export const createHifiEngine = (
     // 刚发出 load / preloadNext 时主进程的状态还没跟上，而起播那一下的时钟先到：这两首的时钟也放行。
     let requestedTrackKey: string | null = null;
     let requestedNextTrackKey: string | null = null;
+    // 最近一次发出（或正在发）的配置：桥在音量变化时也会推，一样的就不再走 IPC。
+    let sentConfig: HifiEngineConfig | null = null;
+    // 主进程现在按哪个手动 mpv 路径检测；undefined 表示不知道（还没发过，或上一次发送失败）。
+    let sentMpvPath: string | null | undefined;
 
     const responder = createHifiSourceResponder({
         respond: async (readId, response) => {
@@ -120,6 +154,19 @@ export const createHifiEngine = (
         if (state.circuitOpen) openCircuit();
         store.setState({ engine: state });
         notify(stateListeners, state, 'state');
+    };
+
+    /**
+     * 收下主动拉来的快照。主进程拼快照时 seq 不加一，和已收下的相同是常态，而快照是更新的那份（比如暂停时 seek 过）：
+     * 写进 store，但不再通知订阅者，同一个 seq 只通知一次（免得 'ended' 之类被处理两遍）。
+     */
+    const acceptSnapshot = (snapshot: HifiEngineState) => {
+        if (snapshot.seq !== lastSeq) {
+            acceptState(snapshot);
+            return;
+        }
+        if (snapshot.circuitOpen) openCircuit();
+        store.setState({ engine: snapshot });
     };
 
     const isClockForKnownTrack = ({ trackKey }: HifiClockUpdate) => {
@@ -155,6 +202,34 @@ export const createHifiEngine = (
         return runtime;
     };
 
+    const refreshRuntime = async () => keepRuntime(await invoke('runtime status', null, api => api.getRuntimeStatus()));
+
+    /**
+     * 把设置推给主进程。和上一次发出的一样就跳过；手动 mpv 路径变了，等主进程收下后重新取运行时状态，
+     * 否则 runtime.available 还停在旧路径的检测结果上，路由会一直按它走。
+     */
+    const configure = async (config: HifiEngineConfig) => {
+        const api = getApi();
+        if (!api) return;
+        if (sentConfig && isSameEngineConfig(sentConfig, config)) return;
+        const previousMpvPath = sentMpvPath;
+        const sending = { ...config };
+        sentConfig = sending;
+        sentMpvPath = config.mpvPath;
+        try {
+            await api.configure(config);
+        } catch (error) {
+            console.warn('[HiFi] configure failed', error);
+            // 主进程没收下：忘掉这份，下次同样的配置还会再发。
+            if (sentConfig === sending) {
+                sentConfig = null;
+                sentMpvPath = undefined;
+            }
+            return;
+        }
+        if (config.mpvPath !== previousMpvPath) await refreshRuntime();
+    };
+
     const load = async (request: HifiLoadRequest): Promise<HifiLoadResult> => {
         const api = getApi();
         if (!api) return { ok: false, errorCode: 'UNSUPPORTED_PLATFORM' };
@@ -174,8 +249,8 @@ export const createHifiEngine = (
             console.info('[HiFi] load ready', fields);
             return result;
         }
-        if (result.detail === 'superseded') {
-            console.info('[HiFi] load superseded by a newer one', fields);
+        if (isHifiLoadCancelled(result)) {
+            console.info(`[HiFi] load ${CANCELLED_LOAD_DETAILS[result.detail]}`, fields);
             return result;
         }
         console.warn('[HiFi] load failed', { ...fields, errorCode: result.errorCode, detail: result.detail });
@@ -183,6 +258,7 @@ export const createHifiEngine = (
         store.setState({
             lastError: { code: result.errorCode, trackKey: request.trackKey, detail: result.detail, fatal: true },
         });
+        if (RUNTIME_FAILURE_CODES.has(result.errorCode)) await refreshRuntime();
         return result;
     };
 
@@ -214,16 +290,18 @@ export const createHifiEngine = (
             unsubscribers = null;
             lastSeq = Number.NEGATIVE_INFINITY;
         },
-        refreshRuntime: async () => keepRuntime(await invoke('runtime status', null, api => api.getRuntimeStatus())),
+        refreshRuntime,
         detect: async () => keepRuntime(await invoke('runtime detect', null, api => api.detectRuntime())),
         install: async () => {
             const result = await invoke<HifiInstallResult | null>('runtime install', null, api => api.installRuntime());
-            keepRuntime(result?.status ?? null);
+            // 不管装没装成都换上新的运行时状态：主进程装完会重新检测并随结果带回；调用本身失败了就另外问一次。
+            if (result?.status) keepRuntime(result.status);
+            else await refreshRuntime();
             return result;
         },
         cancelInstall: () => invoke('cancel install', undefined, api => api.cancelInstall()),
         pickRuntimePath: async () => (await invoke('pick runtime path', null, api => api.pickRuntimePath())) ?? null,
-        configure: config => invoke('configure', undefined, api => api.configure(config)),
+        configure,
         listDevices: async () => {
             const devices = await invoke<HifiDevice[] | null>('list devices', null, api => api.listDevices());
             if (!Array.isArray(devices)) return [];
@@ -251,7 +329,7 @@ export const createHifiEngine = (
         getSnapshot: async () => {
             const snapshot = await invoke<HifiEngineState | null>('snapshot', null, api => api.getSnapshot());
             if (!snapshot) return null;
-            acceptState(snapshot);
+            acceptSnapshot(snapshot);
             return store.getState().engine ?? snapshot;
         },
         onState: listener => addListener(stateListeners, listener),
