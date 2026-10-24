@@ -1343,6 +1343,63 @@ describe('mpv session: only devices mpv lists reach it', () => {
         expect(harness.lastState().audioDevice).toBe('auto');
     });
 
+    it('a load that arrives while mpv is still being configured waits for the device, so no loadfile reaches mpv before it', async () => {
+        const device = 'pipewire/alsa_output.usb-Topping_D10-00.analog-stereo';
+        // 拉起后读设备表那一问先不回：第二次载入正好落在“进程有了、设备还没发”的那一下。
+        const harness = createHarness({
+            onSpawn: child => {
+                child.socket.props['audio-device-list'] = LIST;
+                child.socket.silent.add('get_property');
+            },
+        });
+        await harness.session.configure(config(device));
+        const first = harness.session.load(localRequest('local:a#1'), { ownerId: 7 });
+        await flush();
+        expect(deviceListReads(harness)).toHaveLength(1);
+        const second = harness.session.load(localRequest('local:b#2'), { ownerId: 7 });
+        await flush();
+        const mpv = harness.mpv();
+        mpv.silent.delete('get_property');
+        mpv.requests.filter(request => request.command[0] === 'get_property').forEach(request => mpv.answer(request));
+        await flush();
+        const sent = sentCommands(harness).map(command => JSON.stringify(command));
+        const setAt = sent.indexOf(JSON.stringify(['set_property', 'audio-device', device]));
+        const loadAts = sent.flatMap((command, index) => (command.startsWith('["loadfile"') ? [index] : []));
+        expect(setAt).toBeGreaterThan(-1);
+        expect(loadAts.length).toBeGreaterThan(0);
+        expect(loadAts.every(index => index > setAt)).toBe(true);
+        mpv.prop('audio-device', device);
+        // 先到的那次被后到的顶掉，可能连 loadfile 都没发：mpv 的条目号按实际发出的 loadfile 数。
+        await startEntry(harness, loadAts.length);
+        expect((await second).ok).toBe(true);
+        expect(await first).toMatchObject({ ok: false });
+    });
+
+    it('a device that was missing is picked up by a later load once it is listed, without re-reading the list on every load', async () => {
+        const harness = deviceHarness();
+        const device = 'alsa/plughw:CARD=Gone,DEV=0';
+        await harness.session.configure(config(device));
+        expect((await loadAndStart(harness, localRequest('local:a#1'), 1)).ok).toBe(true);
+        expect(deviceListReads(harness)).toHaveLength(1);
+        // 刚读过：紧接着的载入不再读。
+        expect((await loadAndStart(harness, localRequest('local:b#2'), 2)).ok).toBe(true);
+        expect(deviceListReads(harness)).toHaveLength(1);
+        // DAC 插上了，过一会儿再载入：重读设备表，换到它，然后才 loadfile。
+        harness.mpv().props['audio-device-list'] = [...LIST, { name: device, description: 'Topping D10 again' }];
+        vi.advanceTimersByTime(6000);
+        const third = harness.session.load(localRequest('local:c#3'), { ownerId: 7 });
+        await flush();
+        expect(deviceListReads(harness)).toHaveLength(2);
+        const sent = sentCommands(harness).map(command => JSON.stringify(command));
+        const setAt = sent.indexOf(JSON.stringify(['set_property', 'audio-device', device]));
+        const lastLoadAt = sent.map((command, index) => (command.startsWith('["loadfile"') ? index : -1)).reduce((a, b) => Math.max(a, b), -1);
+        expect(setAt).toBeGreaterThan(-1);
+        expect(lastLoadAt).toBeGreaterThan(setAt);
+        harness.mpv().prop('audio-device', device);
+        await startEntry(harness, 3);
+        expect((await third).ok).toBe(true);
+    });
+
     it('a hostile ALSA name never reaches mpv, on the command line or by set_property', async () => {
         const hostile = 'alsa/file:|touch /tmp/x,raw';
         // mpv 的表里就算有这个名字（不会有），设置也先被清成 auto。

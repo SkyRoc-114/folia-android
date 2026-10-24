@@ -30,6 +30,8 @@ const STDERR_TAIL_CHARS = 2000;
 const FAILURE_LOG_LEVELS = new Set(['fatal', 'error', 'warn']);
 // Linux 上绕过混音器直连声卡的 ALSA 设备名；plughw 会在 mpv 背后转采样率和格式，不算直连。
 const DIRECT_ALSA_DEVICE = /^alsa\/hw:/i;
+// 设置里的设备不在表里、退回 auto 之后，至少隔这么久才在载入前重读设备表。
+const DEVICE_RECHECK_MS = 5000;
 // 内核列声卡和 PCM 的地方：mpv 的 audio-device-list 把 hw: 设备都滤掉了，直连设备从这里补。
 const ALSA_CARDS_PATH = '/proc/asound/cards';
 const ALSA_PCM_PATH = '/proc/asound/pcm';
@@ -1053,25 +1055,25 @@ const createMpvSession = ({
     };
 
     const ensureProcess = () => {
+        // 拉起中先等它：proc 在补发设置（设备要读设备表）之前就有了，这时直接拿 proc 的 loadfile 会赶在设备之前到 mpv。
+        if (starting) return starting;
         if (proc) return Promise.resolve(proc);
-        if (!starting) {
-            starting = spawnProcess().then(
-                record => {
-                    starting = null;
-                    // 拉起期间载入被 stop 收掉了：没人用它，照常计空闲。
-                    armIdleTimer();
-                    scheduleState();
-                    return record;
-                },
-                error => {
-                    starting = null;
-                    if (toHifiErrorCode(error) === 'MPV_SPAWN_FAILED') noteCrash();
-                    scheduleState();
-                    throw error;
-                },
-            );
-            scheduleState();
-        }
+        starting = spawnProcess().then(
+            record => {
+                starting = null;
+                // 拉起期间载入被 stop 收掉了：没人用它，照常计空闲。
+                armIdleTimer();
+                scheduleState();
+                return record;
+            },
+            error => {
+                starting = null;
+                if (toHifiErrorCode(error) === 'MPV_SPAWN_FAILED') noteCrash();
+                scheduleState();
+                throw error;
+            },
+        );
+        scheduleState();
         return starting;
     };
 
@@ -1125,6 +1127,7 @@ const createMpvSession = ({
 
     const runLoad = async (attempt, request) => {
         const record = await ensureProcess();
+        await recheckFallenBackDevice(record);
         if (pending !== attempt) return;
         await bridge.start();
         if (pending !== attempt || proc !== record) return;
@@ -1351,6 +1354,7 @@ const createMpvSession = ({
         // mpv 的 ALSA 设备表把 hw: 都滤掉了（只留 plughw、dmix 这些），可 --audio-device=alsa/hw:... 照样开得了。
         const merged = platform === 'linux' ? mergeAlsaHwDevices(devices, await readAlsaHwDevices()) : devices;
         record.deviceNames = new Set(merged.map(device => device.name));
+        record.deviceListReadAt = now();
         return merged;
     };
 
@@ -1398,6 +1402,15 @@ const createMpvSession = ({
         if (target.mute !== applied.mute) commands.push(['set_property', 'mute', target.mute]);
         applied = target;
         await Promise.all(commands.map(command => runCommand(record, command)));
+    };
+
+    // 设置里的设备当时不在设备表里（比如 DAC 还没插上）、留在了 auto：载入前再核对一次，插上了就换过去。
+    // 刚读过设备表（拉起时、设置刚改过）就不再读。
+    const recheckFallenBackDevice = async record => {
+        if (proc !== record || applied.requestedDevice === 'auto' || applied.audioDevice !== 'auto') return;
+        if (record.deviceListReadAt !== undefined && now() - record.deviceListReadAt < DEVICE_RECHECK_MS) return;
+        applied = { ...applied, requestedDevice: 'auto' };
+        await applyConfig(record);
     };
 
     const configure = async nextConfig => {
