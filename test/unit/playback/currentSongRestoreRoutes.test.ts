@@ -17,6 +17,8 @@ import type { OnlineFailureCaseId } from '@/types/onlineMusic';
 // The last describe pins the local and Navidrome restores on the HiFi route: no address and no blob
 // URL, the track handed to the HiFi service (a stub here) to take over or load at the resume time,
 // and the hand-off's position taken from mpv's clock.
+// After it: a new window that finds nothing to restore (at launch or from the hand-off) asks the HiFi
+// service to stop the track an earlier window left playing in mpv.
 
 const env = vi.hoisted(() => ({
     note: (_label: string) => {},
@@ -50,6 +52,8 @@ const env = vi.hoisted(() => ({
     hifiPosition: 0,
     /** The reasons the HiFi service was asked to stop a track an earlier window left playing. */
     released: [] as string[],
+    /** How often the HiFi service was installed (it then takes its first look at mpv). */
+    hifiInstalls: 0,
 }));
 
 vi.mock('react', () => ({
@@ -119,6 +123,7 @@ vi.mock('@/services/hifi/hifiPlayback', () => ({
     isHifiRoute: () => env.onHifiRoute,
     getHifiPosition: () => env.hifiPosition,
     releaseUnclaimedHifiTrack: (reason: string) => { env.released.push(reason); return false; },
+    installHifiPlayback: () => { env.hifiInstalls += 1; },
 }));
 vi.mock('@/utils/appNavidromeLyrics', () => ({
     hydrateNavidromeLyricPayload: async () => {},
@@ -216,6 +221,7 @@ beforeEach(() => {
     env.onHifiRoute = false;
     env.hifiPosition = 0;
     env.released.length = 0;
+    env.hifiInstalls = 0;
     useHifiSettingsStore.setState({ enabled: false });
     useAudioSettingsStore.setState({ autoPlayOnLaunch: false });
     vi.mocked(prefetchNearbySongs).mockClear();
@@ -1448,6 +1454,158 @@ describe('a local or Navidrome restore on the HiFi route', () => {
             env.onHifiRoute = true;
             env.hifiPosition = 71.5;
             expect(handoff.captureWindowPlaybackHandoff().mainPlayback?.currentTime).toBe(71.5);
+        });
+    });
+});
+
+describe('a new window with nothing to restore stops what an earlier window left playing in mpv', () => {
+    const stageSong = {
+        id: 's1', name: 'S', artists: [], album: { id: '', name: '' }, durationMs: 1000,
+        sourceRef: { kind: 'stage', mediaId: 's1' },
+    } as unknown as SongResult;
+
+    describe('the restore of the last session', () => {
+        const restoreSession = async (lastSong: SongResult | null, duringTheRead?: () => void) => {
+            const { refs, setLyrics } = watchWithRefs();
+            if (lastSong) env.cache.set('last_song', lastSong);
+            env.reached = wait => { if (wait === 'cache last_song') duringTheRead?.(); };
+            useSessionRestoreController({
+                blobUrlRef: refs.blobUrlRef,
+                currentOnlineAudioUrlFetchedAtRef: refs.currentOnlineAudioUrlFetchedAtRef,
+                setLyrics,
+                restoreCachedThemeForSong: vi.fn(async () => 'none'),
+                persistLastPlaybackCache: vi.fn(async () => undefined),
+                clearPersistedStagePlaybackCache: vi.fn(async () => undefined),
+                loadLocalSongs: vi.fn(async () => undefined),
+                loadLocalPlaylists: vi.fn(async () => undefined),
+                shouldAutoPlayRef: refs.shouldAutoPlay,
+            } as never);
+            vi.spyOn(console, 'log').mockImplementation(() => {});
+            effectNaming('last_song')();
+            await settle();
+        };
+
+        it('no song remembered', async () => {
+            await restoreSession(null);
+            expect(env.released).toEqual(['nothing to restore']);
+        });
+
+        it('a song asked for while the remembered one was read', async () => {
+            await restoreSession(onlineSong, () => askForSong(otherSong));
+            expect(env.released).toEqual(['nothing to restore']);
+        });
+
+        it('the remembered local file is gone from the library', async () => {
+            const gone = { ...localSong, id: 'gone', localRef: { songId: 'gone' }, sourceRef: { kind: 'local', mediaId: 'gone' } } as unknown as SongResult;
+            await restoreSession(gone);
+            expect(usePlaybackStore.getState().currentSong).toBeNull();
+            expect(env.released).toEqual(['nothing to restore']);
+        });
+
+        it('a Stage session was remembered', async () => {
+            await restoreSession(stageSong);
+            expect(env.released).toEqual(['nothing to restore']);
+        });
+
+        it('a song that is restored leaves it to the source\'s restore (which took it over, or stopped it)', async () => {
+            await restoreSession(onlineSong);
+            expect(usePlaybackStore.getState().audioSrc).toBe('https://audio.test/x1');
+            expect(env.released).toEqual([]);
+        });
+    });
+
+    describe('the handoff to a rebuilt window', () => {
+        const snapshotOf = (song: SongResult | null): PlaybackSnapshot => ({
+            currentSong: song, lyrics: null, cachedCoverUrl: null, audioSrc: null,
+            playQueue: song ? [song] : [], isFmMode: false, playerState: PlayerState.PAUSED,
+            currentTime: 12, duration: 100, currentLineIndex: -1,
+        });
+        const handoffOf = (snapshot: PlaybackSnapshot | null, activePlaybackContext: 'main' | 'stage' = 'main') => ({
+            version: 1, capturedAt: 0, activePlaybackContext, mainPlayback: snapshot, activePlayback: snapshot,
+            stage: { status: null, source: null, playback: null, lyricsClock: { startTimeSec: 0, endTimeSec: 0, baseTimeSec: 0, startedAtMs: null } },
+            nowPlaying: { track: null, lyricPayload: null, paused: true, progressMs: 0, progressQuality: 'coarse', displayTimeSec: 0 },
+            ui: { currentView: 'home', playerChromeHidden: false, mainWindowBorderVisible: false, transparentModeEnabled: false },
+        } as unknown as WindowPlaybackHandoff);
+        /**
+         * The new window consumes `handoff`; `askedMeanwhile` is asked for while the main process answers, and
+         * `hifiSnapshot` is the main process's answer to a look at mpv (none: a build without HiFi).
+         */
+        const restoreHandoff = async (
+            handoff: WindowPlaybackHandoff,
+            askedMeanwhile: SongResult | null = null,
+            hifiSnapshot?: () => Promise<null>,
+        ) => {
+            const { refs, setLyrics } = watchWithRefs();
+            askForSong(null);
+            // What had been stopped when the Stage began to restore.
+            let releasedBeforeStage: string[] | null = null;
+            vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {}, removeItem: () => {} });
+            vi.stubGlobal('window', { electron: {
+                consumeWindowPlaybackHandoff: async () => {
+                    if (askedMeanwhile) askForSong(askedMeanwhile);
+                    return handoff;
+                },
+                ...(hifiSnapshot ? { hifi: { getSnapshot: hifiSnapshot } } : {}),
+            } });
+            useElectronWindowPlaybackHandoff({
+                isElectronWindow: true, navigateToPlayer: vi.fn(), audioRef: refs.audioRef, mainPlaybackSnapshotRef: { current: null },
+                stageStatus: null, stageSource: null, stageLyricsClockRef: { current: {} }, nowPlayingTrack: null, nowPlayingLyricPayload: null,
+                nowPlayingPaused: true, nowPlayingProgressMs: 0, nowPlayingProgressQuality: 'coarse', getNowPlayingDisplayTime: () => 0,
+                restoreStagePlaybackHandoff: vi.fn(async () => { releasedBeforeStage = [...env.released]; }),
+                setLyrics, setIsLyricsLoading: vi.fn(),
+                blobUrlRef: refs.blobUrlRef, shouldAutoPlayRef: refs.shouldAutoPlay, pendingResumeTimeRef: refs.pendingResumeTimeRef,
+                lastAudioRecoverySourceRef: refs.lastAudioRecoverySourceRef, currentOnlineAudioUrlFetchedAtRef: refs.currentOnlineAudioUrlFetchedAtRef,
+                applyTransparentPlayerBackground: vi.fn(), restoreCachedThemeForSong: vi.fn(async () => 'none'), persistLastPlaybackCache: vi.fn(async () => undefined),
+            } as never);
+            effectNaming('consumeWindowPlaybackHandoff()')();
+            await settle();
+            return { releasedBeforeStage: releasedBeforeStage as string[] | null };
+        };
+
+        it('no song handed over', async () => {
+            await restoreHandoff(handoffOf(snapshotOf(null)));
+            expect(env.released).toEqual(['nothing to restore']);
+        });
+
+        it('the stop waits for this window\'s first look at mpv, which is asked for after the hand-off', async () => {
+            let answer!: () => void;
+            const asked: number[] = [];
+            await restoreHandoff(handoffOf(snapshotOf(null)), null, () => {
+                // How often the HiFi service had been installed (and taken its first look) when this look was asked for.
+                asked.push(env.hifiInstalls);
+                return new Promise<null>(resolve => { answer = () => resolve(null); });
+            });
+            expect(asked).toEqual([1]);
+            // Until the main process answers, the track the old window left is not known yet: nothing is stopped.
+            expect(env.released).toEqual([]);
+
+            answer();
+            await settle();
+            expect(env.released).toEqual(['nothing to restore']);
+        });
+
+        it('a song asked for in the new window while the handoff was read', async () => {
+            await restoreHandoff(handoffOf(snapshotOf(localSong)), otherSong);
+            expect(env.hifiStarts).toEqual([]);
+            expect(env.released).toEqual(['nothing to restore']);
+        });
+
+        it('the old window was on the Stage: stopped before the Stage plays', async () => {
+            const { releasedBeforeStage } = await restoreHandoff(handoffOf(snapshotOf(localSong), 'stage'));
+            expect(releasedBeforeStage).toEqual(['nothing to restore']);
+            expect(env.released).toEqual(['nothing to restore']);
+        });
+
+        it('the handed-over song is a Stage song', async () => {
+            await restoreHandoff(handoffOf(snapshotOf(stageSong)));
+            expect(env.released).toEqual(['nothing to restore']);
+        });
+
+        it('a song that is handed over leaves it to the source\'s restore', async () => {
+            env.route = 'hifi';
+            await restoreHandoff(handoffOf(snapshotOf(localSong)));
+            expect(env.hifiStarts).toEqual([expect.objectContaining({ startSec: 12, adoptRunning: true })]);
+            expect(env.released).toEqual([]);
         });
     });
 });

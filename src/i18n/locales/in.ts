@@ -4250,7 +4250,7 @@ export default {
       "MPV_CRASHED": "mpv berhenti secara tak terduga.",
       "IPC_TIMEOUT": "mpv berhenti merespons.",
       "CIRCUIT_OPEN": "mpv terus gagal, jadi HiFi nonaktif sampai Folia dimulai ulang. Lagu diputar dengan mesin biasa.",
-      "DEVICE_BUSY": "Aplikasi lain sedang memakai perangkat output. Tutup aplikasi itu atau matikan mode eksklusif.",
+      "DEVICE_BUSY": "Aplikasi lain atau server suara sistem sedang memakai perangkat output. Tutup aplikasi itu, atau pilih perangkat lain di pengaturan HiFi.",
       "DEVICE_UNAVAILABLE": "Perangkat output tidak dapat dibuka.",
       "SOURCE_UNREACHABLE": "Berkas lagu tidak dapat dibaca.",
       "SOURCE_REJECTED": "Server tidak mengirim berkas audio.",

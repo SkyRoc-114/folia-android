@@ -5,8 +5,9 @@ import id from '../../../src/i18n/locales/in';
 
 // test/unit/hifi/hifiLocaleText.test.ts
 // The HiFi texts that state facts, read from the shipped locales: the DoP warning says what a DAC
-// without DoP really plays (a quiet hiss, not full-scale noise), and the per-platform advice and the
-// labels the player surfaces and the settings page ask for exist in all three languages.
+// without DoP really plays (a quiet hiss, not full-scale noise), the busy-device error holds on every
+// platform, and the per-platform advice and the labels the player surfaces and the settings page ask
+// for exist in all three languages.
 
 const LOCALES = { en, 'zh-CN': zhCN, in: id } as const;
 
@@ -45,6 +46,20 @@ describe('HiFi locale texts', () => {
         expect(warnings['zh-CN']).toMatch(/沙沙/);
         expect(warnings.in).not.toMatch(/skala penuh|keras/i);
         expect(warnings.in).toMatch(/desis/i);
+    });
+
+    it('says what holds a busy device on every platform, and does not offer exclusive mode as the way out', () => {
+        // On Linux a busy ALSA hw: device is usually held by PipeWire, and the exclusive switch does not free it.
+        const busy = Object.fromEntries(Object.entries(LOCALES).map(([name, locale]) => [name, String(read(locale, 'hifi.errors.DEVICE_BUSY'))]));
+        expect(busy.en).not.toMatch(/exclusive/i);
+        expect(busy.en).toMatch(/sound server/i);
+        expect(busy.en).toMatch(/HiFi settings/);
+        expect(busy['zh-CN']).not.toMatch(/独占/);
+        expect(busy['zh-CN']).toMatch(/音频服务/);
+        expect(busy['zh-CN']).toMatch(/HiFi 设置/);
+        expect(busy.in).not.toMatch(/eksklusif/i);
+        expect(busy.in).toMatch(/server suara/i);
+        expect(busy.in).toMatch(/pengaturan HiFi/);
     });
 
     it('no longer tells Linux to turn on exclusive mode for a shared output', () => {

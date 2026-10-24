@@ -610,8 +610,23 @@ export function usePlaybackQueueController({
         playbackAutoSkipCountRef.current = skipCount;
         // For the plays this one defers (the replacement dialog, the timed skip): they start after a
         // prompt or a countdown, so they are not the blend's advance even when this call was.
-        // Nor do they carry a judgement of the queue made for another play (`queueRewritten`).
-        const deferredPlayOptions: PlaybackNavigationOptions = { ...options, isAutomixAdvance: undefined, queueRewritten: undefined };
+        // Nor do they carry a judgement of the queue made for another play (`queueRewritten`), nor where
+        // this song was to start, paused or quiet: those are about this song only (see `startOptions`).
+        const deferredPlayOptions: PlaybackNavigationOptions = {
+            ...options,
+            isAutomixAdvance: undefined,
+            queueRewritten: undefined,
+            startAtSec: undefined,
+            autoplay: undefined,
+            quietLoadedToast: undefined,
+        };
+        // Where a local or Navidrome song starts, whether it plays and whether it shows its own toasts:
+        // the HiFi bridge asks for them when it moves the song it was playing to the other engine.
+        const startOptions: Pick<PlaybackNavigationOptions, 'startAtSec' | 'autoplay' | 'quietLoadedToast'> = {
+            startAtSec: options.startAtSec,
+            autoplay: options.autoplay,
+            quietLoadedToast: options.quietLoadedToast,
+        };
         const providerId = getOnlineProviderIdForSong(song) ?? undefined;
 
         // A button of a failure may be pressed long after: where the queue follows the store, the main
@@ -766,6 +781,7 @@ export function usePlaybackQueueController({
                 .filter((queuedSong): queuedSong is LocalSong => Boolean(queuedSong));
             fmModeBeforePendingPlayRef.current = null;
             await onPlayLocalSong(resolvedLocalData, localQueue, {
+                ...startOptions,
                 shouldNavigateToPlayer,
                 unifiedQueue: newQueue,
                 queueRewritten,
@@ -787,6 +803,7 @@ export function usePlaybackQueueController({
                 .filter((queuedSong): queuedSong is NavidromeSong => Boolean(queuedSong));
             fmModeBeforePendingPlayRef.current = null;
             await onPlayNavidromeSong(navidromeSong, navidromeQueue, {
+                ...startOptions,
                 shouldNavigateToPlayer,
                 unifiedQueue: newQueue,
                 queueRewritten,

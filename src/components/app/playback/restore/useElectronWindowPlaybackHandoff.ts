@@ -25,7 +25,8 @@ import { currentTime } from '../../../../stores/motionSignals';
 import { untransformedLyrics } from '../../../../services/hostExtensionHooks';
 import { lyricsBeforeRules } from '../../../../utils/lyrics/lyricLineRules';
 import { reportYieldedQueue, wholeQueueWritesSoFar } from '../../../../services/wholeQueueWrites';
-import { getHifiPosition, isHifiRoute } from '../../../../services/hifi/hifiPlayback';
+import { getHifiPosition, installHifiPlayback, isHifiRoute, releaseUnclaimedHifiTrack } from '../../../../services/hifi/hifiPlayback';
+import { hifiEngine } from '../../../../services/hifi/hifiEngine';
 
 // src/components/app/playback/restore/useElectronWindowPlaybackHandoff.ts
 // Captures and restores renderer playback state across Electron BrowserWindow rebuilds.
@@ -38,6 +39,18 @@ export const withUntransformedLyrics = <Snapshot extends PlaybackSnapshot | null
     if (!snapshot) return snapshot;
     const lyrics = lyricsBeforeRules(untransformedLyrics(snapshot.lyrics));
     return lyrics === snapshot.lyrics ? snapshot : { ...snapshot, lyrics };
+};
+
+/**
+ * Nothing the old window played is restored here, so a track it left playing in mpv is nobody's now:
+ * stopped. The hand-off is asked for before this window's first look at mpv (the HiFi bridge, which
+ * takes that look, mounts further down in App), and the main process answers in order: a snapshot asked
+ * for after that look comes back after it, once the track the old window left is known.
+ */
+const releaseTrackLeftInMpv = async () => {
+    installHifiPlayback();
+    await hifiEngine.getSnapshot();
+    releaseUnclaimedHifiTrack('nothing to restore');
 };
 
 type SetState<T> = Dispatch<SetStateAction<T>>;
@@ -241,10 +254,14 @@ export function useElectronWindowPlaybackHandoff({
     const restoreMainPlaybackSnapshot = useCallback(async (snapshot: PlaybackSnapshot | null) => {
         mainPlaybackSnapshotRef.current = snapshot;
         // A song asked for in the new window while the handoff was being read stands.
-        if (askedSongKeyRef.current !== null) return;
+        if (askedSongKeyRef.current !== null) {
+            void releaseTrackLeftInMpv();
+            return;
+        }
         const queueWritesAtStart = handoffQueueWritesRef.current ?? undefined;
         const queueRewritten = queueWritesAtStart !== undefined && wholeQueueWritesSoFar() !== queueWritesAtStart;
         if (!snapshot?.currentSong) {
+            void releaseTrackLeftInMpv();
             pendingResumeTimeRef.current = null;
             shouldAutoPlayRef.current = false;
             lastAudioRecoverySourceRef.current = null;
@@ -295,6 +312,8 @@ export function useElectronWindowPlaybackHandoff({
         setDuration(snapshot.duration);
 
         if (isStagePlaybackSong(snapshot.currentSong)) {
+            // A Stage song never plays through mpv.
+            void releaseTrackLeftInMpv();
             if (snapshot.audioSrc && !snapshot.audioSrc.startsWith('blob:')) {
                 setAudioSrc(snapshot.audioSrc);
             }
@@ -366,6 +385,9 @@ export function useElectronWindowPlaybackHandoff({
 
         if (handoff.activePlaybackContext === 'stage') {
             mainPlaybackSnapshotRef.current = handoff.mainPlayback;
+            // The Stage plays on the Web engine, and the main song waits in the snapshot until it ends:
+            // a track the old window left playing in mpv is stopped before the Stage sounds.
+            await releaseTrackLeftInMpv();
             await restoreStagePlaybackHandoff(handoff);
             return true;
         }

@@ -94,6 +94,8 @@ import { useHifiAutomixGate } from './components/hifi/useHifiAutomixGate';
 import { useWebEngineYield } from './components/hifi/useWebEngineYield';
 import { useHifiMediaSessionKeepAlive } from './components/hifi/useHifiMediaSessionKeepAlive';
 import { isHifiRoute, useHifiTrackStore } from './services/hifi/hifiPlayback';
+import { hifiEngine } from './services/hifi/hifiEngine';
+import { selectHifiEngineConfig, useHifiSettingsStore } from './stores/useHifiSettingsStore';
 import { useElectronDisplaySleepBlocker } from './hooks/useElectronDisplaySleepBlocker';
 import { useBackgroundLyricHold } from './components/app/backgroundThrottling/useBackgroundLyricHold';
 import { readLiveLyricTime, useBackgroundLyricHoldStore } from './components/app/backgroundThrottling/backgroundLyricHoldStore';
@@ -617,9 +619,14 @@ export default function App() {
             const nextVolume = pendingVolumePreviewRef.current;
             if (nextVolume !== null) {
                 syncOutputGain(nextVolume, 0.015);
+                // On HiFi with software volume the drag is heard from mpv; the engine skips a config it already has.
+                const hifiSettings = useHifiSettingsStore.getState();
+                if (isHifiRoute() && hifiSettings.softwareVolume) {
+                    void hifiEngine.configure(selectHifiEngineConfig(hifiSettings, nextVolume, isMuted));
+                }
             }
         });
-    }, [syncOutputGain]);
+    }, [isMuted, syncOutputGain]);
 
     const {
         shouldRefreshCurrentOnlineAudioSource,

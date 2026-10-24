@@ -4250,7 +4250,7 @@ export default {
       "MPV_CRASHED": "mpv stopped unexpectedly.",
       "IPC_TIMEOUT": "mpv stopped responding.",
       "CIRCUIT_OPEN": "mpv kept failing, so HiFi is off until Folia restarts. Songs play on the normal engine.",
-      "DEVICE_BUSY": "Another app is using the output device. Close it or turn off exclusive mode.",
+      "DEVICE_BUSY": "Another app or the system sound server is using the output device. Close that app, or pick another device in the HiFi settings.",
       "DEVICE_UNAVAILABLE": "The output device could not be opened.",
       "SOURCE_UNREACHABLE": "The song file could not be read.",
       "SOURCE_REJECTED": "The server did not send an audio file.",

@@ -4250,7 +4250,7 @@ export default {
       "MPV_CRASHED": "mpv 意外退出了。",
       "IPC_TIMEOUT": "mpv 没有响应。",
       "CIRCUIT_OPEN": "mpv 反复出错，HiFi 在重启 Folia 前不再使用，歌曲改用原来的引擎播放。",
-      "DEVICE_BUSY": "输出设备正被其他程序占用。请关掉那个程序，或关闭独占模式。",
+      "DEVICE_BUSY": "输出设备正被其他程序或系统的音频服务占用。请关掉那个程序，或在 HiFi 设置里换一个输出设备。",
       "DEVICE_UNAVAILABLE": "无法打开输出设备。",
       "SOURCE_UNREACHABLE": "无法读取歌曲文件。",
       "SOURCE_REJECTED": "服务器返回的不是音频文件。",
