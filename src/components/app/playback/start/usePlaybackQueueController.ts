@@ -68,6 +68,7 @@ import { hasBeforePlayHook, notifyPlaybackFailed, runBeforePlayHook } from '../.
 import { wholeQueueWritesSoFar } from '../../../../services/wholeQueueWrites';
 import { noteQueueStart } from './queueStarts';
 import { errorMessage } from '../../../../utils/errorText';
+import { hifiTransport, isHifiRoute } from '../../../../services/hifi/hifiPlayback';
 
 // src/components/app/playback/start/usePlaybackQueueController.ts
 
@@ -171,6 +172,13 @@ const readAutoSkipUnplayable = () => useAudioSettingsStore.getState().autoSkipUn
 const isPassingFailure = (shown: OnlineFailure) => (
     shown.case === 'unreachable' || shown.case === 'retry-later' || shown.case === 'local-service-stopped'
 );
+
+// The stops that leave the current song where it is pause what actually sounds it. On the HiFi route that
+// is mpv: the deck there has no source, so pausing it alone left the song playing under a stopped player.
+const pauseWhatIsSounding = (audio: HTMLAudioElement | null) => {
+    audio?.pause();
+    if (isHifiRoute()) void hifiTransport.pause();
+};
 
 // A sign-in that has run out comes with the button that opens the sign-in window for that platform.
 const withSignInAction = (
@@ -630,7 +638,7 @@ export function usePlaybackQueueController({
             const said = onlineFailureToast(shown, t);
             const stopHere = () => {
                 shouldAutoPlayRef.current = false;
-                audioRef.current?.pause();
+                pauseWhatIsSounding(audioRef.current);
                 setPlayerState(PlayerState.IDLE);
                 setStatusMsg(withSignInAction(shown, said, t));
             };
@@ -1152,9 +1160,7 @@ export function usePlaybackQueueController({
         const queueWritesAtStart = wholeQueueWritesSoFar();
 
         const stopAtQueueEnd = () => {
-            if (audioRef.current) {
-                audioRef.current.pause();
-            }
+            pauseWhatIsSounding(audioRef.current);
             setPlayerState(PlayerState.IDLE);
         };
 
@@ -1299,7 +1305,7 @@ export function usePlaybackQueueController({
         // A refusal the listener can act on stops the song where it is: it was playing, so PAUSED.
         const stopHere = (stopped: OnlineFailure) => {
             shouldAutoPlayRef.current = false;
-            audioRef.current?.pause();
+            pauseWhatIsSounding(audioRef.current);
             setPlayerState(PlayerState.PAUSED);
             setStatusMsg(withSignInAction(stopped, said, t));
         };
