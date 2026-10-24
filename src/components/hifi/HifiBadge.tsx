@@ -1,9 +1,9 @@
 import React from 'react';
-import { BadgeCheck, CircleHelp, Merge, TriangleAlert, type LucideIcon } from 'lucide-react';
+import { BadgeCheck, BadgeInfo, CircleHelp, Merge, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { HifiSignalVerdict } from '../../types/hifi';
 import { openHifiSignalPath } from './hifiPanelStore';
-import { formatHifiBadge, verdictTone, type HifiVerdictTone } from './hifiSignalText';
+import { formatHifiBadge, signalPathTone, type HifiVerdictTone } from './hifiSignalText';
 import { useHifiSignalPath, useHifiTrackDeferred } from './useHifiSignalPath';
 
 // src/components/hifi/HifiBadge.tsx
@@ -27,10 +27,15 @@ const TONE_CLASS: Record<HifiVerdictTone, { day: string; night: string }> = {
     },
 };
 
-/** 最窄的小牌子只写 HiFi，结论靠这个图标（和信号链路面板顶上的同一套）。 */
+/**
+ * 最窄的小牌子只写 HiFi，结论靠这个图标（和信号链路面板顶上的同一套）。采样率直通的图标和逐位直通不同：
+ * 那只是 PipeWire 报的采样率对得上，不是逐位直通。颜色见 signalPathTone：PipeWire 那一级每项都过时和逐位直通同为强调色，
+ * 有一项没过（滤波器、音量、别的流、声道）就用次要色。
+ */
 const VERDICT_ICON: Record<HifiSignalVerdict, LucideIcon> = {
     'bit-perfect': BadgeCheck,
     dop: BadgeCheck,
+    'rate-passthrough': BadgeInfo,
     converted: TriangleAlert,
     'shared-mixer': Merge,
     unknown: CircleHelp,
@@ -50,7 +55,7 @@ const HifiBadge: React.FC<HifiBadgeProps> = ({ isDaylight = false, disabled = fa
     }
 
     const { text, shortText, chipText } = formatHifiBadge(path, t, i18n.language, { deferred });
-    const tone = TONE_CLASS[verdictTone(path.verdict)][isDaylight ? 'day' : 'night'];
+    const tone = TONE_CLASS[signalPathTone(path)][isDaylight ? 'day' : 'night'];
     // 还没载入的曲目没有结论可画。
     const Icon = deferred ? null : VERDICT_ICON[path.verdict];
 

@@ -10,18 +10,26 @@ import {
     formatHifiBadge,
     formatSampleRate,
     formatStageFormat,
+    stageLabel,
     stageStatusLabel,
     verdictDescription,
     verdictLabel,
     verdictTitle,
+    signalPathTone,
     verdictTone,
 } from '@/components/hifi/hifiSignalText';
+import { PIPEWIRE_UNFORCE_RATE_COMMAND, describeSystemCheck, pipewireAllowedRatesSnippet, systemRateHints } from '@/components/hifi/hifiSystemText';
+import type { HifiOutputProbe } from '@/types/hifi';
+import { cleanProbe, easyEffectsProbe, fixtureProbe } from './pipewireProbeFixture';
 
 // test/unit/hifi/hifiSignalText.test.ts
 // The words of the HiFi badge and signal-path sheet: the verdict labels and tones, the badge line
 // (output rate, source bit depth when bit-perfect, DSD64 for DoP), the stage format lines and the
-// conversions said in plain words, and the advice for a shared output by system. Paths come from the real
-// buildSignalPath; the translator is a stand-in with the English texts these keys get.
+// conversions said in plain words, and the advice for a shared output by system. On Linux with a PipeWire
+// probe: the PipeWire step's check lines, why PipeWire did not switch the rate (allowed-rates, a busy
+// device, Folia's own keep-alive, a forced clock rate) with the #835 config line or the command to undo it,
+// the rate-passthrough wording and badge tone, and a walk that ends at a virtual device (EasyEffects). Paths
+// come from the real buildSignalPath; the translator is a stand-in with the English texts these keys get.
 
 const EN: Record<string, string> = {
     'hifi.player.badgeChip': 'HiFi',
@@ -29,11 +37,13 @@ const EN: Record<string, string> = {
     'hifi.player.badgeWithFormat': 'HiFi · {{verdict}} · {{format}}',
     'hifi.signal.verdictShort.bitPerfect': 'Bit-perfect',
     'hifi.signal.verdictShort.dop': 'Native DSD',
+    'hifi.signal.verdictShort.ratePassthrough': 'Rate passthrough',
     'hifi.signal.verdictShort.converted': 'Converted',
     'hifi.signal.verdictShort.sharedMixer': 'System mixer',
     'hifi.signal.verdictShort.unknown': 'Unverified',
     'hifi.signal.verdict.bitPerfect': 'Bit-perfect',
     'hifi.signal.verdict.dop': 'Native DSD via DoP',
+    'hifi.signal.verdict.ratePassthrough': 'Sample rate passthrough (via PipeWire)',
     'hifi.signal.verdict.converted': 'Converted on the way',
     'hifi.signal.verdict.sharedMixer': 'Through the system mixer',
     'hifi.signal.verdict.unknown': 'Not verified yet',
@@ -41,6 +51,12 @@ const EN: Record<string, string> = {
     'hifi.signal.verdictDesc.sharedMixer': 'The output device is shared with other apps. Turn on exclusive mode in the HiFi settings.',
     'hifi.signal.verdictDesc.sharedMixerExclusiveOn': 'Exclusive mode is on, but this output device does not take it. Choose another output device.',
     'hifi.signal.verdictDesc.sharedMixerLinux': 'PipeWire or PulseAudio mixes this output. Choose a device marked direct.',
+    'hifi.signal.verdictDesc.sharedMixerPipewire': 'PipeWire resamples this song. The PipeWire step says why.',
+    'hifi.signal.verdictDesc.sharedMixerVirtual': 'The sound goes into a virtual device. The card behind it is unknown.',
+    'hifi.signal.verdictDesc.sharedMixerUnknownRate': 'PipeWire does not report the device rate. Whether it resamples is unknown.',
+    'hifi.signal.verdictDesc.ratePassthrough': 'PipeWire reports the rate mpv sends. Not a bit-perfect check.',
+    'hifi.signal.stage.output': 'Output',
+    'hifi.signal.stage.system': 'PipeWire',
     'hifi.signal.status.passthrough': 'Passthrough',
     'hifi.signal.status.converted': 'Converted',
     'hifi.signal.status.bypassed': 'Bypassed',
@@ -63,7 +79,34 @@ const EN: Record<string, string> = {
     'hifi.signal.conversion.dop': 'DSD packed into PCM frames (DoP), unchanged',
     'hifi.signal.conversion.volume': 'Software volume scales every sample ({{volume}})',
     'hifi.signal.conversion.volumePlain': 'Software volume scales every sample',
+    'hifi.signal.conversion.volumePipewire': "PipeWire's software volume scales every sample ({{volume}})",
+    'hifi.signal.conversion.volumePipewirePlain': "PipeWire's software volume scales every sample",
     'hifi.signal.conversion.sharedMixer': 'Mixed by the system mixer, which may resample it',
+    'hifi.signal.conversion.filter': 'Changed by filters in PipeWire: {{names}}',
+    'hifi.signal.conversion.filterPlain': 'Changed by filters in PipeWire',
+    'hifi.signal.systemReported': 'As PipeWire reports it (pw-dump)',
+    'hifi.signal.system.rateOk': 'The device runs at {{rate}}, the rate mpv sends',
+    'hifi.signal.system.rateWarn': 'The device runs at {{to}}, but mpv sends {{from}}: PipeWire resamples',
+    'hifi.signal.system.rateUnknown': "PipeWire does not report the device's sample rate",
+    'hifi.signal.system.rateVirtual': "The sound goes into the virtual device {{name}}. PipeWire's report ends here",
+    'hifi.signal.system.filtersOk': 'No filters (equalizer, remap) between mpv and the device',
+    'hifi.signal.system.filtersWarn': 'Filters change the sound on the way: {{names}}',
+    'hifi.signal.system.streamVolumeOk': "Folia's stream is at 100% in PipeWire",
+    'hifi.signal.system.streamVolumeWarn': "Folia's stream is at {{volume}} in PipeWire, which scales every sample",
+    'hifi.signal.system.deviceVolumeOk': 'No software volume on the device',
+    'hifi.signal.system.deviceVolumeWarn': 'PipeWire applies part of the device volume in software ({{volume}}), which scales every sample',
+    'hifi.signal.system.otherStreamsOk': 'Nothing else is playing on this device',
+    'hifi.signal.system.otherStreamsWarn': 'Also playing on this device: {{names}}',
+    'hifi.signal.system.ownStream': '{{name}} (from Folia itself)',
+    'hifi.signal.system.channelsOk': 'The device takes the channels mpv sends',
+    'hifi.signal.system.channelsWarn': 'mpv sends {{from}}, the device takes {{to}}: PipeWire remixes the channels',
+    'hifi.signal.system.channelsWarnPlain': 'The device takes other channels than mpv sends: PipeWire remixes them',
+    'hifi.signal.system.hintForced': "PipeWire's clock.force-rate holds the sample rate at {{forced}}, so the device does not switch to {{rate}}.",
+    'hifi.signal.system.hintNotAllowed': 'PipeWire is not allowed to switch to {{rate}}: add it to default.clock.allowed-rates.',
+    'hifi.signal.system.hintBusy': 'PipeWire only switches rates while the device is idle; other streams are playing on it: {{names}}.',
+    'hifi.signal.system.hintBusyOwn': 'A stream from Folia itself is among them.',
+    'hifi.signal.system.hintJoin': '{{first}} {{second}}',
+    'hifi.signal.system.hintNoSwitch': 'PipeWire did not switch the device to {{rate}}.',
     'hifi.signal.transportLocal': "Read byte for byte from your library through Folia's local bridge",
     'hifi.signal.transportNavidrome': 'The original file from Navidrome, not transcoded',
     'hifi.signal.processBypassed': 'No equalizer, effects, ReplayGain or volume change',
@@ -173,19 +216,45 @@ const sharedWasapi = () => buildSignalPath(
 const stageOf = (path: ReturnType<typeof bitPerfect96>, id: string) => path.stages.find(stage => stage.id === id)!;
 
 describe('verdict labels', () => {
-    const VERDICTS: HifiSignalVerdict[] = ['bit-perfect', 'dop', 'converted', 'shared-mixer', 'unknown'];
+    const VERDICTS: HifiSignalVerdict[] = ['bit-perfect', 'dop', 'rate-passthrough', 'converted', 'shared-mixer', 'unknown'];
 
     it('names every verdict short for the badge and in full for the sheet', () => {
         expect(VERDICTS.map(verdict => verdictLabel(verdict, t))).toEqual([
-            'Bit-perfect', 'Native DSD', 'Converted', 'System mixer', 'Unverified',
+            'Bit-perfect', 'Native DSD', 'Rate passthrough', 'Converted', 'System mixer', 'Unverified',
         ]);
         expect(VERDICTS.map(verdict => verdictTitle(verdict, t))).toEqual([
-            'Bit-perfect', 'Native DSD via DoP', 'Converted on the way', 'Through the system mixer', 'Not verified yet',
+            'Bit-perfect', 'Native DSD via DoP', 'Sample rate passthrough (via PipeWire)', 'Converted on the way', 'Through the system mixer', 'Not verified yet',
         ]);
     });
 
-    it('draws only an untouched path in the accent colour', () => {
-        expect(VERDICTS.map(verdictTone)).toEqual(['accent', 'accent', 'muted', 'muted', 'muted']);
+    it('draws an untouched path, and one PipeWire reports at mpv\'s rate, in the accent colour', () => {
+        // The badge and the sheet tell rate passthrough from bit-perfect by their icon.
+        expect(VERDICTS.map(verdictTone)).toEqual(['accent', 'accent', 'accent', 'muted', 'muted', 'muted']);
+    });
+
+    it('takes the accent colour away from rate passthrough on the badge when any PipeWire check fails', () => {
+        expect(signalPathTone(onPipewire(96000, cleanProbe(96000)))).toBe('accent');
+        const failing: Array<[string, HifiOutputProbe]> = [
+            ['filters', cleanProbe(96000, { filters: [{ nodeId: 38, name: 'effect_input.eq6', description: 'Equalizer Sink' }] })],
+            ['streamVolume', cleanProbe(96000, { streamVolume: { volume: 1, mute: false, channelVolumes: [0.8, 0.8], softVolumes: [0.8, 0.8], softMute: false } })],
+            ['deviceVolume', cleanProbe(96000, { deviceVolume: { volume: 1, mute: false, channelVolumes: [1, 1], softVolumes: [0.9, 0.9], softMute: false } })],
+            ['otherStreams', cleanProbe(96000, { otherStreams: [{ nodeId: 140, name: 'Firefox', own: false }] })],
+            ['channels', cleanProbe(96000, { deviceChannels: 6 })],
+        ];
+        for (const [check, probe] of failing) {
+            const path = onPipewire(96000, probe);
+            expect(path.verdict, check).toBe('rate-passthrough');
+            expect(path.system!.checks.find(item => item.id === check)?.ok, check).toBe(false);
+            expect(signalPathTone(path), check).toBe('muted');
+        }
+        // The other verdicts keep their tone.
+        expect(signalPathTone(bitPerfect96())).toBe('accent');
+        expect(signalPathTone(dop64())).toBe('accent');
+        expect(signalPathTone(onPipewire(96000, fixtureProbe()))).toBe('muted');
+    });
+
+    it('names the PipeWire step', () => {
+        expect(stageLabel('system', t)).toBe('PipeWire');
     });
 
     it('names the stage states', () => {
@@ -344,5 +413,183 @@ describe('the advice for a shared output', () => {
 
     it('leaves the other verdicts as they are', () => {
         expect(verdictDescription(bitPerfect96(), t, 'linux')).toBe('Every sample reaches your DAC exactly as it is in the file.');
+    });
+});
+
+/** mpv on PipeWire with a probe: 24-bit FLAC decoded as s32 and handed over unchanged. */
+const onPipewire = (rate: number, probe: HifiOutputProbe) => buildSignalPath(
+    pcmSpec(24, rate),
+    engine({ currentAo: 'pipewire', audioDevice: 'auto', exclusive: false, audioParams: params('s32', rate), audioOutParams: params('s32', rate) }),
+    { ...settings, exclusive: false },
+    probe,
+);
+
+const linesOf = (path: ReturnType<typeof bitPerfect96>) => path.system!.checks.map(check => describeSystemCheck(check, path, t, 'en'));
+
+describe('the PipeWire step', () => {
+    it('says each check of the dumped machine in plain words', () => {
+        const path = onPipewire(96000, fixtureProbe());
+        expect(linesOf(path)).toEqual([
+            'The device runs at 48 kHz, but mpv sends 96 kHz: PipeWire resamples',
+            'Filters change the sound on the way: Equalizer Sink, remap-FL-FR-to-FR-FL',
+            "Folia's stream is at 100% in PipeWire",
+            'PipeWire applies part of the device volume in software (93%), which scales every sample',
+            'Nothing else is playing on this device',
+            'The device takes the channels mpv sends',
+        ]);
+        expect(formatStageFormat(stageOf(path, 'system'), t, 'en')).toBe('48 kHz · 32 bit · Stereo');
+        expect(describeStage(stageOf(path, 'system'), path, 'local', t, 'linux')).toBe('As PipeWire reports it (pw-dump)');
+        expect(describeConversion('resample', path, t, 'en', 'system')).toBe('Resampled from 96 kHz to 48 kHz');
+        expect(describeConversion('filter', path, t, 'en', 'system')).toBe('Changed by filters in PipeWire: Equalizer Sink, remap-FL-FR-to-FR-FL');
+    });
+
+    it('says what passes when PipeWire follows the song, and names a remix and Folia\'s own stream', () => {
+        const clean = onPipewire(96000, cleanProbe(96000));
+        expect(linesOf(clean)).toEqual([
+            'The device runs at 96 kHz, the rate mpv sends',
+            'No filters (equalizer, remap) between mpv and the device',
+            "Folia's stream is at 100% in PipeWire",
+            'No software volume on the device',
+            'Nothing else is playing on this device',
+            'The device takes the channels mpv sends',
+        ]);
+
+        const busy = onPipewire(48000, cleanProbe(48000, {
+            deviceChannels: 6,
+            otherStreams: [{ nodeId: 131, name: 'Chromium', own: true }, { nodeId: 140, name: 'Firefox', own: false }],
+        }));
+        expect(linesOf(busy)).toContain('Also playing on this device: Chromium (from Folia itself), Firefox');
+        expect(linesOf(busy)).toContain('mpv sends Stereo, the device takes 6 channels: PipeWire remixes the channels');
+        expect(describeConversion('channels', busy, t, 'en', 'system')).toBe('Channels changed from Stereo to 6 channels');
+    });
+
+    it('says the volume PipeWire applies in its own words on its step, apart from mpv\'s software volume', () => {
+        const path = onPipewire(96000, fixtureProbe());
+        expect(describeConversion('volume', path, t, 'en', 'system')).toBe("PipeWire's software volume scales every sample (93%)");
+        const both = onPipewire(96000, cleanProbe(96000, {
+            streamVolume: { volume: 1, mute: false, channelVolumes: [0.87, 0.87], softVolumes: [0.87, 0.87], softMute: false },
+            deviceVolume: { volume: 1, mute: false, channelVolumes: [1, 1], softVolumes: [0.5, 0.5], softMute: false },
+        }));
+        expect(stageOf(both, 'system').conversions).toEqual(['volume']);
+        expect(describeConversion('volume', both, t, 'en', 'system')).toBe("PipeWire's software volume scales every sample (87%, 50%)");
+        // No volume checks failed (asked anyway): the plain line.
+        expect(describeConversion('volume', onPipewire(96000, cleanProbe(96000)), t, 'en', 'system')).toBe("PipeWire's software volume scales every sample");
+    });
+
+    it('says a stream into a virtual device ends there, without a rate for the card behind it', () => {
+        const path = onPipewire(96000, easyEffectsProbe(96000));
+        expect(linesOf(path)).toEqual([
+            "The sound goes into the virtual device Easy Effects Sink. PipeWire's report ends here",
+            'Filters change the sound on the way: Easy Effects Sink',
+            "Folia's stream is at 100% in PipeWire",
+        ]);
+        expect(formatStageFormat(stageOf(path, 'system'), t, 'en')).toBeNull();
+        expect(verdictDescription(path, t, 'linux')).toBe('The sound goes into a virtual device. The card behind it is unknown.');
+        // Nothing to infer about a card PipeWire does not show.
+        expect(systemRateHints(path, t, 'en')).toEqual([]);
+    });
+
+    it('does not make up a rate PipeWire did not report', () => {
+        const path = onPipewire(96000, cleanProbe(96000, { deviceRate: null }));
+        expect(linesOf(path)[0]).toBe("PipeWire does not report the device's sample rate");
+        // Nor a resample, a reason or a fix built on that missing rate.
+        expect(stageOf(path, 'system').conversions).not.toContain('resample');
+        expect(verdictDescription(path, t, 'linux')).toBe('PipeWire does not report the device rate. Whether it resamples is unknown.');
+        expect(systemRateHints(path, t, 'en')).toEqual([]);
+    });
+
+    it('writes a float device format as float', () => {
+        const path = onPipewire(96000, cleanProbe(96000, { deviceFormat: 'F32LE' }));
+        expect(formatStageFormat(stageOf(path, 'system'), t, 'en')).toBe('96 kHz · 32 bit float · Stereo');
+    });
+
+    it('keeps the output step shared, now that PipeWire\'s step tells what the mixer did', () => {
+        const path = onPipewire(96000, cleanProbe(96000));
+        expect(stageOf(path, 'output').conversions).toEqual([]);
+        expect(describeStage(stageOf(path, 'output'), path, 'local', t, 'linux')).toBe('Shared mode');
+    });
+});
+
+describe('the verdict with PipeWire', () => {
+    it('never calls rate passthrough bit-perfect, and points a resampled song at the PipeWire step', () => {
+        const passing = onPipewire(96000, cleanProbe(96000));
+        expect(passing.verdict).toBe('rate-passthrough');
+        expect(verdictDescription(passing, t, 'linux')).toBe('PipeWire reports the rate mpv sends. Not a bit-perfect check.');
+        expect(formatHifiBadge(passing, t, 'en').text).toBe('HiFi · Rate passthrough · 96 kHz / 24 bit');
+
+        const resampled = onPipewire(96000, fixtureProbe());
+        expect(resampled.verdict).toBe('shared-mixer');
+        expect(verdictDescription(resampled, t, 'linux')).toBe('PipeWire resamples this song. The PipeWire step says why.');
+    });
+});
+
+describe('why PipeWire did not switch the rate', () => {
+    it('asks for allowed-rates when it lacks mpv\'s rate, with the #835 line to paste', () => {
+        const hints = systemRateHints(onPipewire(96000, fixtureProbe()), t, 'en');
+        expect(hints).toEqual([{
+            id: 'notAllowed',
+            text: 'PipeWire is not allowed to switch to 96 kHz: add it to default.clock.allowed-rates.',
+            snippet: 'context.properties = { default.clock.allowed-rates = [ 44100 48000 88200 96000 176400 192000 ] }',
+            command: null,
+        }]);
+    });
+
+    it('names the streams that keep the device busy, and says when one is Folia\'s own', () => {
+        const busy = (otherStreams: HifiOutputProbe['otherStreams']) => systemRateHints(
+            onPipewire(96000, cleanProbe(96000, { deviceRate: 48000, otherStreams })),
+            t,
+            'en',
+        );
+        expect(busy([{ nodeId: 140, name: 'Firefox', own: false }])).toEqual([{
+            id: 'busy',
+            text: 'PipeWire only switches rates while the device is idle; other streams are playing on it: Firefox.',
+            snippet: null,
+            command: null,
+        }]);
+        // Chromium reports the app's name for the keep-alive: it already says Folia.
+        expect(busy([{ nodeId: 131, name: 'Folia', own: true }])[0].text).toBe(
+            'PipeWire only switches rates while the device is idle; other streams are playing on it: Folia. A stream from Folia itself is among them.',
+        );
+        expect(busy([{ nodeId: 131, name: 'Chromium', own: true }])[0].text).toBe(
+            'PipeWire only switches rates while the device is idle; other streams are playing on it: Chromium (from Folia itself). A stream from Folia itself is among them.',
+        );
+    });
+
+    it('says it did not switch when nothing explains it, with the config line only when allowed-rates could not be read', () => {
+        const idle = systemRateHints(onPipewire(96000, cleanProbe(96000, { deviceRate: 48000 })), t, 'en');
+        expect(idle).toEqual([{ id: 'noSwitch', text: 'PipeWire did not switch the device to 96 kHz.', snippet: null, command: null }]);
+
+        const unread = systemRateHints(onPipewire(96000, cleanProbe(96000, { deviceRate: 48000, allowedRates: [] })), t, 'en');
+        expect(unread[0]).toMatchObject({ id: 'noSwitch', snippet: pipewireAllowedRatesSnippet(96000) });
+    });
+
+    it('names a forced clock rate first, with the command that undoes it', () => {
+        const forcedAt = (forceRate: number, probe: HifiOutputProbe) => ({ ...probe, graph: { ...probe.graph, forceRate } });
+        // allowed-rates lacks 96 kHz too, but nothing switches while the rate is forced.
+        const hints = systemRateHints(onPipewire(96000, forcedAt(48000, fixtureProbe())), t, 'en');
+        expect(hints).toEqual([{
+            id: 'forced',
+            text: "PipeWire's clock.force-rate holds the sample rate at 48 kHz, so the device does not switch to 96 kHz.",
+            snippet: null,
+            command: 'pw-metadata -n settings 0 clock.force-rate 0',
+        }]);
+        expect(PIPEWIRE_UNFORCE_RATE_COMMAND).toBe('pw-metadata -n settings 0 clock.force-rate 0');
+        // Behind a virtual device too: the forced rate is the graph's.
+        expect(systemRateHints(onPipewire(96000, forcedAt(48000, easyEffectsProbe(96000))), t, 'en')[0]?.id).toBe('forced');
+        // Forced to mpv's own rate, or not forced (0): the other reasons as before.
+        expect(systemRateHints(onPipewire(96000, forcedAt(96000, fixtureProbe())), t, 'en')[0]?.id).toBe('notAllowed');
+        expect(systemRateHints(onPipewire(96000, forcedAt(0, fixtureProbe())), t, 'en')[0]?.id).toBe('notAllowed');
+    });
+
+    it('has nothing to explain once the rate matches, or without a probe', () => {
+        expect(systemRateHints(onPipewire(48000, fixtureProbe({ streamRate: 48000 })), t, 'en')).toEqual([]);
+        expect(systemRateHints(sharedPipewire(), t, 'en')).toEqual([]);
+    });
+
+    it('adds a rate the usual list lacks to the config line', () => {
+        expect(pipewireAllowedRatesSnippet()).toBe('context.properties = { default.clock.allowed-rates = [ 44100 48000 88200 96000 176400 192000 ] }');
+        expect(pipewireAllowedRatesSnippet(352800)).toBe('context.properties = { default.clock.allowed-rates = [ 44100 48000 88200 96000 176400 192000 352800 ] }');
+        expect(pipewireAllowedRatesSnippet(32000)).toBe('context.properties = { default.clock.allowed-rates = [ 32000 44100 48000 88200 96000 176400 192000 ] }');
+        expect(pipewireAllowedRatesSnippet(96000)).toBe(pipewireAllowedRatesSnippet());
     });
 });

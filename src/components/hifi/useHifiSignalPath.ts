@@ -8,7 +8,8 @@ import { useHifiSettingsStore } from '../../stores/useHifiSettingsStore';
 import { usePlaybackStore } from '../../stores/usePlaybackStore';
 
 // src/components/hifi/useHifiSignalPath.ts
-// 播放界面读 HiFi 信号链路的 hook：现在是不是 HiFi 路线，当前曲目载入了没有，以及它从源文件到声卡的每一级。
+// 播放界面读 HiFi 信号链路的 hook：现在是不是 HiFi 路线，当前曲目载入了没有，以及它从源文件到声卡的每一级
+// （Linux 上经 PipeWire 时还有 PipeWire 报的那一级）。
 
 /** 当前这首歌由 mpv 发声。 */
 export const useIsHifiRoute = () => usePlaybackStore(state => state.playbackRoute === 'hifi');
@@ -22,8 +23,9 @@ export const readHifiPlatform = (): string | null => (
 );
 
 /**
- * 当前曲目的信号链路：源格式 + 主进程的引擎状态 + HiFi 设置。不在 HiFi 路线上时为 null。
+ * 当前曲目的信号链路：源格式 + 主进程的引擎状态 + HiFi 设置，Linux 上再加 PipeWire 的探测。不在 HiFi 路线上时为 null。
  * 引擎状态还是上一首的（新曲目在载入）或者这首还没载入时不拿它比，结论先是 unknown，免得把别的曲目的输出格式安到这一首上。
+ * 探测也一样只用替这一首探的（无缝换曲之后、新的探测回来之前，结论先按没有探测算）。
  */
 export const useHifiSignalPath = (): HifiSignalPath | null => {
     const isHifiRoute = useIsHifiRoute();
@@ -31,6 +33,7 @@ export const useHifiSignalPath = (): HifiSignalPath | null => {
     const sourceSpec = useHifiTrackStore(state => state.sourceSpec);
     const deferred = useHifiTrackDeferred();
     const engine = useHifiEngineStore(state => state.engine);
+    const outputProbe = useHifiEngineStore(state => state.outputProbe);
     const exclusive = useHifiSettingsStore(state => state.exclusive);
     const dsdMode = useHifiSettingsStore(state => state.dsdMode);
     const softwareVolume = useHifiSettingsStore(state => state.softwareVolume);
@@ -40,6 +43,9 @@ export const useHifiSignalPath = (): HifiSignalPath | null => {
     return useMemo(() => {
         if (!isHifiRoute) return null;
         const engineForTrack = !deferred && engine && trackKey !== null && engine.trackKey === trackKey ? engine : null;
-        return buildSignalPath(sourceSpec, engineForTrack, { exclusive, dsdMode, softwareVolume, volume });
-    }, [isHifiRoute, trackKey, sourceSpec, deferred, engine, exclusive, dsdMode, softwareVolume, volume]);
+        const probe = engineForTrack && outputProbe?.trackKey === trackKey && readHifiPlatform() === 'linux'
+            ? outputProbe.probe
+            : null;
+        return buildSignalPath(sourceSpec, engineForTrack, { exclusive, dsdMode, softwareVolume, volume }, probe);
+    }, [isHifiRoute, trackKey, sourceSpec, deferred, engine, outputProbe, exclusive, dsdMode, softwareVolume, volume]);
 };

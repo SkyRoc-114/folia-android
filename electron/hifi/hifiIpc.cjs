@@ -31,6 +31,7 @@ const INVOKE_CHANNELS = Object.freeze([
     'hifi:preload-next',
     'hifi:clear-next',
     'hifi:get-snapshot',
+    'hifi:probe-output',
 ]);
 const READ_RESULT_CHANNEL = 'hifi:read-result';
 const PUSH_CHANNELS = Object.freeze({
@@ -161,6 +162,7 @@ const registerHifiIpc = ({
     session,
     runtime,
     installer,
+    outputProbe = null,
     dialog,
     getMainWindow,
     webContentsFromId,
@@ -428,6 +430,16 @@ const registerHifiIpc = ({
         await session.clearNext();
     });
     handle('hifi:get-snapshot', () => session.getSnapshot(), () => null);
+    // Linux 上 PipeWire 报的 mpv 那路流的去向（pipewireProbe.cjs）；别的平台、没有探测器或读不出来时为 null。
+    handle('hifi:probe-output', async () => {
+        if (platform !== 'linux' || !outputProbe) return null;
+        try {
+            return await outputProbe.probe();
+        } catch (error) {
+            logWarn('[HiFi] could not probe the PipeWire output', error);
+            return null;
+        }
+    }, () => null);
 
     // 读回应不看主窗口，只认这次读请求发去的那个页面：窗口重建时旧窗口还在回它手里那个 File 的字节。
     ipcMain.handle(READ_RESULT_CHANNEL, (event, readId, response) => {

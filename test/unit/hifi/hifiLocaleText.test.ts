@@ -8,7 +8,9 @@ import id from '../../../src/i18n/locales/in';
 // without DoP really plays (a quiet hiss, not full-scale noise), the busy-device error holds on every
 // platform, Linux is not told about an exclusive switch it does not have, the media-controls limit
 // names what takes them away on each system, and the per-platform advice and the labels the player
-// surfaces and the settings page ask for exist in all three languages.
+// surfaces and the settings page ask for exist in all three languages. The PipeWire texts say only what
+// PipeWire reports, never bit-perfect, say Folia cannot confirm what the DAC receives, and send the reader
+// to the DAC's own indicator or their ears.
 
 const LOCALES = { en, 'zh-CN': zhCN, in: id } as const;
 
@@ -31,6 +33,24 @@ const KEYS = [
     'hifi.settings.limitMediaControls',
     'hifi.settings.limitMediaControlsDesc',
     'hifi.settings.limitMediaControlsLinuxDesc',
+    'hifi.settings.limitPipewireRateFoot',
+    'hifi.signal.verdictShort.ratePassthrough',
+    'hifi.signal.verdict.ratePassthrough',
+    'hifi.signal.verdictDesc.ratePassthrough',
+    'hifi.signal.verdictDesc.sharedMixerPipewire',
+    'hifi.signal.verdictDesc.sharedMixerVirtual',
+    'hifi.signal.stage.system',
+    'hifi.signal.conversion.filter',
+    'hifi.signal.conversion.filterPlain',
+    'hifi.signal.conversion.volumePipewire',
+    'hifi.signal.conversion.volumePipewirePlain',
+    'hifi.signal.systemReported',
+    ...[
+        'checksLabel', 'rateOk', 'rateWarn', 'rateUnknown', 'rateVirtual', 'filtersOk', 'filtersWarn', 'streamVolumeOk', 'streamVolumeWarn',
+        'deviceVolumeOk', 'deviceVolumeWarn', 'otherStreamsOk', 'otherStreamsWarn', 'ownStream', 'channelsOk', 'channelsWarn',
+        'channelsWarnPlain', 'hintForced', 'hintNotAllowed', 'hintBusy', 'hintBusyOwn', 'hintJoin', 'hintNoSwitch', 'snippetLabel',
+        'commandLabel', 'footnote',
+    ].map(key => `hifi.signal.system.${key}`),
 ] as const;
 
 /** One key in each locale. */
@@ -124,5 +144,91 @@ describe('HiFi locale texts', () => {
     it('no longer tells Linux to turn on exclusive mode for a shared output', () => {
         expect(String(read(en, 'hifi.signal.verdictDesc.sharedMixer'))).not.toMatch(/linux|hw:/i);
         expect(String(read(en, 'hifi.signal.verdictDesc.sharedMixerLinux'))).not.toMatch(/exclusive/i);
+    });
+});
+
+describe('HiFi PipeWire texts', () => {
+    it('names rate passthrough after PipeWire and never as bit-perfect', () => {
+        const title = textsOf('hifi.signal.verdict.ratePassthrough');
+        expect(title.en).toBe('Sample rate passthrough (via PipeWire)');
+        expect(title['zh-CN']).toBe('采样率直通（经 PipeWire）');
+        expect(title.in).toMatch(/PipeWire/);
+        for (const key of ['hifi.signal.verdict.ratePassthrough', 'hifi.signal.verdictShort.ratePassthrough']) {
+            const texts = textsOf(key);
+            expect(texts.en).not.toMatch(/bit-perfect/i);
+            expect(texts['zh-CN']).not.toMatch(/原生直通/);
+            expect(texts.in).not.toMatch(/bit-perfect/i);
+        }
+        // The sentence under it reads as PipeWire's report and says outright that this is not a bit-perfect check.
+        const desc = textsOf('hifi.signal.verdictDesc.ratePassthrough');
+        expect(desc.en).toMatch(/^According to PipeWire, /);
+        expect(desc['zh-CN']).toMatch(/^按 PipeWire 的报告，/);
+        expect(desc.in).toMatch(/^Menurut PipeWire, /);
+        expect(desc.en).toMatch(/not a bit-perfect check/);
+        expect(desc['zh-CN']).toMatch(/不是对原生直通的确认/);
+        expect(desc.in).toMatch(/bukan pemeriksaan bit-perfect/);
+    });
+
+    it('says the PipeWire step is only what PipeWire reports, that Folia cannot confirm what the DAC receives, and points at the DAC or the ears', () => {
+        const footnote = textsOf('hifi.signal.system.footnote');
+        expect(footnote.en).toBe("This is what PipeWire reports. Folia can only read what PipeWire reports and cannot confirm what your DAC receives: check your DAC's sample-rate indicator, or listen.");
+        expect(footnote['zh-CN']).toBe('以上是 PipeWire 报告的状态。Folia 只读得到 PipeWire 报的内容，确认不了 DAC 实际收到的采样率：请看 DAC 的采样率指示，或者用耳朵听。');
+        expect(footnote.in).toMatch(/hanya bisa membaca laporan PipeWire/);
+        expect(footnote.in).toMatch(/tidak bisa memastikan apa yang diterima DAC/);
+        expect(footnote.in).toMatch(/indikator laju sampel DAC/);
+        expect(footnote.in).toMatch(/dengarkan/);
+        const foot = textsOf('hifi.settings.limitPipewireRateFoot');
+        for (const text of Object.values(foot)) {
+            expect(text).toMatch(/default\.clock\.allowed-rates/);
+            expect(text).toMatch(/DAC/);
+        }
+    });
+
+    it('names the setting and the folder the config line goes in, and why a busy device does not switch', () => {
+        const notAllowed = textsOf('hifi.signal.system.hintNotAllowed');
+        for (const text of Object.values(notAllowed)) {
+            expect(text).toContain('{{rate}}');
+            expect(text).toContain('default.clock.allowed-rates');
+            expect(text).toContain('~/.config/pipewire/pipewire.conf.d/');
+        }
+        expect(notAllowed.en).toMatch(/^PipeWire is not allowed to switch to \{\{rate\}\}: add it to default\.clock\.allowed-rates/);
+        const busy = textsOf('hifi.signal.system.hintBusy');
+        expect(busy.en).toMatch(/^PipeWire only switches rates while the device is idle; other streams are playing on it/);
+        for (const text of Object.values(busy)) expect(text).toContain('{{names}}');
+        for (const text of Object.values(textsOf('hifi.signal.system.hintBusyOwn'))) expect(text).toMatch(/MPRIS/);
+        // Two sentences in a row: a space between them, none in Chinese.
+        const join = textsOf('hifi.signal.system.hintJoin');
+        expect(join).toEqual({ en: '{{first}} {{second}}', 'zh-CN': '{{first}}{{second}}', in: '{{first}} {{second}}' });
+    });
+
+    it('names clock.force-rate and both rates in the forced hint, and the virtual device in its lines', () => {
+        for (const text of Object.values(textsOf('hifi.signal.system.hintForced'))) {
+            expect(text).toContain('clock.force-rate');
+            expect(text).toContain('{{forced}}');
+            expect(text).toContain('{{rate}}');
+        }
+        for (const text of Object.values(textsOf('hifi.signal.system.rateVirtual'))) {
+            expect(text).toContain('{{name}}');
+            expect(text).toMatch(/EasyEffects/);
+        }
+        for (const text of Object.values(textsOf('hifi.signal.verdictDesc.sharedMixerVirtual'))) {
+            expect(text).toMatch(/EasyEffects/);
+            expect(text).toMatch(/ALSA hw:/);
+        }
+        for (const text of Object.values(textsOf('hifi.signal.conversion.volumePipewire'))) expect(text).toContain('{{volume}}');
+        // A virtual device is not said to resample, nor to be confirmed.
+        const virtualTexts = [...Object.values(textsOf('hifi.signal.system.rateVirtual')), ...Object.values(textsOf('hifi.signal.verdictDesc.sharedMixerVirtual'))];
+        for (const text of virtualTexts) expect(text).not.toMatch(/resampl|重采样|confirm|确认|memastikan/i);
+    });
+
+    it('never words a PipeWire text as confirmed, verified or bit-perfect beyond saying it is not', () => {
+        const keys = KEYS.filter(key => key.startsWith('hifi.signal.system.') || key.includes('atePassthrough') || key.includes('Pipewire') || key.includes('Virtual'));
+        for (const key of keys) {
+            const texts = textsOf(key);
+            expect(texts.en, key).not.toMatch(/\bverified\b|\bconfirmed\b/i);
+            expect(texts['zh-CN'], key).not.toMatch(/已确认|已验证|逐位直通/);
+            expect(texts.en.replace(/not a bit-perfect check|For bit-perfect output/g, ''), key).not.toMatch(/bit-perfect/i);
+            expect(texts.in, key).not.toMatch(/\bterverifikasi\b|\bdikonfirmasi\b|\bsudah dipastikan\b/i);
+        }
     });
 });

@@ -4161,7 +4161,8 @@ export default {
       "limitVideoExportDesc": "Ekspor video lirik memerlukan mesin audio biasa, jadi tidak tersedia selama lagu diputar lewat HiFi.",
       "limitMediaControls": "Kontrol media sistem hanya pada output bersama",
       "limitMediaControlsDesc": "Selama lagu diputar lewat HiFi dalam mode eksklusif, kontrol media sistem (SMTC di Windows, Now Playing di macOS) tidak menampilkan atau mengendalikan Folia. Saat mode eksklusif mati, kontrol itu tetap berfungsi.",
-      "limitMediaControlsLinuxDesc": "Selama lagu diputar lewat HiFi di perangkat bertanda Langsung (ALSA hw:), kontrol media sistem (MPRIS) tidak menampilkan atau mengendalikan Folia. Di perangkat lain, kontrol itu tetap berfungsi."
+      "limitMediaControlsLinuxDesc": "Selama lagu diputar lewat HiFi di perangkat bertanda Langsung (ALSA hw:), kontrol media sistem (MPRIS) tidak menampilkan atau mengendalikan Folia. Di perangkat lain, kontrol itu tetap berfungsi.",
+      "limitPipewireRateFoot": "Dengan PipeWire, laju sampel perangkat mengikuti setiap lagu hanya jika default.clock.allowed-rates mencantumkan laju itu dan tidak ada suara lain yang diputar di perangkat. Jalur sinyal menampilkan yang dilaporkan PipeWire; periksa indikator laju sampel DAC Anda untuk memastikannya."
     },
     "player": {
       "badge": "HiFi · {{verdict}}",
@@ -4181,6 +4182,7 @@ export default {
       "verdictShort": {
         "bitPerfect": "Bit-perfect",
         "dop": "DSD asli",
+        "ratePassthrough": "Laju sampel diteruskan",
         "converted": "Dikonversi",
         "sharedMixer": "Mixer sistem",
         "unknown": "Belum dipastikan"
@@ -4188,6 +4190,7 @@ export default {
       "verdict": {
         "bitPerfect": "Bit-perfect",
         "dop": "DSD asli lewat DoP",
+        "ratePassthrough": "Laju sampel diteruskan (lewat PipeWire)",
         "converted": "Dikonversi di tengah jalan",
         "sharedMixer": "Lewat mixer sistem",
         "unknown": "Belum dipastikan"
@@ -4195,10 +4198,14 @@ export default {
       "verdictDesc": {
         "bitPerfect": "Setiap sampel sampai ke DAC persis seperti di dalam berkas.",
         "dop": "Aliran DSD dikemas ke dalam frame PCM (DoP) dan sampai ke DAC tanpa diubah.",
+        "ratePassthrough": "Menurut PipeWire, perangkat berjalan pada laju sampel yang dikirim mpv, jadi PipeWire tidak melakukan resampling pada lagu ini. Suara tetap lewat PipeWire, jadi ini bukan pemeriksaan bit-perfect.",
         "converted": "mpv mengubah sinyal sebelum sampai ke output. Tahap bertanda Dikonversi di bawah menjelaskan caranya.",
         "sharedMixer": "Perangkat output dipakai bersama aplikasi lain, jadi mixer sistem bisa melakukan resampling atau mengubah sinyal. Nyalakan mode eksklusif di pengaturan HiFi.",
         "sharedMixerExclusiveOn": "Mode eksklusif sudah menyala, tetapi perangkat output ini tidak mendukungnya, jadi suara tetap lewat mixer sistem dan bisa di-resampling. Pilih perangkat output lain di pengaturan HiFi.",
         "sharedMixerLinux": "Output ini lewat PipeWire, PulseAudio, atau perangkat plugin ALSA, yang mencampurnya dengan aplikasi lain dan bisa melakukan resampling. Untuk output bit-perfect, pilih perangkat bertanda Langsung (ALSA hw:) di pengaturan HiFi.",
+        "sharedMixerPipewire": "PipeWire menjalankan perangkat pada laju sampel lain dan melakukan resampling pada lagu ini. Tahap PipeWire di bawah menjelaskan sebabnya. Untuk output bit-perfect, pilih perangkat bertanda Langsung (ALSA hw:) di pengaturan HiFi.",
+        "sharedMixerVirtual": "Suara masuk ke perangkat virtual atau aplikasi efek di PipeWire (seperti EasyEffects). Laporan PipeWire berhenti di situ, jadi tidak terlihat kartu suara mana yang akhirnya dituju dan pada laju sampel berapa. Untuk output bit-perfect, pilih perangkat bertanda Langsung (ALSA hw:) di pengaturan HiFi.",
+        "sharedMixerUnknownRate": "PipeWire tidak melaporkan laju sampel perangkat, jadi Folia tidak bisa tahu apakah PipeWire me-resample lagu ini. Periksa indikator laju sampel DAC Anda.",
         "unknown": "mpv belum melaporkan format output.",
         "notLoaded": "Lagu ini belum dimuat ke mpv. Jalur sinyal diperiksa setelah lagu mulai diputar."
       },
@@ -4207,7 +4214,8 @@ export default {
         "transport": "Pengiriman",
         "decode": "Dekode",
         "process": "Pemrosesan",
-        "output": "Output"
+        "output": "Output",
+        "system": "PipeWire"
       },
       "status": {
         "passthrough": "Diteruskan",
@@ -4234,14 +4242,47 @@ export default {
         "dop": "DSD dikemas ke frame PCM (DoP), tanpa diubah",
         "volume": "Volume perangkat lunak menskalakan setiap sampel ({{volume}})",
         "volumePlain": "Volume perangkat lunak menskalakan setiap sampel",
-        "sharedMixer": "Dicampur oleh mixer sistem, yang bisa melakukan resampling"
+        "volumePipewire": "Volume perangkat lunak PipeWire menskalakan setiap sampel ({{volume}})",
+        "volumePipewirePlain": "Volume perangkat lunak PipeWire menskalakan setiap sampel",
+        "sharedMixer": "Dicampur oleh mixer sistem, yang bisa melakukan resampling",
+        "filter": "Diubah oleh filter di PipeWire: {{names}}",
+        "filterPlain": "Diubah oleh filter di PipeWire"
       },
       "transportLocal": "Dibaca byte demi byte dari pustaka lewat jembatan lokal Folia",
       "transportNavidrome": "Berkas asli dari Navidrome, tanpa transkode",
       "processBypassed": "Tanpa equalizer, efek, ReplayGain, atau perubahan volume",
       "outputExclusive": "Mode eksklusif",
       "outputShared": "Mode bersama",
-      "outputDirect": "Langsung ke perangkat, tanpa server suara"
+      "outputDirect": "Langsung ke perangkat, tanpa server suara",
+      "systemReported": "Sesuai laporan PipeWire (pw-dump)",
+      "system": {
+        "checksLabel": "Yang dilaporkan PipeWire",
+        "rateOk": "Perangkat berjalan pada {{rate}}, laju yang dikirim mpv",
+        "rateWarn": "Perangkat berjalan pada {{to}}, tetapi mpv mengirim {{from}}: PipeWire melakukan resampling",
+        "rateUnknown": "PipeWire tidak melaporkan laju sampel perangkat",
+        "rateVirtual": "Suara masuk ke perangkat virtual {{name}} (aplikasi efek seperti EasyEffects, atau filter yang tidak tersambung ke kartu suara). Laporan PipeWire berhenti di sini: kartu suara tujuan akhirnya dan laju sampelnya tidak diketahui",
+        "filtersOk": "Tidak ada filter (equalizer, remap) antara mpv dan perangkat",
+        "filtersWarn": "Filter mengubah suara di tengah jalan: {{names}}",
+        "streamVolumeOk": "Aliran Folia berada di 100% di PipeWire",
+        "streamVolumeWarn": "Aliran Folia berada di {{volume}} di PipeWire, yang menskalakan setiap sampel",
+        "deviceVolumeOk": "Tidak ada volume perangkat lunak pada perangkat",
+        "deviceVolumeWarn": "PipeWire menerapkan sebagian volume perangkat secara perangkat lunak ({{volume}}), yang menskalakan setiap sampel",
+        "otherStreamsOk": "Tidak ada suara lain yang diputar di perangkat ini",
+        "otherStreamsWarn": "Juga diputar di perangkat ini: {{names}}",
+        "ownStream": "{{name}} (dari Folia sendiri)",
+        "channelsOk": "Perangkat menerima kanal yang dikirim mpv",
+        "channelsWarn": "mpv mengirim {{from}}, perangkat menerima {{to}}: PipeWire mencampur ulang kanal",
+        "channelsWarnPlain": "Kanal perangkat berbeda dari yang dikirim mpv: PipeWire mencampurnya ulang",
+        "hintForced": "clock.force-rate di PipeWire menahan laju sampel di {{forced}}, jadi perangkat tidak beralih ke {{rate}}. Untuk membatalkannya, jalankan perintah ini di terminal:",
+        "hintNotAllowed": "PipeWire tidak diizinkan beralih ke {{rate}}: tambahkan ke default.clock.allowed-rates. Simpan baris di bawah sebagai berkas .conf di ~/.config/pipewire/pipewire.conf.d/, lalu mulai ulang PipeWire.",
+        "hintBusy": "PipeWire hanya mengganti laju sampel saat perangkat menganggur; aliran lain sedang diputar di perangkat itu: {{names}}.",
+        "hintBusyOwn": "Salah satunya berasal dari Folia sendiri, kemungkinan besar putaran senyap yang menjaga kontrol media sistem (MPRIS) tetap berfungsi.",
+        "hintJoin": "{{first}} {{second}}",
+        "hintNoSwitch": "PipeWire tidak mengalihkan perangkat ke {{rate}}. PipeWire hanya beralih ke laju yang tercantum di default.clock.allowed-rates dan didukung perangkat, dan hanya saat tidak ada suara lain di perangkat.",
+        "snippetLabel": "Konfigurasi PipeWire",
+        "commandLabel": "Perintah terminal",
+        "footnote": "Ini yang dilaporkan PipeWire. Folia hanya bisa membaca laporan PipeWire dan tidak bisa memastikan apa yang diterima DAC Anda: periksa indikator laju sampel DAC, atau dengarkan."
+      }
     },
     "errors": {
       "MPV_NOT_FOUND": "mpv tidak ditemukan. Pasang mpv atau pilih di pengaturan HiFi.",

@@ -13,7 +13,8 @@ type MpvArgsOptions = {
 };
 
 const require = createRequire(import.meta.url);
-const { buildMpvArgs, sanitizeAudioDevice, effectiveExclusive, buildPipeName, buildLoadfileCommand } = require('../../../electron/hifi/mpvArgs.cjs') as {
+const { AUDIO_CLIENT_NAME, buildMpvArgs, sanitizeAudioDevice, effectiveExclusive, buildPipeName, buildLoadfileCommand } = require('../../../electron/hifi/mpvArgs.cjs') as {
+    AUDIO_CLIENT_NAME: string;
     buildMpvArgs: (options: MpvArgsOptions) => string[];
     sanitizeAudioDevice: (value: unknown) => string;
     effectiveExclusive: (platform: string, exclusive: unknown) => boolean;
@@ -46,6 +47,7 @@ const BASE_ARGS = [
     '--volume=100',
     '--volume-max=100',
     '--audio-fallback-to-null=no',
+    '--audio-client-name=Folia HiFi',
 ];
 
 describe('buildMpvArgs', () => {
@@ -85,6 +87,15 @@ describe('buildMpvArgs', () => {
         const args = buildMpvArgs({ platform: 'linux', ipc: { kind: 'fd' }, exclusive: true, dsdMode: 'pcm' });
         expect(args).toContain('--audio-exclusive=no');
         expect(args).not.toContain('--audio-exclusive=yes');
+    });
+
+    it('names mpv\'s client "Folia HiFi" on every platform, as one argument (the probe finds the PipeWire stream by it)', () => {
+        expect(AUDIO_CLIENT_NAME).toBe('Folia HiFi');
+        for (const platform of ['linux', 'darwin', 'win32']) {
+            const ipc = platform === 'win32' ? { kind: 'pipe', path: buildPipeName('ab') } : { kind: 'fd' };
+            const args = buildMpvArgs({ platform, ipc, exclusive: false, dsdMode: 'pcm' });
+            expect(args.filter(arg => arg.startsWith('--audio-client-name')), platform).toEqual(['--audio-client-name=Folia HiFi']);
+        }
     });
 
     it('appends the test ao override last', () => {

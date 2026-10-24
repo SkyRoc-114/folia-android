@@ -4161,7 +4161,8 @@ export default {
       "limitVideoExportDesc": "歌词视频导出依赖原来的音频引擎，歌曲走 HiFi 时无法导出。",
       "limitMediaControls": "系统媒体控制只在共享输出时有",
       "limitMediaControlsDesc": "歌曲在独占模式下走 HiFi 播放时，系统媒体控制（Windows 的 SMTC、macOS 的「正在播放」）不显示也控制不了 Folia。独占模式关着时照常可用。",
-      "limitMediaControlsLinuxDesc": "歌曲经标着「直连」的设备（ALSA hw:）走 HiFi 播放时，系统媒体控制（MPRIS）不显示也控制不了 Folia。用其他设备时照常可用。"
+      "limitMediaControlsLinuxDesc": "歌曲经标着「直连」的设备（ALSA hw:）走 HiFi 播放时，系统媒体控制（MPRIS）不显示也控制不了 Folia。用其他设备时照常可用。",
+      "limitPipewireRateFoot": "经 PipeWire 输出时，只有采样率列在 default.clock.allowed-rates 里、设备上也没有别的声音在放，设备的采样率才会跟着每首歌切换。信号链路面板显示的是 PipeWire 报告的状态，DAC 实际收到的采样率请以 DAC 的指示为准。"
     },
     "player": {
       "badge": "HiFi · {{verdict}}",
@@ -4181,6 +4182,7 @@ export default {
       "verdictShort": {
         "bitPerfect": "原生直通",
         "dop": "原生 DSD",
+        "ratePassthrough": "采样率直通",
         "converted": "已转换",
         "sharedMixer": "系统混音",
         "unknown": "未确认"
@@ -4188,6 +4190,7 @@ export default {
       "verdict": {
         "bitPerfect": "原生直通",
         "dop": "经 DoP 原生输出 DSD",
+        "ratePassthrough": "采样率直通（经 PipeWire）",
         "converted": "途中经过转换",
         "sharedMixer": "经过系统混音器",
         "unknown": "尚未确认"
@@ -4195,10 +4198,14 @@ export default {
       "verdictDesc": {
         "bitPerfect": "每个采样都和文件里一模一样地送到 DAC。",
         "dop": "DSD 码流打包进 PCM 帧（DoP），原样送到 DAC。",
+        "ratePassthrough": "按 PipeWire 的报告，设备正以 mpv 送出的采样率运行，这首歌没有被 PipeWire 重采样。声音仍经过 PipeWire，这不是对原生直通的确认。",
         "converted": "信号送到输出设备之前被 mpv 改动过，下面标着「已转换」的环节写明了改动。",
         "sharedMixer": "输出设备与其他程序共用，系统混音器可能会重采样或改动信号。可在 HiFi 设置里开启独占模式。",
         "sharedMixerExclusiveOn": "独占模式已经开着，但这个输出设备不支持独占，声音仍经过系统混音器，可能被重采样。请在 HiFi 设置里换一个输出设备。",
         "sharedMixerLinux": "这个输出经过 PipeWire、PulseAudio 或 ALSA 插件设备，会和其他程序混音，也可能被重采样。要原生直通，请在 HiFi 设置里选一个标着「直连」的设备（ALSA hw:）。",
+        "sharedMixerPipewire": "PipeWire 让设备以另一个采样率运行，把这首歌重采样了，原因写在下面 PipeWire 那一级。要原生直通，请在 HiFi 设置里选一个标着「直连」的设备（ALSA hw:）。",
+        "sharedMixerVirtual": "声音进了 PipeWire 里的虚拟设备或音效程序（如 EasyEffects），PipeWire 的报告到那里为止，看不出它最后接到哪块声卡、以什么采样率运行。要原生直通，请在 HiFi 设置里选一个标着「直连」的设备（ALSA hw:）。",
+        "sharedMixerUnknownRate": "PipeWire 没报设备以什么采样率运行，Folia 看不出它有没有重采样这首歌。请看 DAC 的采样率指示。",
         "unknown": "mpv 还没有报告输出格式。",
         "notLoaded": "这首歌还没交给 mpv 载入，开始播放后才会确认信号链路。"
       },
@@ -4207,7 +4214,8 @@ export default {
         "transport": "传输",
         "decode": "解码",
         "process": "处理",
-        "output": "输出"
+        "output": "输出",
+        "system": "PipeWire"
       },
       "status": {
         "passthrough": "直通",
@@ -4234,14 +4242,47 @@ export default {
         "dop": "DSD 打包为 DoP 帧，内容不变",
         "volume": "软件音量缩放了每个采样（{{volume}}）",
         "volumePlain": "软件音量缩放了每个采样",
-        "sharedMixer": "经过系统混音器，可能被重采样"
+        "volumePipewire": "PipeWire 的软件音量缩放了每个采样（{{volume}}）",
+        "volumePipewirePlain": "PipeWire 的软件音量缩放了每个采样",
+        "sharedMixer": "经过系统混音器，可能被重采样",
+        "filter": "经 PipeWire 里的滤波器改动：{{names}}",
+        "filterPlain": "经 PipeWire 里的滤波器改动"
       },
       "transportLocal": "经 Folia 的本机桥接逐字节读取曲库文件",
       "transportNavidrome": "Navidrome 上的原始文件，不转码",
       "processBypassed": "不经均衡器、音效和 ReplayGain，也不调音量",
       "outputExclusive": "独占模式",
       "outputShared": "共享模式",
-      "outputDirect": "直连设备，不经过声音服务"
+      "outputDirect": "直连设备，不经过声音服务",
+      "systemReported": "PipeWire 报告的状态（pw-dump）",
+      "system": {
+        "checksLabel": "PipeWire 报告的状态",
+        "rateOk": "设备以 {{rate}} 运行，和 mpv 送出的一致",
+        "rateWarn": "设备以 {{to}} 运行，mpv 送出的是 {{from}}：PipeWire 做了重采样",
+        "rateUnknown": "PipeWire 没有报告设备的采样率",
+        "rateVirtual": "声音进了虚拟设备「{{name}}」（如 EasyEffects 这类音效程序，或没接上声卡的滤波器），PipeWire 的报告到这里为止：不知道最后接到哪块声卡、以什么采样率运行",
+        "filtersOk": "mpv 和设备之间没有滤波器（均衡器、remap）",
+        "filtersWarn": "途中有滤波器改动声音：{{names}}",
+        "streamVolumeOk": "Folia 这路流在 PipeWire 里是 100% 音量",
+        "streamVolumeWarn": "Folia 这路流在 PipeWire 里是 {{volume}} 音量，每个采样都被缩放",
+        "deviceVolumeOk": "设备上没有软件音量",
+        "deviceVolumeWarn": "PipeWire 在软件里施加了一部分设备音量（{{volume}}），每个采样都被缩放",
+        "otherStreamsOk": "这个设备上没有别的声音在放",
+        "otherStreamsWarn": "这个设备上还在放：{{names}}",
+        "ownStream": "{{name}}（Folia 自己的）",
+        "channelsOk": "设备的声道和 mpv 送出的一致",
+        "channelsWarn": "mpv 送出 {{from}}，设备是 {{to}}：PipeWire 重新混了声道",
+        "channelsWarnPlain": "设备的声道和 mpv 送出的不同：PipeWire 重新混了声道",
+        "hintForced": "PipeWire 的 clock.force-rate 把采样率固定在 {{forced}}，设备不会切到 {{rate}}。要取消固定，在终端运行下面这条命令：",
+        "hintNotAllowed": "PipeWire 不允许切到 {{rate}}：要把它加进 default.clock.allowed-rates。把下面这行存成 ~/.config/pipewire/pipewire.conf.d/ 里的一个 .conf 文件，再重启 PipeWire。",
+        "hintBusy": "PipeWire 只在设备空闲时切换采样率，现在设备上还有别的流在放：{{names}}。",
+        "hintBusyOwn": "其中有来自 Folia 自己的流，多半是让系统媒体控制（MPRIS）一直可用的那段静音。",
+        "hintJoin": "{{first}}{{second}}",
+        "hintNoSwitch": "PipeWire 没有把设备切到 {{rate}}。它只切到 default.clock.allowed-rates 里列出、设备也支持的采样率，而且只在设备上没有别的声音时切。",
+        "snippetLabel": "PipeWire 配置",
+        "commandLabel": "终端命令",
+        "footnote": "以上是 PipeWire 报告的状态。Folia 只读得到 PipeWire 报的内容，确认不了 DAC 实际收到的采样率：请看 DAC 的采样率指示，或者用耳朵听。"
+      }
     },
     "errors": {
       "MPV_NOT_FOUND": "未找到 mpv。请安装 mpv，或在 HiFi 设置里指定它。",

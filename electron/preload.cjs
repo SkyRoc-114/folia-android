@@ -403,6 +403,7 @@ contextBridge.exposeInMainWorld('electron', {
         preloadNext: (request) => ipcRenderer.invoke('hifi:preload-next', request),
         clearNext: () => ipcRenderer.invoke('hifi:clear-next'),
         getSnapshot: () => ipcRenderer.invoke('hifi:get-snapshot'),
+        probeOutput: () => ipcRenderer.invoke('hifi:probe-output'),
         respondRead: (readId, response) => ipcRenderer.invoke('hifi:read-result', readId, response),
         onState: (callback) => {
             const listener = (_event, state) => callback(state);

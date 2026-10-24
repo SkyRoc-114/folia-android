@@ -14,6 +14,11 @@ const MEDIA_CONTROLS_HINT_KEY = HIFI_PLATFORM === 'linux'
     ? 'hifi.settings.limitMediaControlsLinuxDesc'
     : 'hifi.settings.limitMediaControlsDesc';
 
+// On Linux the sample rate PipeWire runs the device at decides whether a song is resampled. It
+// follows each song only when allowed-rates lists the rate and nothing else plays on the device;
+// the signal path shows what PipeWire reports, and only the DAC itself can confirm it.
+const PIPEWIRE_RATE_FOOT_KEY = HIFI_PLATFORM === 'linux' ? 'hifi.settings.limitPipewireRateFoot' : null;
+
 const LIMIT_ROWS = [
     { option: O.noAsio, hintKey: 'hifi.settings.limitNoAsioDesc' },
     { option: O.dopWindowsOnly, hintKey: 'hifi.settings.limitDopDesc' },
@@ -26,7 +31,7 @@ export const HifiLimitsGroup: React.FC = () => {
     const { t } = useTranslation();
 
     return (
-        <Group def={LIMITS}>
+        <Group def={LIMITS} foot={PIPEWIRE_RATE_FOOT_KEY ? t(PIPEWIRE_RATE_FOOT_KEY) : undefined}>
             {LIMIT_ROWS.map(({ option, hintKey }) => (
                 <Row key={option.id} option={option} hint={t(hintKey)} />
             ))}

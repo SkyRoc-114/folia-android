@@ -7,6 +7,7 @@ import type {
     HifiInstallResult,
     HifiLoadRequest,
     HifiLoadResult,
+    HifiOutputProbe,
     HifiRuntimeStatus,
 } from '../../types/hifi';
 import { createHifiEngineStore, useHifiEngineStore, type HifiEngineStore } from './hifiEngineStore';
@@ -16,7 +17,10 @@ import {
     createListeners,
     isHifiLoadCancelled,
     isLoadResult,
+    isOutputProbe,
     isSameEngineConfig,
+    isSameOutputProbe,
+    outputProbeLogFields,
     type HifiApi,
     type HifiEngine,
 } from './hifiEngineRules';
@@ -24,7 +28,7 @@ import { createHifiSourceResponder } from './hifiSourceResponder';
 
 // src/services/hifi/hifiEngine.ts
 // 渲染端的 HiFi 引擎客户端：包住 window.electron.hifi，把主进程推来的状态写进 useHifiEngineStore，把时钟、错误和状态
-// 分发给订阅者，替源桥读本地文件。网页版没有这套接口，每个方法都回安全的默认值，不抛错。
+// 分发给订阅者，替源桥读本地文件，按需问 PipeWire 探测。网页版没有这套接口，每个方法都回安全的默认值，不抛错。
 
 export { useHifiEngineStore };
 export type { HifiEngineStore, HifiEngineStoreState } from './hifiEngineStore';
@@ -53,6 +57,13 @@ export const createHifiEngine = (
     let sentConfig: HifiEngineConfig | null = null;
     // 主进程现在按哪个手动 mpv 路径检测；undefined 表示不知道（还没发过，或上一次发送失败）。
     let sentMpvPath: string | null | undefined;
+    // PipeWire 探测：发出的次序和最近收下的那次，晚发的先回来时早发的那次丢掉。
+    let probeSeq = 0;
+    let acceptedProbeSeq = 0;
+    // 连着失败只记第一次；面板开着时每 2 秒探一次，主进程一直失败就会刷屏。
+    let probeFailing = false;
+    // 上一次记进日志的探测摘要：同一首、PipeWire 那边没变时不再记。
+    let loggedProbe: string | null = null;
 
     const responder = createHifiSourceResponder({
         respond: async (readId, response) => {
@@ -183,6 +194,41 @@ export const createHifiEngine = (
         return result;
     };
 
+    /** 收下一次探测：不是当前这首的、比已收下的更早发出的丢掉；和 store 里的一样就不写。 */
+    const acceptProbe = (seq: number, trackKey: string | null, probe: HifiOutputProbe | null): boolean => {
+        if (seq < acceptedProbeSeq) return false;
+        if (store.getState().engine?.trackKey !== trackKey) return false;
+        acceptedProbeSeq = seq;
+        const current = store.getState().outputProbe;
+        if (current && current.trackKey === trackKey && isSameOutputProbe(current.probe, probe)) return true;
+        store.setState({ outputProbe: { probe, trackKey } });
+        const fields = { trackKey, ...(outputProbeLogFields(probe) ?? { probe: null }) };
+        const summary = JSON.stringify(fields);
+        if (summary !== loggedProbe) {
+            loggedProbe = summary;
+            console.info('[HiFi] PipeWire reports', fields);
+        }
+        return true;
+    };
+
+    const probeOutput = async (trackKey: string | null): Promise<HifiOutputProbe | null> => {
+        const api = getApi();
+        // 没接上探测的 preload（旧版本）没有这个方法：当作没有 PipeWire 可看，不报错。
+        if (!api || typeof api.probeOutput !== 'function') return null;
+        probeSeq += 1;
+        const seq = probeSeq;
+        let probe: HifiOutputProbe | null = null;
+        try {
+            const answer: unknown = await api.probeOutput();
+            probe = isOutputProbe(answer) ? answer : null;
+            probeFailing = false;
+        } catch (error) {
+            if (!probeFailing) console.warn('[HiFi] output probe failed', error);
+            probeFailing = true;
+        }
+        return acceptProbe(seq, trackKey, probe) ? probe : null;
+    };
+
     return {
         store,
         responder,
@@ -253,6 +299,7 @@ export const createHifiEngine = (
             acceptSnapshot(snapshot);
             return store.getState().engine ?? snapshot;
         },
+        probeOutput,
         onState: stateListeners.add,
         onClock: clockListeners.add,
         onError: errorListeners.add,

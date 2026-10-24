@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 // 钉住 main.cjs 里 HiFi 跟着窗口走的几处：主页面一去不回（窗口关了、页面进程没了又不重载）时停下 mpv，
-// 窗口重建时不停（新页面接手）；启动后清一次下载残留，只在拿到单实例锁的那个实例里清。
+// 窗口重建时不停（新页面接手）；启动后清一次下载残留，只在拿到单实例锁的那个实例里清；PipeWire 探测器拿到的
+// 自家进程号是主进程加 app.getAppMetrics() 列出的全部，并交给 HiFi 的 IPC。
 //
 // main.cjs 不能 require（会把整个应用拉起来）。两个窗口事件的处理函数从源码里原样取出来，把它用到的名字
 // 当参数传进去执行，测的是产品代码本身的分支；处理函数新用了一个名字时这里会报 ReferenceError，照样补上。
@@ -183,5 +185,41 @@ describe('main.cjs: leftover mpv downloads', () => {
         expect(sweepAt).toBeGreaterThan(spawnedAt);
         // 不在 ready 之外另挂一次（那一次重复启动的实例也会跑）。
         expect(mainCjs).not.toMatch(/app\.whenReady\(\)\s*\.then\(\(\) => hifiInstaller\.pruneLeftovers/);
+    });
+});
+
+describe('main.cjs: the PipeWire output probe', () => {
+    const require = createRequire(import.meta.url);
+    const { collectOwnPids } = require(path.join(rootDir, 'electron/hifi/pipewireProbe.cjs')) as {
+        collectOwnPids: (mainPid: unknown, appMetrics: unknown) => number[];
+    };
+    const site = mainCjs.match(/const hifiOutputProbe = (createPipewireProbe\(\{\n[\s\S]*?\n\}\));\n/)?.[1] ?? '';
+
+    it('marks streams of main and every Electron child process as Folia\'s own', () => {
+        expect(site, 'no createPipewireProbe call').not.toBe('');
+        expect(mainCjs).toContain("const { createPipewireProbe, collectOwnPids } = require('./hifi/pipewireProbe.cjs');");
+        let options: { getOwnPids?: () => number[] } = {};
+        const createPipewireProbe = (received: typeof options) => {
+            options = received;
+            return { probe: async () => null };
+        };
+        const appMetrics = [{ pid: 4000, type: 'Browser' }, { pid: 4001, type: 'GPU' }, { pid: 4002, type: 'Utility', serviceName: 'audio.mojom.AudioService' }];
+        const app = { getAppMetrics: vi.fn(() => appMetrics) };
+        new Function('createPipewireProbe', 'collectOwnPids', 'process', 'app', `return ${site};`)(
+            createPipewireProbe,
+            collectOwnPids,
+            { pid: 4000 },
+            app,
+        );
+        // 进程会来会走：每次探测时再列，不在启动时拍一张。
+        expect(app.getAppMetrics).not.toHaveBeenCalled();
+        expect(options.getOwnPids?.()).toEqual([4000, 4001, 4002]);
+        expect(app.getAppMetrics).toHaveBeenCalledTimes(1);
+    });
+
+    it('hands the probe to the HiFi IPC', () => {
+        const register = mainCjs.match(/registerHifiIpc\(\{[\s\S]*?\n\}\);/)?.[0] ?? '';
+        expect(register).toContain('outputProbe: hifiOutputProbe,');
+        expect(mainCjs.indexOf('const hifiOutputProbe = createPipewireProbe(')).toBeLessThan(mainCjs.indexOf('hifiIpc = registerHifiIpc({'));
     });
 });

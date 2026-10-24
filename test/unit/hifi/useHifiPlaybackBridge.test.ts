@@ -131,6 +131,7 @@ const api = {
     preloadNext: vi.fn(async (_request: HifiLoadRequest) => true),
     clearNext: vi.fn(async () => undefined),
     getSnapshot: vi.fn<HifiApi['getSnapshot']>(async () => engineState({ status: 'idle' })),
+    probeOutput: vi.fn<HifiApi['probeOutput']>(async () => null),
     respondRead: vi.fn<HifiApi['respondRead']>(async () => undefined),
     onState: vi.fn((callback: (state: HifiEngineState) => void) => { push.state = callback; return () => {}; }),
     onClock: vi.fn((callback: (update: HifiClockUpdate) => void) => { push.clock = callback; return () => {}; }),

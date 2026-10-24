@@ -105,6 +105,7 @@ const { createMpvRuntimeInstaller } = require('./hifi/mpvRuntimeInstaller.cjs');
 const { createSourceBridge } = require('./hifi/sourceBridge.cjs');
 const { createMpvSession } = require('./hifi/mpvSession.cjs');
 const { registerHifiIpc } = require('./hifi/hifiIpc.cjs');
+const { createPipewireProbe, collectOwnPids } = require('./hifi/pipewireProbe.cjs');
 const { createApprovedMpvPathStore, isReservedHifiSettingKey } = require('./hifi/approvedMpvPath.cjs');
 const { sanitizeDualTheme: sanitizeGeneratedDualTheme } = require('../shared/themeSanitizer.cjs');
 const {
@@ -311,12 +312,20 @@ const hifiSession = createMpvSession({
 // clear it through hifi:configure, never name a program for main to run. It lives in a file of its
 // own under userData/hifi-runtime/, out of the shared store that save-settings writes.
 const hifiApprovedMpvPath = createApprovedMpvPathStore({ getUserDataPath: getHifiUserDataPath });
+// Linux: what PipeWire reports (pw-dump) about mpv's stream on its way to the device. Only what
+// PipeWire says; whether the DAC really gets that rate is for a person to confirm on the hardware.
+// Folia's own processes (main plus every Electron child) mark its own streams, such as the silent
+// keep-alive for the system media controls.
+const hifiOutputProbe = createPipewireProbe({
+  getOwnPids: () => collectOwnPids(process.pid, app.getAppMetrics()),
+});
 hifiIpc = registerHifiIpc({
   ipcMain,
   isTrustedSender: event => isTrustedMainWindowContents(event.sender),
   session: hifiSession,
   runtime: hifiRuntime,
   installer: hifiInstaller,
+  outputProbe: hifiOutputProbe,
   dialog,
   getMainWindow: () => mainWindow,
   webContentsFromId: id => electronWebContents.fromId(id),

@@ -8,14 +8,17 @@ import type {
     HifiErrorEvent,
     HifiInstallProgress,
     HifiLoadRequest,
+    HifiOutputProbe,
     HifiReadRequest,
     HifiRuntimeStatus,
 } from '@/types/hifi';
+import { isOutputProbe, isPipewireOutputDriver, isSameOutputProbe, outputProbeLogFields } from '@/services/hifi/hifiEngineRules';
+import { fixtureProbe } from './pipewireProbeFixture';
 
 // test/unit/hifi/hifiEngine.test.ts
 // 渲染端的 HiFi 引擎客户端：订阅只做一次、按 seq 丢旧状态、时钟只放行认得的曲目、读请求经真的 responder 回给主进程、
 // 回落 Web 的歌记在会话里，相同的配置不重发、mpv 路径变了或 mpv 不能用时刷新运行时，取消的载入不算失败，
-// 没有 window.electron.hifi 时每个方法回安全的默认值。
+// 没有 window.electron.hifi 时每个方法回安全的默认值；PipeWire 探测只收当前这首、最新发出的那次，一样的不重写 store。
 
 const engineState = (overrides: Partial<HifiEngineState> = {}): HifiEngineState => ({
     status: 'playing',
@@ -117,6 +120,7 @@ const makeApi = () => {
         preloadNext: vi.fn(async (_request: HifiLoadRequest) => true),
         clearNext: vi.fn(async () => undefined),
         getSnapshot: vi.fn<HifiApi['getSnapshot']>(async () => engineState()),
+        probeOutput: vi.fn<HifiApi['probeOutput']>(async () => null),
         respondRead: vi.fn<HifiApi['respondRead']>(async () => undefined),
         onState: subscribe<HifiEngineState>('state'),
         onClock: subscribe<HifiClockUpdate>('clock'),
@@ -501,5 +505,148 @@ describe('hifi engine client', () => {
         expect(typeof window).toBe('undefined');
         expect(hifiEngine.attach()).toBe(false);
         expect(await hifiEngine.load(loadRequest('local:1#a'))).toEqual({ ok: false, errorCode: 'UNSUPPORTED_PLATFORM' });
+    });
+});
+
+describe('PipeWire output probe', () => {
+    /** 引擎在放 local:1#a，和 makeApi 的默认状态一样。 */
+    const playing = () => {
+        const fake = setup();
+        fake.engine.attach();
+        fake.push.state?.(engineState({ seq: 2 }));
+        return fake;
+    };
+
+    it('keeps the probe with its trackKey for the track mpv plays, and logs what PipeWire reports once', async () => {
+        const { api, engine } = playing();
+        const probe = fixtureProbe();
+        api.probeOutput.mockResolvedValue(probe);
+
+        expect(await engine.probeOutput('local:1#a')).toEqual(probe);
+        expect(engine.store.getState().outputProbe).toEqual({ probe, trackKey: 'local:1#a' });
+        expect(console.info).toHaveBeenCalledWith('[HiFi] PipeWire reports', {
+            trackKey: 'local:1#a',
+            streamRate: 96000,
+            device: 'alsa_output.pci-0000_00_1f.3-platform-skl_hda_dsp_generic.HiFi__Speaker__sink',
+            deviceRate: 48000,
+            allowedRates: [48000],
+            filters: ['effect_input.eq6', 'remap_input.remap-FL-FR-to-FR-FL'],
+            otherStreams: [],
+        });
+
+        // 下一次只是读取时刻不同：store 里还是同一个对象，日志不再记。
+        const before = engine.store.getState().outputProbe;
+        api.probeOutput.mockResolvedValue({ ...probe, at: probe.at + 2000 });
+        await engine.probeOutput('local:1#a');
+        expect(engine.store.getState().outputProbe).toBe(before);
+        expect(vi.mocked(console.info).mock.calls.filter(([line]) => line === '[HiFi] PipeWire reports')).toHaveLength(1);
+
+        // PipeWire 那边变了（切到了 96 kHz）：换上新的，再记一行。
+        const switched = fixtureProbe({ deviceRate: 96000 });
+        api.probeOutput.mockResolvedValue(switched);
+        await engine.probeOutput('local:1#a');
+        expect(engine.store.getState().outputProbe).toEqual({ probe: switched, trackKey: 'local:1#a' });
+        expect(vi.mocked(console.info).mock.calls.filter(([line]) => line === '[HiFi] PipeWire reports')).toHaveLength(2);
+    });
+
+    it('drops a probe that comes back after mpv moved on to another track', async () => {
+        const { api, engine, push } = playing();
+        let answer: (probe: HifiOutputProbe | null) => void = () => {};
+        api.probeOutput.mockReturnValueOnce(new Promise((resolve) => {
+            answer = resolve;
+        }));
+
+        const pending = engine.probeOutput('local:1#a');
+        // 无缝换到下一首。
+        push.state?.(engineState({ seq: 3, trackKey: 'local:2#b', songKey: 'local:2' }));
+        answer(fixtureProbe());
+
+        expect(await pending).toBeNull();
+        expect(engine.store.getState().outputProbe).toBeNull();
+    });
+
+    it('drops an older probe that comes back after a newer one', async () => {
+        const { api, engine } = playing();
+        let answerFirst: (probe: HifiOutputProbe | null) => void = () => {};
+        api.probeOutput
+            .mockReturnValueOnce(new Promise((resolve) => {
+                answerFirst = resolve;
+            }))
+            .mockResolvedValueOnce(fixtureProbe({ deviceRate: 96000 }));
+
+        const first = engine.probeOutput('local:1#a');
+        const second = engine.probeOutput('local:1#a');
+        await second;
+        answerFirst(fixtureProbe());
+
+        expect(await first).toBeNull();
+        expect(engine.store.getState().outputProbe?.probe?.device?.format.rate).toBe(96000);
+    });
+
+    it('records no probe when main sends something else, and warns once while the call keeps failing', async () => {
+        const { api, engine } = playing();
+        api.probeOutput.mockResolvedValueOnce(fixtureProbe());
+        await engine.probeOutput('local:1#a');
+
+        api.probeOutput.mockResolvedValueOnce({ backend: 'pulseaudio' } as never);
+        expect(await engine.probeOutput('local:1#a')).toBeNull();
+        expect(engine.store.getState().outputProbe).toEqual({ probe: null, trackKey: 'local:1#a' });
+
+        const failure = new Error('pw-dump exited with 1');
+        api.probeOutput.mockRejectedValue(failure);
+        expect(await engine.probeOutput('local:1#a')).toBeNull();
+        expect(await engine.probeOutput('local:1#a')).toBeNull();
+        expect(vi.mocked(console.warn).mock.calls.filter(([line]) => line === '[HiFi] output probe failed')).toEqual([
+            ['[HiFi] output probe failed', failure],
+        ]);
+        expect(engine.store.getState().outputProbe).toEqual({ probe: null, trackKey: 'local:1#a' });
+
+        // 好了之后再失败，又记一次。
+        api.probeOutput.mockResolvedValueOnce(fixtureProbe());
+        await engine.probeOutput('local:1#a');
+        await engine.probeOutput('local:1#a');
+        expect(vi.mocked(console.warn).mock.calls.filter(([line]) => line === '[HiFi] output probe failed')).toHaveLength(2);
+    });
+
+    it('is null without the engine interface, or with a preload that has no probe yet', async () => {
+        expect(await createHifiEngine(() => undefined).probeOutput('local:1#a')).toBeNull();
+
+        const { api } = makeApi();
+        const { probeOutput: _missing, ...olderApi } = api;
+        const engine = createHifiEngine(() => olderApi as unknown as HifiApi);
+        expect(await engine.probeOutput('local:1#a')).toBeNull();
+        expect(engine.store.getState().outputProbe).toBeNull();
+        expect(console.warn).not.toHaveBeenCalled();
+    });
+});
+
+describe('PipeWire probe rules', () => {
+    it('looks at PipeWire for the pipewire and pulse outputs only', () => {
+        expect(['pipewire', 'pulse', ' PipeWire ', 'alsa', 'jack', 'wasapi', null, undefined].map(isPipewireOutputDriver)).toEqual([
+            true, true, true, false, false, false, false, false,
+        ]);
+    });
+
+    it('takes only a probe of the expected shape', () => {
+        expect(isOutputProbe(fixtureProbe())).toBe(true);
+        expect(isOutputProbe(fixtureProbe({ device: null }))).toBe(true);
+        expect(isOutputProbe(null)).toBe(false);
+        expect(isOutputProbe({ ...fixtureProbe(), backend: 'pulseaudio' })).toBe(false);
+        expect(isOutputProbe({ ...fixtureProbe(), filters: undefined })).toBe(false);
+        expect(isOutputProbe({ ...fixtureProbe(), graph: { clockRate: 48000 } })).toBe(false);
+        expect(isOutputProbe({ ...fixtureProbe(), device: { name: 'x' } })).toBe(false);
+    });
+
+    it('treats two probes that differ only in when they were read as the same', () => {
+        expect(isSameOutputProbe(fixtureProbe({ at: 1 }), fixtureProbe({ at: 2 }))).toBe(true);
+        expect(isSameOutputProbe(fixtureProbe(), fixtureProbe({ deviceRate: 96000 }))).toBe(false);
+        expect(isSameOutputProbe(null, null)).toBe(true);
+        expect(isSameOutputProbe(fixtureProbe(), null)).toBe(false);
+    });
+
+    it('logs own streams as such', () => {
+        expect(outputProbeLogFields(fixtureProbe({ otherStreams: [{ nodeId: 90, name: 'Folia', own: true }, { nodeId: 91, name: 'Firefox', own: false }] }))?.otherStreams)
+            .toEqual(['Folia (own)', 'Firefox']);
+        expect(outputProbeLogFields(null)).toBeNull();
     });
 });

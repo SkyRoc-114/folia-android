@@ -120,6 +120,7 @@ const makeApi = () => {
         preloadNext: vi.fn<HifiApi['preloadNext']>(async () => true),
         clearNext: vi.fn<HifiApi['clearNext']>(async () => undefined),
         getSnapshot: vi.fn<HifiApi['getSnapshot']>(async () => engineState({ status: 'idle', seq: 1 })),
+        probeOutput: vi.fn<HifiApi['probeOutput']>(async () => null),
         respondRead: vi.fn<HifiApi['respondRead']>(async () => undefined),
         onState: subscribe('state'),
         onClock: subscribe('clock'),

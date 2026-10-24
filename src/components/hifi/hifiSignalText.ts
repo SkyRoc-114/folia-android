@@ -7,17 +7,25 @@ import type {
     HifiSignalStageId,
     HifiSignalStageStatus,
     HifiSignalVerdict,
+    HifiSystemCheck,
+    HifiSystemCheckId,
 } from '../../types/hifi';
+import { isSystemDeviceUnknown } from '../../services/hifi/signalPathSystem';
 
 // src/components/hifi/hifiSignalText.ts
-// 信号链路的文字：徽标上那一行、面板里每一级的格式和改动。数字按界面语言写，单位和措辞都走 i18n（hifi.signal.* / hifi.player.*）。
+// 信号链路的文字：徽标上那一行、面板里每一级的格式和改动。PipeWire 那一级的逐项检查和「为什么没切采样率」在 hifiSystemText.ts。
+// 数字按界面语言写，单位和措辞都走 i18n（hifi.signal.* / hifi.player.*）。
 
-/** accent：采样原样到达 DAC（逐位直通或 DoP）；muted：别的情况。 */
+/**
+ * accent：采样原样到达 DAC（逐位直通或 DoP），或者 PipeWire 报告它没换采样率（采样率直通，图标和逐位直通不同；
+ * 徽标在 PipeWire 那一级有一项没过时改用 muted，见 signalPathTone）；muted：别的情况。
+ */
 export type HifiVerdictTone = 'accent' | 'muted';
 
 const VERDICT_KEY: Record<HifiSignalVerdict, string> = {
     'bit-perfect': 'bitPerfect',
     dop: 'dop',
+    'rate-passthrough': 'ratePassthrough',
     converted: 'converted',
     'shared-mixer': 'sharedMixer',
     unknown: 'unknown',
@@ -29,6 +37,7 @@ const STAGE_KEY: Record<HifiSignalStageId, string> = {
     decode: 'decode',
     process: 'process',
     output: 'output',
+    system: 'system',
 };
 
 const STATUS_KEY: Record<HifiSignalStageStatus, string> = {
@@ -39,9 +48,19 @@ const STATUS_KEY: Record<HifiSignalStageStatus, string> = {
 };
 
 const FLOAT_FORMAT = /^(float|double)p?$/i;
+/** PipeWire 的浮点格式名：F32LE、F32P、F64… */
+const PIPEWIRE_FLOAT_FORMAT = /^F(32|64)(LE|BE|P)?$/i;
 
 export const verdictTone = (verdict: HifiSignalVerdict): HifiVerdictTone => (
-    verdict === 'bit-perfect' || verdict === 'dop' ? 'accent' : 'muted'
+    verdict === 'bit-perfect' || verdict === 'dop' || verdict === 'rate-passthrough' ? 'accent' : 'muted'
+);
+
+/**
+ * 徽标的颜色：按结论（verdictTone），只是采样率直通时 PipeWire 那一级还有一项没过（滤波器、音量、别的流、声道），
+ * 就不用强调色：采样率对上了，声音照样可能被 PipeWire 改了。
+ */
+export const signalPathTone = (path: HifiSignalPath): HifiVerdictTone => (
+    path.verdict === 'rate-passthrough' && path.system?.checks.some(check => !check.ok) ? 'muted' : verdictTone(path.verdict)
 );
 
 /** 徽标和格子用的短说法：原生直通、原生 DSD、已转换… */
@@ -57,6 +76,12 @@ export const verdictTitle = (verdict: HifiSignalVerdict, t: TFunction) => t(`hif
  */
 export const verdictDescription = (path: HifiSignalPath, t: TFunction, platform: string | null = null) => {
     if (path.verdict === 'shared-mixer') {
+        // 链路停在虚拟设备（EasyEffects 这类）上：PipeWire 报不出最后接到哪块声卡，不说它重采样了。
+        if (isSystemDeviceUnknown(path.system)) return t('hifi.signal.verdictDesc.sharedMixerVirtual');
+        // 有 PipeWire 的探测时知道得更多：是 PipeWire 把这首重采样了，原因写在 PipeWire 那一级。
+        // PipeWire 没报设备的采样率：不推断它重采样了。
+        if (path.system && path.system.deviceRate === null) return t('hifi.signal.verdictDesc.sharedMixerUnknownRate');
+        if (path.system) return t('hifi.signal.verdictDesc.sharedMixerPipewire');
         if (platform === 'linux') return t('hifi.signal.verdictDesc.sharedMixerLinux');
         if (path.output.exclusive) return t('hifi.signal.verdictDesc.sharedMixerExclusiveOn');
     }
@@ -106,6 +131,8 @@ export const formatSampleDepth = (format: HifiSignalFormat | null, t: TFunction)
         const bits = usableNumber(format.bitDepth) ? format.bitDepth : /^double/i.test(name) ? 64 : 32;
         return t('hifi.signal.floatDepth', { bits });
     }
+    const pipewireFloat = PIPEWIRE_FLOAT_FORMAT.exec(name);
+    if (pipewireFloat) return t('hifi.signal.floatDepth', { bits: Number(pipewireFloat[1]) });
     return formatBitDepth(format.bitDepth, t) ?? (name || null);
 };
 
@@ -188,15 +215,24 @@ export const formatHifiBadge = (
     };
 };
 
-/** 把一处改动说成人话；有前后两端的数值就带上，如「重采样：44.1 kHz → 48 kHz」。 */
+const findCheck = (path: HifiSignalPath, id: HifiSystemCheckId): HifiSystemCheck | null => (
+    path.system?.checks.find(check => check.id === id) ?? null
+);
+
+/**
+ * 把一处改动说成人话；有前后两端的数值就带上，如「重采样：44.1 kHz → 48 kHz」。
+ * stageId 是这处改动所在的那一级：PipeWire 那一级（system）的两端是 mpv 交出的格式和设备的格式，别的级是解码和输出。
+ */
 export const describeConversion = (
     conversion: HifiSignalConversion,
     path: HifiSignalPath,
     t: TFunction,
     locale: string,
+    stageId: HifiSignalStageId | null = null,
 ): string => {
-    const decoded = findStage(path, 'decode')?.format ?? null;
-    const output = findStage(path, 'output')?.format ?? null;
+    const inSystem = stageId === 'system';
+    const decoded = findStage(path, inSystem ? 'output' : 'decode')?.format ?? null;
+    const output = findStage(path, inSystem ? 'system' : 'output')?.format ?? null;
     const between = (key: string, from: string | null, to: string | null) => (
         from && to ? t(`hifi.signal.conversion.${key}`, { from, to }) : t(`hifi.signal.conversion.${key}Plain`)
     );
@@ -212,11 +248,24 @@ export const describeConversion = (
         case 'dop':
             return t('hifi.signal.conversion.dop');
         case 'volume': {
+            if (inSystem) {
+                // PipeWire 那一级：流上和设备上没过的软件音量（'87%'、'93%'）。
+                const volume = (['streamVolume', 'deviceVolume'] as const)
+                    .map(id => findCheck(path, id))
+                    .filter((check): check is HifiSystemCheck => Boolean(check && !check.ok && check.detail))
+                    .map(check => check.detail)
+                    .join(', ');
+                return volume ? t('hifi.signal.conversion.volumePipewire', { volume }) : t('hifi.signal.conversion.volumePipewirePlain');
+            }
             const volume = findStage(path, 'process')?.detail ?? null;
             return volume ? t('hifi.signal.conversion.volume', { volume }) : t('hifi.signal.conversion.volumePlain');
         }
         case 'shared-mixer':
             return t('hifi.signal.conversion.sharedMixer');
+        case 'filter': {
+            const names = findCheck(path, 'filters')?.detail ?? null;
+            return names ? t('hifi.signal.conversion.filter', { names }) : t('hifi.signal.conversion.filterPlain');
+        }
     }
 };
 
@@ -241,8 +290,10 @@ export const describeStage = (
     if (stage.id === 'output' && stage.status !== 'unknown') {
         // 只看这一级实际有没有经过系统混音器，不看独占开关：PipeWire、PulseAudio 开着独占也照样混音，
         // ALSA 的 hw: 直连关着独占也不经过混音器。Linux 上没有独占这回事，不经过混音器就是直连了设备。
-        if (stage.conversions.includes('shared-mixer')) return t('hifi.signal.outputShared');
+        // 有 PipeWire 那一级时，混音器的事写在那一级里，这一级不再标改动，但输出照样是共享的。
+        if (stage.conversions.includes('shared-mixer') || path.system) return t('hifi.signal.outputShared');
         return t(platform === 'linux' ? 'hifi.signal.outputDirect' : 'hifi.signal.outputExclusive');
     }
+    if (stage.id === 'system') return t('hifi.signal.systemReported');
     return null;
 };

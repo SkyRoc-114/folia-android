@@ -5,7 +5,7 @@ import { noteLoopButtonPress } from '../../../services/ponder/loopShuffleHint';
 import { useAutomixSettingsStore } from '../../../stores/useAutomixSettingsStore';
 import { useAudioSettingsStore } from '../../../stores/useAudioSettingsStore';
 import { openHifiSignalPath } from '../../hifi/hifiPanelStore';
-import { verdictLabel, verdictTone } from '../../hifi/hifiSignalText';
+import { signalPathTone, verdictLabel } from '../../hifi/hifiSignalText';
 import { useHifiSignalPath } from '../../hifi/useHifiSignalPath';
 import { loopModeIcon, loopModeLabelName } from '../../shared/loopModeDisplay';
 import { QuickTile } from './QuickTile';
@@ -51,7 +51,7 @@ const SoundTiles: React.FC<SoundTilesProps> = ({ loopMode, onToggleLoop, loopTog
                         kind="open"
                         icon={<Route size={18} />}
                         label={t('hifi.player.signalPathTile', { verdict: verdictLabel(hifiSignalPath.verdict, t) })}
-                        lit={verdictTone(hifiSignalPath.verdict) === 'accent'}
+                        lit={signalPathTone(hifiSignalPath) === 'accent'}
                         aria-haspopup="dialog"
                         onClick={openHifiSignalPath}
                     />

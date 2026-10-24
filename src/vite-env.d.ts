@@ -1102,6 +1102,8 @@ declare global {
         preloadNext: (request: import('./types/hifi').HifiLoadRequest) => Promise<boolean>;
         clearNext: () => Promise<void>;
         getSnapshot: () => Promise<import('./types/hifi').HifiEngineState>;
+        /** Linux：用 pw-dump 读 mpv 那路流在 PipeWire 里的去向；不是 PipeWire、没有 pw-dump、找不到流时为 null。 */
+        probeOutput: () => Promise<import('./types/hifi').HifiOutputProbe | null>;
         respondRead: (readId: string, response: import('./types/hifi').HifiReadResponse) => Promise<void>;
         onState: (callback: (state: import('./types/hifi').HifiEngineState) => void) => () => void;
         onClock: (callback: (update: import('./types/hifi').HifiClockUpdate) => void) => () => void;

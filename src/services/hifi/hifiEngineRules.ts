@@ -8,6 +8,7 @@ import type {
     HifiInstallResult,
     HifiLoadRequest,
     HifiLoadResult,
+    HifiOutputProbe,
     HifiRuntimeStatus,
 } from '../../types/hifi';
 import type { HifiEngineStore } from './hifiEngineStore';
@@ -15,7 +16,7 @@ import type { HifiSourceResponder } from './hifiSourceResponder';
 
 // src/services/hifi/hifiEngineRules.ts
 // HiFi 引擎客户端（hifiEngine.ts）的对外形状和它用的纯规则：主进程的载入结果怎么分（成功、取消、失败）、哪些失败说明
-// mpv 本身不能用、两份配置对主进程算不算一样，以及向订阅者逐个分发。不碰 window，不存状态。
+// mpv 本身不能用、两份配置对主进程算不算一样、PipeWire 探测结果收不收，以及向订阅者逐个分发。不碰 window，不存状态。
 
 export type HifiApi = NonNullable<NonNullable<Window['electron']>['hifi']>;
 
@@ -47,6 +48,12 @@ export type HifiEngine = {
     clearNext: () => Promise<void>;
     /** 主动拉一次引擎状态；seq 和已收下的相同也收（主进程拼快照不加 seq），更旧时返回已收下的那份。 */
     getSnapshot: () => Promise<HifiEngineState | null>;
+    /**
+     * Linux：问主进程要一次 mpv 那路流在 PipeWire 里的去向（pw-dump）。结果连同 trackKey 写进 store 的 outputProbe，
+     * 但回来时 mpv 放的已经不是这个 trackKey、或者更晚发出的一次已经先回来了，就丢掉不写，返回 null。
+     * 没有接口、主进程回的不是探测结果、调用抛错时也是 null（抛错时 store 里记成没有探测结果，不留旧的）。
+     */
+    probeOutput: (trackKey: string | null) => Promise<HifiOutputProbe | null>;
     onState: (listener: (state: HifiEngineState) => void) => () => void;
     onClock: (listener: (update: HifiClockUpdate) => void) => () => void;
     onError: (listener: (event: HifiErrorEvent) => void) => () => void;
@@ -111,3 +118,44 @@ export const isSameEngineConfig = (a: HifiEngineConfig, b: HifiEngineConfig) => 
         Object.is(a[key], b[key]) || (key === 'volume' && !a.softwareVolume && !b.softwareVolume)
     ));
 };
+
+/** mpv 的这几种输出驱动最后落在 PipeWire 上，可以用 pw-dump 看它的去向：pipewire 本身，和经 pipewire-pulse 的 pulse。 */
+const PIPEWIRE_OUTPUT_DRIVERS: ReadonlySet<string> = new Set(['pipewire', 'pulse']);
+
+export const isPipewireOutputDriver = (ao: string | null | undefined) => PIPEWIRE_OUTPUT_DRIVERS.has((ao ?? '').trim().toLowerCase());
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
+
+/**
+ * 主进程回的是不是一份探测结果：backend 为 'pipewire'，带着流、图的时钟设置和两张表。只核对外形，字段的值照收；
+ * 别的（旧的 preload、没找到流时的 null、写坏了的对象）都当没有探测结果。
+ */
+export const isOutputProbe = (value: unknown): value is HifiOutputProbe => (
+    isRecord(value)
+    && value.backend === 'pipewire'
+    && isRecord(value.stream)
+    && isRecord(value.stream.format)
+    && isRecord(value.graph)
+    && Array.isArray(value.graph.allowedRates)
+    && Array.isArray(value.filters)
+    && Array.isArray(value.otherStreams)
+    && (value.device === null || (isRecord(value.device) && isRecord(value.device.format)))
+);
+
+/** 两份探测除了读取时刻（at）都一样：不用再写 store，徽标和面板也就不用重画。 */
+export const isSameOutputProbe = (a: HifiOutputProbe | null, b: HifiOutputProbe | null) => {
+    if (a === null || b === null) return a === b;
+    return JSON.stringify({ ...a, at: 0 }) === JSON.stringify({ ...b, at: 0 });
+};
+
+/** 写进日志的那几项：mpv 交出的、设备上的采样率，允许的采样率，经过的滤波节点和同设备上别的流。 */
+export const outputProbeLogFields = (probe: HifiOutputProbe | null) => (probe
+    ? {
+        streamRate: probe.stream.format.rate,
+        device: probe.device?.name ?? null,
+        deviceRate: probe.device?.format.rate ?? null,
+        allowedRates: probe.graph.allowedRates,
+        filters: probe.filters.map(filter => filter.name),
+        otherStreams: probe.otherStreams.map(stream => (stream.own ? `${stream.name} (own)` : stream.name)),
+    }
+    : null);

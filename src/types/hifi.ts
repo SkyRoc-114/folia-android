@@ -238,13 +238,22 @@ export type HifiSourceSpec = {
     bitrate: number | null;
 };
 
-export type HifiSignalVerdict = 'bit-perfect' | 'dop' | 'converted' | 'shared-mixer' | 'unknown';
+/**
+ * rate-passthrough：Linux 上经 PipeWire 输出，PipeWire 报告的设备采样率和 mpv 交出的一致（没被 PipeWire 重采样）。
+ * 这只是 PipeWire 自己报的状态，DAC 实际收到什么要在实机上由人确认。
+ */
+export type HifiSignalVerdict = 'bit-perfect' | 'dop' | 'rate-passthrough' | 'converted' | 'shared-mixer' | 'unknown';
 
-export type HifiSignalStageId = 'source' | 'transport' | 'decode' | 'process' | 'output';
+/** system：mpv 之后、声卡之前的系统音频服务（目前只有 Linux 的 PipeWire）。 */
+export type HifiSignalStageId = 'source' | 'transport' | 'decode' | 'process' | 'output' | 'system';
 
 export type HifiSignalStageStatus = 'passthrough' | 'converted' | 'bypassed' | 'unknown';
 
-export type HifiSignalConversion = 'resample' | 'format' | 'channels' | 'dsd-to-pcm' | 'dop' | 'volume' | 'shared-mixer';
+/**
+ * filter：PipeWire 里 mpv 和声卡之间的滤波链（均衡器、remap、loopback 这些虚拟节点）。volume：process 一级是 mpv 的软件音量，
+ * system 一级是 PipeWire 在流或设备上乘的软件音量。
+ */
+export type HifiSignalConversion = 'resample' | 'format' | 'channels' | 'dsd-to-pcm' | 'dop' | 'volume' | 'shared-mixer' | 'filter';
 
 export type HifiSignalFormat = {
     sampleRate: number | null;
@@ -273,4 +282,90 @@ export type HifiSignalPath = {
         device: string | null;
         exclusive: boolean;
     };
+    /** 有 PipeWire 探测结果时，逐项列出 PipeWire 这一段对不对得上；没有探测（非 Linux、没有 pw-dump、找不到流）为 null。 */
+    system: HifiSystemReport | null;
+};
+
+export type HifiPipewireVolume = {
+    /** 节点的总音量（线性，1 为 100%）。 */
+    volume: number | null;
+    mute: boolean;
+    channelVolumes: number[];
+    /** PipeWire 在软件里乘上去的那部分音量（硬件音量做不了的部分）；没有时为 null。 */
+    softVolumes: number[] | null;
+    softMute: boolean | null;
+};
+
+export type HifiPipewireFormat = {
+    /** PipeWire 的格式名：'S32LE'、'S24_32LE'、'F32P'… */
+    format: string | null;
+    rate: number | null;
+    channels: number | null;
+};
+
+/** 主进程用 pw-dump 读出的、mpv 那路流在 PipeWire 里的去向。字段都是 PipeWire 报的原样，没有推断。 */
+export type HifiOutputProbe = {
+    backend: 'pipewire';
+    /**
+     * 第一次读到这份结果的时刻（主进程读 pw-dump 时的 Date.now()）。之后读到一样的结果时 store 不重写
+     * （isSameOutputProbe 不比 at），所以它不是最近一次探测的时刻。
+     */
+    at: number;
+    stream: {
+        nodeId: number;
+        state: string | null;
+        format: HifiPipewireFormat;
+        volume: HifiPipewireVolume | null;
+    };
+    /**
+     * 从 mpv 的流到设备之间经过的虚拟节点（滤波链、remap、loopback），按先后。链路停在没有 link-group 的虚拟 sink
+     * （EasyEffects 这类）时，它是最后一项，device 为 null。
+     */
+    filters: Array<{ nodeId: number; name: string; description: string | null }>;
+    /** 最后接到的设备节点；没接上、链路走不到设备或停在虚拟 sink 时为 null。 */
+    device: {
+        nodeId: number;
+        name: string;
+        description: string | null;
+        /** 'alsa'、'bluez5'… 取自 device.api 或 api.* 属性。 */
+        api: string | null;
+        /** ALSA 的 api.alsa.path，如 'hw:D10'。 */
+        path: string | null;
+        state: string | null;
+        format: HifiPipewireFormat;
+        volume: HifiPipewireVolume | null;
+    } | null;
+    /** pw-metadata settings 里的时钟设置。 */
+    graph: {
+        clockRate: number | null;
+        allowedRates: number[];
+        forceRate: number | null;
+    };
+    /** 同一设备上别的正在放的流（不含 mpv 这一路）。own：来自 Folia 自己的进程（系统媒体控制的静音保活、Web 引擎）。 */
+    otherStreams: Array<{ nodeId: number; name: string; own: boolean }>;
+};
+
+export type HifiSystemCheckId = 'rate' | 'filters' | 'streamVolume' | 'deviceVolume' | 'otherStreams' | 'channels';
+
+export type HifiSystemCheck = {
+    id: HifiSystemCheckId;
+    ok: boolean;
+    /**
+     * 不翻译的补充：'96000 → 48000'、滤波节点名、'87%'、别的流名。rate 一项为 'unknown' 时：链路停在虚拟 sink
+     * （EasyEffects 这类），PipeWire 报不出最后接到哪块声卡（SYSTEM_DEVICE_UNKNOWN，在 signalPathSystem.ts）。
+     */
+    detail: string | null;
+};
+
+export type HifiSystemReport = {
+    backend: 'pipewire';
+    checks: HifiSystemCheck[];
+    /** 设备名；链路停在虚拟 sink、不知道最后接到哪块声卡时为 null。 */
+    deviceName: string | null;
+    deviceRate: number | null;
+    deviceFormat: string | null;
+    /** pw-metadata 允许的采样率；判断「为什么没切」时要用。 */
+    allowedRates: number[];
+    /** pw-metadata 里的 clock.force-rate：强制的采样率；没强制（0 或没设）时为 null。 */
+    forceRate: number | null;
 };

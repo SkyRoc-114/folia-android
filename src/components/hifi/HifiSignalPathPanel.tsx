@@ -1,11 +1,12 @@
 import React, { useEffect } from 'react';
-import { BadgeCheck, CircleHelp, Merge, TriangleAlert, type LucideIcon } from 'lucide-react';
+import { BadgeCheck, BadgeInfo, CircleHelp, Merge, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { HifiSignalPath, HifiSignalStage, HifiSignalStageStatus, HifiSignalVerdict } from '../../types/hifi';
 import { useHifiTrackStore } from '../../services/hifi/hifiTrackStore';
 import { useHifiSettingsStore } from '../../stores/useHifiSettingsStore';
 import Sheet from '../shared/Sheet';
 import { useHifiPanelStore } from './hifiPanelStore';
+import { HifiSystemFootnote, HifiSystemReport } from './HifiSystemReport';
 import {
     describeConversion,
     describeStage,
@@ -16,16 +17,21 @@ import {
     verdictDescription,
     verdictTitle,
 } from './hifiSignalText';
+import { useHifiOutputProbe } from './useHifiOutputProbe';
 import { readHifiPlatform, useHifiSignalPath, useHifiTrackDeferred, useIsHifiRoute } from './useHifiSignalPath';
 
 // src/components/hifi/HifiSignalPathPanel.tsx
-// HiFi 信号链路面板：顶上一行大字说结论（原生直通 / 经 DoP 原生输出 DSD / 已转换 / 经过系统混音器 / 尚未确认），
-// 下面从源文件到输出设备逐级列出每一级的状态、格式和改动，底部注明 HiFi 绕过了哪些功能。
-// 在 AppOverlays 里挂一次，开关由 hifiPanelStore 管；路线离开 HiFi 时自己关上。
+// HiFi 信号链路面板：顶上一行大字说结论（原生直通 / 经 DoP 原生输出 DSD / 采样率直通（经 PipeWire）/ 已转换 /
+// 经过系统混音器 / 尚未确认），下面从源文件到输出设备逐级列出每一级的状态、格式和改动；Linux 上经 PipeWire 时最后一级是
+// PipeWire 报的设备，逐项列出检查、没切采样率时的原因和配置，并总是注明那只是 PipeWire 报的、要看 DAC 的指示确认。
+// 底部注明 HiFi 绕过了哪些功能。在 AppOverlays 里挂一次，开关由 hifiPanelStore 管；路线离开 HiFi 时自己关上。
+// PipeWire 的探测（useHifiOutputProbe）也挂在这里：面板关着时照样在跑，徽标的结论要用它。
 
 const VERDICT_LOOK: Record<HifiSignalVerdict, { icon: LucideIcon; className: string }> = {
     'bit-perfect': { icon: BadgeCheck, className: 'text-[color:var(--st-ok)]' },
     dop: { icon: BadgeCheck, className: 'text-[color:var(--st-ok)]' },
+    // 不用逐位直通的那个勾：这只是 PipeWire 报的采样率对得上。
+    'rate-passthrough': { icon: BadgeInfo, className: 'text-[color:var(--st-accent)]' },
     converted: { icon: TriangleAlert, className: 'text-[color:var(--st-warn)]' },
     'shared-mixer': { icon: Merge, className: 'text-[color:var(--st-warn)]' },
     unknown: { icon: CircleHelp, className: 'text-[color:var(--st-t3)]' },
@@ -45,6 +51,18 @@ const STATUS_DOT_CLASS: Record<HifiSignalStageStatus, string> = {
     unknown: 'bg-[var(--st-line2)]',
 };
 
+// PipeWire 那一级全都对得上时也不用逐位直通的绿色：那只是 PipeWire 报的状态，不是确认。
+const SYSTEM_PASSTHROUGH_CHIP_CLASS = 'bg-[color-mix(in_srgb,var(--st-accent)_14%,transparent)] text-[color:var(--st-accent)]';
+const SYSTEM_PASSTHROUGH_DOT_CLASS = 'bg-[var(--st-accent)]';
+
+const stageChipClass = (stage: HifiSignalStage) => (
+    stage.id === 'system' && stage.status === 'passthrough' ? SYSTEM_PASSTHROUGH_CHIP_CLASS : STATUS_CHIP_CLASS[stage.status]
+);
+
+const stageDotClass = (stage: HifiSignalStage) => (
+    stage.id === 'system' && stage.status === 'passthrough' ? SYSTEM_PASSTHROUGH_DOT_CLASS : STATUS_DOT_CLASS[stage.status]
+);
+
 type StageRowProps = {
     stage: HifiSignalStage;
     path: HifiSignalPath;
@@ -63,13 +81,13 @@ const StageRow: React.FC<StageRowProps> = ({ stage, path, origin, deviceLabel, i
         <li className="flex gap-3">
             {/* 左边一条竖线把五级串起来，点的颜色就是这一级的状态。 */}
             <div aria-hidden className="flex w-2.5 shrink-0 flex-col items-center">
-                <span className={`mt-[5px] h-2.5 w-2.5 shrink-0 rounded-full ${STATUS_DOT_CLASS[stage.status]}`} />
+                <span className={`mt-[5px] h-2.5 w-2.5 shrink-0 rounded-full ${stageDotClass(stage)}`} />
                 {!isLast && <span className="mt-1 w-px flex-1 bg-[var(--st-line)]" />}
             </div>
             <div className={`min-w-0 flex-1${isLast ? '' : ' pb-4'}`}>
                 <div className="flex items-center justify-between gap-3">
                     <span className="text-sm font-medium leading-5">{stageLabel(stage.id, t)}</span>
-                    <span className={`shrink-0 rounded px-1.5 text-[11px] leading-[18px] ${STATUS_CHIP_CLASS[stage.status]}`}>
+                    <span className={`shrink-0 rounded px-1.5 text-[11px] leading-[18px] ${stageChipClass(stage)}`}>
                         {stageStatusLabel(stage.status, t)}
                     </span>
                 </div>
@@ -81,18 +99,20 @@ const StageRow: React.FC<StageRowProps> = ({ stage, path, origin, deviceLabel, i
                 {stage.detail && (
                     <p className="break-all font-mono text-[11px] leading-4 text-[color:var(--st-t3)]">{stage.detail}</p>
                 )}
-                {stage.conversions.length > 0 && (
+                {/* PipeWire 那一级的改动由下面的逐项检查说，不再列一遍。 */}
+                {stage.id !== 'system' && stage.conversions.length > 0 && (
                     <ul className="mt-1 flex flex-col gap-0.5">
                         {stage.conversions.map(conversion => (
                             <li
                                 key={conversion}
                                 className={`text-xs leading-[18px] ${isConversionLossless(conversion) ? 'text-[color:var(--st-ok)]' : 'text-[color:var(--st-warn)]'}`}
                             >
-                                {describeConversion(conversion, path, t, i18n.language)}
+                                {describeConversion(conversion, path, t, i18n.language, stage.id)}
                             </li>
                         ))}
                     </ul>
                 )}
+                {stage.id === 'system' && <HifiSystemReport path={path} />}
             </div>
         </li>
     );
@@ -109,6 +129,8 @@ const HifiSignalPathPanel: React.FC = () => {
     const origin = useHifiTrackStore(state => state.current?.origin ?? state.sourceSpec?.origin ?? null);
     const audioDevice = useHifiSettingsStore(state => state.audioDevice);
     const audioDeviceLabel = useHifiSettingsStore(state => state.audioDeviceLabel);
+
+    useHifiOutputProbe(isOpen);
 
     // 换成 Web 引擎的歌（或停下）之后，这扇窗说的已经不是正在放的东西了。
     useEffect(() => {
@@ -152,6 +174,8 @@ const HifiSignalPathPanel: React.FC = () => {
                             />
                         ))}
                     </ol>
+                    {/* PipeWire 报的不等于 DAC 收到的：有 PipeWire 那一级就总写这一句，采样率对上了也写。 */}
+                    {path.system && <HifiSystemFootnote />}
                 </>
             )}
         </Sheet>

@@ -4161,7 +4161,8 @@ export default {
       "limitVideoExportDesc": "Lyric video export needs the normal audio engine, so it is unavailable while a song plays through HiFi.",
       "limitMediaControls": "System media controls only on a shared output",
       "limitMediaControlsDesc": "While a song plays through HiFi in exclusive mode, the system media controls (SMTC on Windows, Now Playing on macOS) do not show or control Folia. With exclusive mode off they keep working.",
-      "limitMediaControlsLinuxDesc": "While a song plays through HiFi on a device marked Direct (ALSA hw:), the system media controls (MPRIS) do not show or control Folia. On any other device they keep working."
+      "limitMediaControlsLinuxDesc": "While a song plays through HiFi on a device marked Direct (ALSA hw:), the system media controls (MPRIS) do not show or control Folia. On any other device they keep working.",
+      "limitPipewireRateFoot": "With PipeWire, the device's sample rate follows each song only when default.clock.allowed-rates lists the rate and nothing else is playing on the device. The signal path shows what PipeWire reports; check your DAC's sample-rate indicator to confirm."
     },
     "player": {
       "badge": "HiFi · {{verdict}}",
@@ -4181,6 +4182,7 @@ export default {
       "verdictShort": {
         "bitPerfect": "Bit-perfect",
         "dop": "Native DSD",
+        "ratePassthrough": "Rate passthrough",
         "converted": "Converted",
         "sharedMixer": "System mixer",
         "unknown": "Unverified"
@@ -4188,6 +4190,7 @@ export default {
       "verdict": {
         "bitPerfect": "Bit-perfect",
         "dop": "Native DSD via DoP",
+        "ratePassthrough": "Sample rate passthrough (via PipeWire)",
         "converted": "Converted on the way",
         "sharedMixer": "Through the system mixer",
         "unknown": "Not verified yet"
@@ -4195,10 +4198,14 @@ export default {
       "verdictDesc": {
         "bitPerfect": "Every sample reaches your DAC exactly as it is in the file.",
         "dop": "The DSD stream is packed into PCM frames (DoP) and reaches your DAC unchanged.",
+        "ratePassthrough": "According to PipeWire, your device runs at the sample rate mpv sends, so PipeWire does not resample this song. The sound still goes through PipeWire, so this is not a bit-perfect check.",
         "converted": "mpv changes the signal before it reaches the output. The steps marked Converted below say how.",
         "sharedMixer": "The output device is shared with other apps, so the system mixer may resample or change the signal. Turn on exclusive mode in the HiFi settings.",
         "sharedMixerExclusiveOn": "Exclusive mode is on, but this output device does not support it, so the system mixer still handles the sound and may resample it. Choose another output device in the HiFi settings.",
         "sharedMixerLinux": "PipeWire, PulseAudio or an ALSA plugin device mixes this output with other apps and may resample it. For bit-perfect output, choose a device marked Direct (ALSA hw:) in the HiFi settings.",
+        "sharedMixerPipewire": "PipeWire runs the device at another sample rate and resamples this song. The PipeWire step below says why. For bit-perfect output, choose a device marked Direct (ALSA hw:) in the HiFi settings.",
+        "sharedMixerVirtual": "The sound goes into a virtual device or an effects app in PipeWire (such as EasyEffects). PipeWire's report ends there, so it does not show which sound card the sound finally reaches or at what sample rate. For bit-perfect output, choose a device marked Direct (ALSA hw:) in the HiFi settings.",
+        "sharedMixerUnknownRate": "PipeWire does not report the sample rate the device runs at, so Folia cannot tell whether PipeWire resamples this song. Check your DAC's sample-rate indicator.",
         "unknown": "mpv has not reported the output format yet.",
         "notLoaded": "This song has not been loaded into mpv yet. The signal path is checked once it starts playing."
       },
@@ -4207,7 +4214,8 @@ export default {
         "transport": "Transport",
         "decode": "Decode",
         "process": "Processing",
-        "output": "Output"
+        "output": "Output",
+        "system": "PipeWire"
       },
       "status": {
         "passthrough": "Passthrough",
@@ -4234,14 +4242,47 @@ export default {
         "dop": "DSD packed into PCM frames (DoP), unchanged",
         "volume": "Software volume scales every sample ({{volume}})",
         "volumePlain": "Software volume scales every sample",
-        "sharedMixer": "Mixed by the system mixer, which may resample it"
+        "volumePipewire": "PipeWire's software volume scales every sample ({{volume}})",
+        "volumePipewirePlain": "PipeWire's software volume scales every sample",
+        "sharedMixer": "Mixed by the system mixer, which may resample it",
+        "filter": "Changed by filters in PipeWire: {{names}}",
+        "filterPlain": "Changed by filters in PipeWire"
       },
       "transportLocal": "Read byte for byte from your library through Folia's local bridge",
       "transportNavidrome": "The original file from Navidrome, not transcoded",
       "processBypassed": "No equalizer, effects, ReplayGain or volume change",
       "outputExclusive": "Exclusive mode",
       "outputShared": "Shared mode",
-      "outputDirect": "Direct to the device, no sound server"
+      "outputDirect": "Direct to the device, no sound server",
+      "systemReported": "As PipeWire reports it (pw-dump)",
+      "system": {
+        "checksLabel": "What PipeWire reports",
+        "rateOk": "The device runs at {{rate}}, the rate mpv sends",
+        "rateWarn": "The device runs at {{to}}, but mpv sends {{from}}: PipeWire resamples",
+        "rateUnknown": "PipeWire does not report the device's sample rate",
+        "rateVirtual": "The sound goes into the virtual device {{name}} (an effects app such as EasyEffects, or a filter not linked to a sound card). PipeWire's report ends here: the sound card it finally reaches and its sample rate are unknown",
+        "filtersOk": "No filters (equalizer, remap) between mpv and the device",
+        "filtersWarn": "Filters change the sound on the way: {{names}}",
+        "streamVolumeOk": "Folia's stream is at 100% in PipeWire",
+        "streamVolumeWarn": "Folia's stream is at {{volume}} in PipeWire, which scales every sample",
+        "deviceVolumeOk": "No software volume on the device",
+        "deviceVolumeWarn": "PipeWire applies part of the device volume in software ({{volume}}), which scales every sample",
+        "otherStreamsOk": "Nothing else is playing on this device",
+        "otherStreamsWarn": "Also playing on this device: {{names}}",
+        "ownStream": "{{name}} (from Folia itself)",
+        "channelsOk": "The device takes the channels mpv sends",
+        "channelsWarn": "mpv sends {{from}}, the device takes {{to}}: PipeWire remixes the channels",
+        "channelsWarnPlain": "The device takes other channels than mpv sends: PipeWire remixes them",
+        "hintForced": "PipeWire's clock.force-rate holds the sample rate at {{forced}}, so the device does not switch to {{rate}}. To undo it, run this command in a terminal:",
+        "hintNotAllowed": "PipeWire is not allowed to switch to {{rate}}: add it to default.clock.allowed-rates. Save the line below as a .conf file in ~/.config/pipewire/pipewire.conf.d/, then restart PipeWire.",
+        "hintBusy": "PipeWire only switches rates while the device is idle; other streams are playing on it: {{names}}.",
+        "hintBusyOwn": "A stream from Folia itself is among them, most likely the silent loop that keeps the system media controls (MPRIS) working.",
+        "hintJoin": "{{first}} {{second}}",
+        "hintNoSwitch": "PipeWire did not switch the device to {{rate}}. It switches only to a rate that default.clock.allowed-rates lists and the device supports, and only while nothing else plays on the device.",
+        "snippetLabel": "PipeWire configuration",
+        "commandLabel": "Terminal command",
+        "footnote": "This is what PipeWire reports. Folia can only read what PipeWire reports and cannot confirm what your DAC receives: check your DAC's sample-rate indicator, or listen."
+      }
     },
     "errors": {
       "MPV_NOT_FOUND": "mpv was not found. Install it or choose it in the HiFi settings.",

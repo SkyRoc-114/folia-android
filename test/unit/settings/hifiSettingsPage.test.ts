@@ -10,7 +10,8 @@ import type { HifiDevice, HifiRuntimeStatus } from '../../../src/types/hifi';
 // place of a download, the saved device keeps its name before the list is read, DoP is not offered
 // off Windows, Linux has no exclusive switch and is told that a direct device skips the sound server
 // (marked at the front of its name, so the mark survives a cut-off label), the media-controls limit
-// names what takes them away on each system, and a build without the engine has nothing to switch.
+// names what takes them away on each system (and on Linux, how PipeWire lets the device rate follow a
+// song), and a build without the engine has nothing to switch.
 // The page reads the platform when it loads, so each case loads it afresh.
 
 vi.mock('react-i18next', () => ({
@@ -55,6 +56,7 @@ const fakeHifiApi = (runtime: HifiRuntimeStatus, devices: HifiDevice[] = []) => 
     cancelInstall: vi.fn(async () => {}),
     configure: vi.fn(async () => {}),
     listDevices: vi.fn(async () => devices),
+    probeOutput: vi.fn(async () => null),
     onState: () => () => {},
     onClock: () => () => {},
     onError: () => () => {},
@@ -276,6 +278,18 @@ describe('HiFi settings page', () => {
         const row = rowOf('hifiLimitMediaControls');
         expect(row.textContent).toContain('hifi.settings.limitMediaControlsLinuxDesc');
         expect(row.textContent).not.toContain('hifi.settings.limitMediaControlsDesc');
+    });
+
+    it('says under the known limits on Linux how PipeWire lets the device rate follow each song, and nowhere else', async () => {
+        await renderPage('linux', runtimeStatus({ platform: 'linux' }));
+        expect(host.textContent).toContain('hifi.settings.limitPipewireRateFoot');
+        await act(async () => {
+            root?.unmount();
+        });
+        host.remove();
+        root = null;
+        await renderPage('win32', runtimeStatus());
+        expect(host.textContent).not.toContain('hifi.settings.limitPipewireRateFoot');
     });
 
     it('asks for exclusive mode for DoP only on Windows, the one system with a switch that makes DoP work', async () => {

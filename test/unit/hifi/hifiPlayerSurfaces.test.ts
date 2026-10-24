@@ -47,12 +47,16 @@ import { useHifiTrackStore } from '@/services/hifi/hifiTrackStore';
 import { useAudioSettingsStore } from '@/stores/useAudioSettingsStore';
 import { useHifiSettingsStore } from '@/stores/useHifiSettingsStore';
 import { setPlaybackRoute } from '@/stores/usePlaybackStore';
+import { cleanProbe, easyEffectsProbe, fixtureProbe } from './pipewireProbeFixture';
 
 // test/unit/hifi/hifiPlayerSurfaces.test.ts
 // The player surfaces on the HiFi route, drawn in jsdom with the real stores: the badge (and the progress row
 // it shares with the bar) and the sheet it opens, the controls tab tiles and volume row, the slider's
 // out-of-reach state, the audio effects window and the ReplayGain row. On the web route every one of them
-// looks as it did before HiFi.
+// looks as it did before HiFi. On Linux with PipeWire, the sheet's PipeWire step, its reason and config
+// line or command and the footnote that this is only what PipeWire reports, a stream that ends at a virtual
+// device, the badge losing its accent colour when a PipeWire check fails, and the probe that keeps running
+// while the sheet is closed so the badge can say rate passthrough.
 
 const params = (format: string, samplerate: number): HifiMpvAudioParams => ({ format, samplerate, channelCount: 2, channels: 'stereo' });
 
@@ -139,6 +143,7 @@ describe('the HiFi player surfaces', () => {
         useHifiEngineStore.setState({ engine: null });
         setPlaybackRoute('web');
         closeHifiSignalPath();
+        useHifiEngineStore.setState({ outputProbe: null });
         place = document.body.appendChild(document.createElement('div'));
         root = createRoot(place);
     });
@@ -259,6 +264,170 @@ describe('the HiFi player surfaces', () => {
             expect(place.querySelector('[role="status"]')!.textContent).toBe(i18n.t('hifi.signal.verdict.sharedMixer'));
             expect(place.textContent).toContain(i18n.t('hifi.signal.verdictDesc.sharedMixerLinux'));
             expect(place.textContent).toContain(i18n.t('hifi.signal.outputShared'));
+        });
+    });
+
+    describe('the PipeWire step on Linux', () => {
+        /** mpv on PipeWire for the song playOnHifi set up, and a probe made for it. */
+        const playOnPipewire = (probe = fixtureProbe(), probeTrackKey = 'local:1#a') => {
+            (window as { electron?: unknown }).electron = { platform: 'linux' };
+            playOnHifi();
+            act(() => useHifiEngineStore.setState({
+                engine: { ...engineState('local:1#a'), currentAo: 'pipewire', audioDevice: 'auto', exclusive: false },
+                outputProbe: { probe, trackKey: probeTrackKey },
+            }));
+        };
+        const footnote = () => i18n.t('hifi.signal.system.footnote');
+
+        it('lists what PipeWire reports after the output, why it resampled, the config line, and the footnote', () => {
+            playOnPipewire();
+            openHifiSignalPath();
+            draw(React.createElement(HifiSignalPathPanel));
+            const dialog = place.querySelector('[role="dialog"]')!;
+            expect(dialog.querySelector('[role="status"]')!.textContent).toBe(i18n.t('hifi.signal.verdict.sharedMixer'));
+            expect(dialog.textContent).toContain(i18n.t('hifi.signal.verdictDesc.sharedMixerPipewire'));
+            const stages = dialog.querySelectorAll('ol > li');
+            expect(stages).toHaveLength(6);
+            expect(stages[5].textContent).toContain(i18n.t('hifi.signal.stage.system'));
+            const checks = Array.from(stages[5].querySelectorAll('[data-system-check]'));
+            expect(checks.map(check => [check.getAttribute('data-system-check'), check.getAttribute('data-ok')])).toEqual([
+                ['rate', 'false'], ['filters', 'false'], ['streamVolume', 'true'], ['deviceVolume', 'false'], ['otherStreams', 'true'], ['channels', 'true'],
+            ]);
+            const hint = stages[5].querySelector('[data-system-hint="notAllowed"]')!;
+            expect(hint.textContent).toContain(i18n.t('hifi.signal.system.hintNotAllowed', { rate: i18n.t('hifi.signal.sampleRate', { value: '96' }) }));
+            expect(hint.querySelector('pre')!.textContent).toBe('context.properties = { default.clock.allowed-rates = [ 44100 48000 88200 96000 176400 192000 ] }');
+            expect(hint.querySelector('button')).not.toBeNull();
+            expect(dialog.querySelector('[role="note"]')!.textContent).toBe(footnote());
+        });
+
+        it('does not list the PipeWire step\'s changes again under its checks', () => {
+            playOnPipewire();
+            openHifiSignalPath();
+            draw(React.createElement(HifiSignalPathPanel));
+            const system = place.querySelectorAll('[role="dialog"] ol > li')[5];
+            // Only the checks list: the resample, filter and volume changes are what the checks already say.
+            expect(system.querySelectorAll('ul')).toHaveLength(1);
+            expect(system.querySelector('ul')!.getAttribute('aria-label')).toBe(i18n.t('hifi.signal.system.checksLabel'));
+            expect(system.textContent).not.toContain(i18n.t('hifi.signal.conversion.filter', { names: 'Equalizer Sink, remap-FL-FR-to-FR-FL' }));
+            expect(system.textContent).toContain(i18n.t('hifi.signal.system.filtersWarn', { names: 'Equalizer Sink, remap-FL-FR-to-FR-FL' }));
+        });
+
+        it('offers the command that undoes a forced clock rate, labelled as a command', () => {
+            const probe = fixtureProbe();
+            playOnPipewire({ ...probe, graph: { ...probe.graph, forceRate: 48000 } });
+            openHifiSignalPath();
+            draw(React.createElement(HifiSignalPathPanel));
+            expect(place.querySelector('[data-system-hint="notAllowed"]')).toBeNull();
+            const hint = place.querySelector('[data-system-hint="forced"]')!;
+            const pre = hint.querySelector('pre')!;
+            expect(pre.textContent).toBe('pw-metadata -n settings 0 clock.force-rate 0');
+            expect(pre.getAttribute('aria-label')).toBe(i18n.t('hifi.signal.system.commandLabel'));
+            expect(hint.querySelector('button')).not.toBeNull();
+        });
+
+        it('says a stream into a virtual device ends there: no device rate, no reasons, the footnote, a muted badge', () => {
+            playOnPipewire(easyEffectsProbe(96000));
+            openHifiSignalPath();
+            draw(React.createElement(React.Fragment, null, React.createElement(HifiSignalPathPanel), React.createElement(HifiBadge)));
+            const dialog = place.querySelector('[role="dialog"]')!;
+            expect(dialog.querySelector('[role="status"]')!.textContent).toBe(i18n.t('hifi.signal.verdict.sharedMixer'));
+            expect(dialog.textContent).toContain(i18n.t('hifi.signal.verdictDesc.sharedMixerVirtual'));
+            expect(dialog.textContent).not.toContain(i18n.t('hifi.signal.verdictDesc.sharedMixerPipewire'));
+            const system = dialog.querySelectorAll('ol > li')[5];
+            expect(Array.from(system.querySelectorAll('[data-system-check]')).map(check => [check.getAttribute('data-system-check'), check.getAttribute('data-ok')])).toEqual([
+                ['rate', 'false'], ['filters', 'false'], ['streamVolume', 'true'],
+            ]);
+            expect(system.textContent).toContain(i18n.t('hifi.signal.system.rateVirtual', { name: 'Easy Effects Sink' }));
+            expect(dialog.querySelector('[data-system-hint]')).toBeNull();
+            expect(dialog.querySelector('[role="note"]')!.textContent).toBe(footnote());
+            const badge = Array.from(place.querySelectorAll('button')).find(button => button.getAttribute('aria-haspopup') === 'dialog')!;
+            expect(badge.getAttribute('aria-label')).toContain(i18n.t('hifi.signal.verdictShort.sharedMixer'));
+            expect(badge.className).not.toContain('var(--text-accent)');
+        });
+
+        it('says rate passthrough, never bit-perfect, and still adds the footnote', () => {
+            playOnPipewire(cleanProbe(96000));
+            openHifiSignalPath();
+            draw(React.createElement(HifiSignalPathPanel));
+            expect(place.querySelector('[role="status"]')!.textContent).toBe(i18n.t('hifi.signal.verdict.ratePassthrough'));
+            expect(place.textContent).not.toContain(i18n.t('hifi.signal.verdict.bitPerfect'));
+            expect(place.querySelector('[data-system-hint]')).toBeNull();
+            expect(place.querySelector('[role="note"]')!.textContent).toBe(footnote());
+        });
+
+        it('gives rate passthrough its own label and icon on the badge, in the accent colour', () => {
+            playOnPipewire(cleanProbe(96000));
+            draw(React.createElement(HifiBadge));
+            const badge = place.querySelector('button')!;
+            expect(badge.getAttribute('aria-label')).toContain(i18n.t('hifi.signal.verdictShort.ratePassthrough'));
+            expect(badge.className).toContain('var(--text-accent)');
+            const icon = badge.querySelector('svg')!.getAttribute('class');
+
+            act(() => useHifiEngineStore.setState({ outputProbe: null, engine: engineState('local:1#a') }));
+            const bitPerfectIcon = place.querySelector('button svg')!.getAttribute('class');
+            expect(place.querySelector('button')!.getAttribute('aria-label')).toContain(i18n.t('hifi.signal.verdictShort.bitPerfect'));
+            expect(icon).not.toBe(bitPerfectIcon);
+        });
+
+        it('draws rate passthrough in the secondary colour on the badge while a PipeWire check fails', () => {
+            playOnPipewire(cleanProbe(96000, { otherStreams: [{ nodeId: 140, name: 'Firefox', own: false }] }));
+            draw(React.createElement(HifiBadge));
+            const badge = place.querySelector('button')!;
+            expect(badge.getAttribute('aria-label')).toContain(i18n.t('hifi.signal.verdictShort.ratePassthrough'));
+            expect(badge.className).toContain('var(--text-secondary)');
+            expect(badge.className).not.toContain('var(--text-accent)');
+
+            act(() => useHifiEngineStore.setState({ outputProbe: { probe: fixtureProbe({ streamRate: 96000, deviceRate: 96000, allowedRates: [96000] }), trackKey: 'local:1#a' } }));
+            // Filters and soft volume on the way: the rate passes, the colour stays secondary.
+            expect(place.querySelector('button')!.getAttribute('aria-label')).toContain(i18n.t('hifi.signal.verdictShort.ratePassthrough'));
+            expect(place.querySelector('button')!.className).toContain('var(--text-secondary)');
+        });
+
+        it('does not light the signal path tile for rate passthrough while a PipeWire check fails, like the badge', () => {
+            playOnPipewire(cleanProbe(96000, { otherStreams: [{ nodeId: 140, name: 'Firefox', own: false }] }));
+            draw(React.createElement(SoundTiles, { loopMode: 'off', onToggleLoop: vi.fn(), loopToggleDisabled: false }));
+            const tile = place.querySelectorAll('button')[1];
+            expect(tile.textContent).toContain(i18n.t('hifi.signal.verdictShort.ratePassthrough'));
+            expect(tile.className).not.toContain('bg-[var(--st-raise)]');
+        });
+
+        it('ignores a probe made for another track', () => {
+            playOnPipewire(cleanProbe(96000), 'local:0#old');
+            openHifiSignalPath();
+            draw(React.createElement(HifiSignalPathPanel));
+            expect(place.querySelector('[role="status"]')!.textContent).toBe(i18n.t('hifi.signal.verdict.sharedMixer'));
+            expect(place.querySelectorAll('ol > li')).toHaveLength(5);
+            expect(place.textContent).not.toContain(footnote());
+        });
+
+        it('has no footnote without PipeWire', () => {
+            playOnHifi();
+            openHifiSignalPath();
+            draw(React.createElement(HifiSignalPathPanel));
+            expect(place.textContent).not.toContain(footnote());
+        });
+
+        it('keeps probing while the sheet is closed, so the badge can say rate passthrough', async () => {
+            vi.useFakeTimers();
+            try {
+                const probeOutput = vi.fn(async () => cleanProbe(96000));
+                (window as { electron?: unknown }).electron = { platform: 'linux', hifi: { probeOutput } };
+                playOnHifi();
+                act(() => useHifiEngineStore.setState({
+                    engine: { ...engineState('local:1#a'), currentAo: 'pipewire', audioDevice: 'auto', exclusive: false },
+                }));
+                draw(React.createElement(React.Fragment, null, React.createElement(HifiSignalPathPanel), React.createElement(HifiBadge)));
+                expect(place.querySelector('[role="dialog"]')).toBeNull();
+                expect(place.querySelector('button')!.getAttribute('aria-label')).toContain(i18n.t('hifi.signal.verdictShort.sharedMixer'));
+
+                await act(async () => {
+                    vi.advanceTimersByTime(1500);
+                });
+                expect(probeOutput).toHaveBeenCalledOnce();
+                expect(place.querySelector('button')!.getAttribute('aria-label')).toContain(i18n.t('hifi.signal.verdictShort.ratePassthrough'));
+            } finally {
+                vi.useRealTimers();
+            }
         });
     });
 

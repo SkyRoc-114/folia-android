@@ -29,6 +29,7 @@ const require = createRequire(import.meta.url);
 const { createMpvSession } = require('../../electron/hifi/mpvSession.cjs');
 const { createMpvIpcClient } = require('../../electron/hifi/mpvIpcClient.cjs');
 const { createSourceBridge } = require('../../electron/hifi/sourceBridge.cjs');
+const { AUDIO_CLIENT_NAME } = require('../../electron/hifi/mpvArgs.cjs');
 
 const parseArgs = () => {
     const args = process.argv.slice(2);
@@ -199,11 +200,12 @@ const printFormat = (label, state) => {
     console.log(`         durationSec ${state.durationSec} currentAo ${state.currentAo} device ${state.audioDevice} volume ${state.volume} exclusive ${state.exclusive} spdif ${state.spdif}`);
 };
 
-// PulseAudio 兼容层里 mpv 的流（Sink Input）各自的属性块；没有 pactl 时为 null。PipeWire 不总给 mpv 的流记进程号，按应用名认。
+// PulseAudio 兼容层里 mpv 的流（Sink Input）各自的属性块；没有 pactl 时为 null。PipeWire 不总给 mpv 的流记进程号，
+// 按应用名认：mpvSession 用 --audio-client-name 起 mpv（mpvArgs.cjs 的 AUDIO_CLIENT_NAME），pactl 把它列成 application.name。
 const mpvSinkInputs = () => {
     const listed = spawnSync('pactl', ['list', 'sink-inputs'], { encoding: 'utf8', timeout: 5000 });
     if (listed.status !== 0 || typeof listed.stdout !== 'string') return null;
-    return listed.stdout.split(/^Sink Input #/m).slice(1).filter(block => block.includes('application.name = "mpv"'));
+    return listed.stdout.split(/^Sink Input #/m).slice(1).filter(block => block.includes(`application.name = "${AUDIO_CLIENT_NAME}"`));
 };
 
 const [first, second] = files;

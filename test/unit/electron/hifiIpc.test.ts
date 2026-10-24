@@ -1,5 +1,7 @@
 import { EventEmitter } from 'events';
+import { readFileSync } from 'fs';
 import { createRequire } from 'module';
+import path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HifiLoadRequest, HifiReadResponse } from '../../../src/types/hifi';
 
@@ -138,6 +140,7 @@ const createHarness = ({ approvedPath = null, ...overrides }: HarnessOptions = {
         cancel: vi.fn(),
     };
     const dialog = { showOpenDialog: vi.fn(async () => ({ canceled: false, filePaths: ['/opt/mpv/bin/mpv'] })) };
+    const outputProbe = { probe: vi.fn(async (): Promise<unknown> => ({ backend: 'pipewire', at: 1 })) };
     const onRuntimeChanged = vi.fn();
     let readCounter = 0;
     const api = registerHifiIpc({
@@ -146,6 +149,7 @@ const createHarness = ({ approvedPath = null, ...overrides }: HarnessOptions = {
         session,
         runtime,
         installer,
+        outputProbe,
         dialog,
         getMainWindow: () => mainWindow,
         webContentsFromId: (id: number) => contents.get(id),
@@ -169,6 +173,7 @@ const createHarness = ({ approvedPath = null, ...overrides }: HarnessOptions = {
         session,
         runtime,
         installer,
+        outputProbe,
         dialog,
         onRuntimeChanged,
         approval,
@@ -215,13 +220,16 @@ describe('hifi ipc: channels and trust', () => {
             'hifi:preload-next',
             'hifi:clear-next',
             'hifi:get-snapshot',
+            'hifi:probe-output',
         ]);
     });
 
-    it('an untrusted sender gets null from the two getters and an exception everywhere else, and nothing runs', async () => {
+    it('an untrusted sender gets null from the three getters and an exception everywhere else, and nothing runs', async () => {
         const harness = createHarness();
         await expect(Promise.resolve(harness.invokeAs(99, 'hifi:get-runtime-status'))).resolves.toBeNull();
         await expect(Promise.resolve(harness.invokeAs(99, 'hifi:get-snapshot'))).resolves.toBeNull();
+        await expect(Promise.resolve(harness.invokeAs(99, 'hifi:probe-output'))).resolves.toBeNull();
+        expect(harness.outputProbe.probe).not.toHaveBeenCalled();
         const args: Record<string, unknown[]> = {
             'hifi:configure': [validConfig()],
             'hifi:load': [validRequest()],
@@ -230,7 +238,7 @@ describe('hifi ipc: channels and trust', () => {
             'hifi:preload-next': [validRequest()],
         };
         for (const channel of INVOKE_CHANNELS) {
-            if (channel === 'hifi:get-runtime-status' || channel === 'hifi:get-snapshot') continue;
+            if (channel === 'hifi:get-runtime-status' || channel === 'hifi:get-snapshot' || channel === 'hifi:probe-output') continue;
             expect(() => harness.invokeAs(99, channel, ...(args[channel] ?? [])), channel).toThrow(/Untrusted renderer/);
         }
         for (const method of Object.values(harness.session)) expect(method).not.toHaveBeenCalled();
@@ -256,6 +264,33 @@ describe('hifi ipc: channels and trust', () => {
         for (const method of ['play', 'pause', 'stop', 'clearNext'] as const) expect(harness.session[method]).toHaveBeenCalledTimes(1);
         await expect(Promise.resolve(harness.invoke('hifi:get-snapshot'))).resolves.toEqual({ status: 'idle', seq: 3 });
         await expect(harness.invoke('hifi:list-devices')).resolves.toHaveLength(1);
+    });
+
+    it('probe-output hands back what the PipeWire probe read, on Linux only', async () => {
+        const harness = createHarness();
+        await expect(harness.invoke('hifi:probe-output')).resolves.toEqual({ backend: 'pipewire', at: 1 });
+        expect(harness.outputProbe.probe).toHaveBeenCalledTimes(1);
+        // 渲染端传什么都不交给探测器：流名由主进程定。
+        await harness.invoke('hifi:probe-output', { streamName: 'evil' });
+        expect(harness.outputProbe.probe).toHaveBeenLastCalledWith();
+
+        harness.outputProbe.probe.mockResolvedValueOnce(null);
+        await expect(harness.invoke('hifi:probe-output')).resolves.toBeNull();
+
+        for (const platform of ['win32', 'darwin']) {
+            const other = createHarness({ platform });
+            await expect(other.invoke('hifi:probe-output'), platform).resolves.toBeNull();
+            expect(other.outputProbe.probe, platform).not.toHaveBeenCalled();
+        }
+        const withoutProbe = createHarness({ outputProbe: null });
+        await expect(withoutProbe.invoke('hifi:probe-output')).resolves.toBeNull();
+    });
+
+    it('probe-output answers null and logs when the probe throws', async () => {
+        const harness = createHarness();
+        harness.outputProbe.probe.mockRejectedValueOnce(new Error('boom'));
+        await expect(harness.invoke('hifi:probe-output')).resolves.toBeNull();
+        expect(harness.logWarn).toHaveBeenCalledWith('[HiFi] could not probe the PipeWire output', expect.any(Error));
     });
 
     it('list-devices answers [] when mpv cannot be started', async () => {
@@ -630,5 +665,43 @@ describe('hifi ipc: pushes and reads', () => {
         await harness.invokeAs(1, 'hifi:read-result', 'read-1-0000-0000-0000-000000000000', { status: 'ok', data: 'AAAA' });
         await expect(read).resolves.toEqual({ status: 'failed' });
         expect(() => harness.invokeAs(1, 'hifi:read-result', 42, { status: 'failed' })).toThrow(/INVALID_REQUEST/);
+    });
+});
+
+describe('hifi ipc: the preload bridge', () => {
+    // preload.cjs 只 require('electron')：换成假的 contextBridge / ipcRenderer 原样执行，看 window.electron.hifi 的每个方法调到哪个通道。
+    const loadPreloadHifi = () => {
+        const source = readFileSync(path.resolve(__dirname, '../../../electron/preload.cjs'), 'utf8');
+        const exposed: Record<string, any> = {};
+        const ipcRenderer = {
+            invoke: vi.fn(async () => undefined),
+            send: vi.fn(),
+            on: vi.fn(),
+            removeListener: vi.fn(),
+        };
+        const electron = {
+            contextBridge: { exposeInMainWorld: (key: string, api: unknown) => { exposed[key] = api; } },
+            ipcRenderer,
+            webUtils: { getPathForFile: () => '' },
+        };
+        new Function('require', source)((name: string) => {
+            if (name !== 'electron') throw new Error(`preload required ${name}`);
+            return electron;
+        });
+        return { hifi: exposed.electron.hifi as Record<string, (...args: unknown[]) => unknown>, ipcRenderer };
+    };
+
+    it('probeOutput invokes hifi:probe-output with no payload', async () => {
+        const { hifi, ipcRenderer } = loadPreloadHifi();
+        await hifi.probeOutput();
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith('hifi:probe-output');
+        expect(ipcRenderer.invoke.mock.calls[0]).toHaveLength(1);
+    });
+
+    it('every invoke channel main registers is reachable from window.electron.hifi', async () => {
+        const { hifi, ipcRenderer } = loadPreloadHifi();
+        for (const method of Object.values(hifi)) await method(() => {}, () => {});
+        const invoked = new Set((ipcRenderer.invoke.mock.calls as unknown as unknown[][]).map(call => call[0]));
+        expect([...invoked].sort()).toEqual([...INVOKE_CHANNELS, READ_RESULT_CHANNEL].sort());
     });
 });

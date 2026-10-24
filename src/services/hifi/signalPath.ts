@@ -2,6 +2,7 @@ import type {
     HifiDsdMode,
     HifiEngineState,
     HifiMpvAudioParams,
+    HifiOutputProbe,
     HifiSignalConversion,
     HifiSignalFormat,
     HifiSignalPath,
@@ -10,9 +11,13 @@ import type {
     HifiSignalVerdict,
     HifiSourceSpec,
 } from '../../types/hifi';
+import { isPipewireOutputDriver } from './hifiEngineRules';
+import { buildSystemFindings } from './signalPathSystem';
 
 // src/services/hifi/signalPath.ts
 // 把源格式、mpv 解码后的格式和实际送进声卡的格式逐级比对，判断这一路是不是逐位直通（bit-perfect）。
+// Linux 上经 PipeWire 输出、有 pw-dump 的探测结果时，再比 mpv 交出的格式和 PipeWire 报的设备格式（system 一级，
+// 在 signalPathSystem.ts）。那一级只是 PipeWire 自己报的状态：DAC 实际收到什么要在实机上由人确认，这里从不据此判逐位直通。
 
 export type SignalPathEngineState = Pick<
     HifiEngineState,
@@ -145,11 +150,17 @@ const outputDetail = (ao: string | null, device: string | null): string | null =
     return device.startsWith(`${ao}/`) ? device : `${ao} ${device}`;
 };
 
-/** 按 source → transport → decode → process → output 五级给出每一级的格式和改动，并给出整体结论。 */
+/**
+ * 按 source → transport → decode → process → output 五级给出每一级的格式和改动，并给出整体结论。
+ * probe 是 Linux 上 PipeWire 的探测结果：mpv 走 pipewire / pulse 输出、探测找到了设备（或链路停在虚拟设备上）时，
+ * output 之后再加一级 system，结论按 PipeWire 报的设备采样率判采样率直通（rate-passthrough）或经过系统混音器；
+ * 停在虚拟设备上时不知道设备的采样率，判经过系统混音器。没有 probe、或者 probe 读的是 mpv 换格式之前的流时和以前完全一样。
+ */
 export const buildSignalPath = (
     sourceSpec: HifiSourceSpec | null,
     mpvState: SignalPathEngineState | null,
     settings: SignalPathSettings,
+    probe: HifiOutputProbe | null = null,
 ): HifiSignalPath => {
     const sourceStage: HifiSignalStage = {
         id: 'source',
@@ -179,6 +190,7 @@ export const buildSignalPath = (
             ],
             conversions: [],
             output: { ao: null, device: null, exclusive: settings.exclusive },
+            system: null,
         };
     }
 
@@ -227,7 +239,11 @@ export const buildSignalPath = (
         if (input.channelCount !== out.channelCount) outputConversions.push('channels');
         if (!isLosslessFormatChange(input, out, sourceSpec)) outputConversions.push('format');
     }
-    if (shared && !dop) outputConversions.push('shared-mixer');
+    // 有 PipeWire 的探测时，「可能被系统混音器改动」换成 system 一级里 PipeWire 报的实情。
+    const system = out && input && !dop && probe && isPipewireOutputDriver(mpvState.currentAo)
+        ? buildSystemFindings(out, probe)
+        : null;
+    if (shared && !dop && !system) outputConversions.push('shared-mixer');
     const outputStage: HifiSignalStage = {
         id: 'output',
         status: out && (input || dop) ? stageStatus(outputConversions) : 'unknown',
@@ -236,20 +252,28 @@ export const buildSignalPath = (
         detail: outputDetail(mpvState.currentAo, mpvState.audioDevice),
     };
 
-    const conversions = [...decodeConversions, ...processConversions, ...outputConversions];
+    const mpvConversions = [...decodeConversions, ...processConversions, ...outputConversions];
+    const conversions = [...mpvConversions, ...(system?.stage.conversions ?? [])];
     const resolveVerdict = (): HifiSignalVerdict => {
         // 没有实际输出格式，或者没有解码格式可比，就判断不了。
         if (!out || (!input && !dop)) return 'unknown';
         if (dop) return 'dop';
-        if (conversions.some(conversion => conversion !== 'shared-mixer')) return 'converted';
+        if (mpvConversions.some(conversion => conversion !== 'shared-mixer')) return 'converted';
+        // PipeWire 报的设备采样率和 mpv 交出的一样：只说采样率没被 PipeWire 换掉。滤波链、音量、别的流只作提醒，不改结论
+        // （徽标在它们没过时不用强调色，见 signalPathTone）。
+        if (system) return system.ratePasses ? 'rate-passthrough' : 'shared-mixer';
         if (shared) return 'shared-mixer';
         return 'bit-perfect';
     };
 
+    const stages = [sourceStage, transportStage, decodeStage, processStage, outputStage];
+    if (system) stages.push({ ...system.stage, status: stageStatus(system.stage.conversions) });
+
     return {
         verdict: resolveVerdict(),
-        stages: [sourceStage, transportStage, decodeStage, processStage, outputStage],
+        stages,
         conversions,
         output: { ao: mpvState.currentAo, device: mpvState.audioDevice, exclusive: mpvState.exclusive },
+        system: system?.report ?? null,
     };
 };
