@@ -39,6 +39,7 @@ import { getNavidromeConfig, navidromeApi } from '../../../../services/navidrome
 import { notifyPlaybackFailed, untransformedLyrics } from '../../../../services/hostExtensionHooks';
 import { lyricsBeforeRules } from '../../../../utils/lyrics/lyricLineRules';
 import { wholeQueueWritesSoFar } from '../../../../services/wholeQueueWrites';
+import { PlayerState } from '../../../../types';
 import type { LyricData, LocalPlaylist, LocalSong, OnlineLyricsState, QueueAddBehavior, SongResult, StatusMessage } from '../../../../types';
 import type { AudioQualityPreference, MediaId, ProviderCollection } from '../../../../types/onlineMusic';
 import type { PlaybackSnapshot, PlaybackNavigationOptions } from '../../../../types/appPlayback';
@@ -54,7 +55,7 @@ import { buildLocalSongLyricMatchContext, shouldRefreshLocalSongLyricsFromMetada
 import { getLocalLibraryCatalogSnapshot } from '../../../../services/localLibraryEntityRepository';
 import { setStatusMessage as setStatusMsg } from '../../../../stores/useStatusMessageStore';
 import { useLyricSettingsStore } from '../../../../stores/useLyricSettingsStore';
-import { setActiveLocalLyricsSource, setAudioSrc, setCachedCoverUrl, setCurrentLineIndex, setCurrentSong, setPlayQueue, startLoadingToPlay } from '../../../../stores/usePlaybackStore';
+import { setActiveLocalLyricsSource, setAudioSrc, setCachedCoverUrl, setCurrentLineIndex, setCurrentSong, setPlayerState, setPlayQueue, startLoadingToPlay } from '../../../../stores/usePlaybackStore';
 import { askedSongKeyRef, askForSong, playsDroppedSoFar, replaceShownSong, showSong, startPlay } from '../currentSong';
 import { loadLocalSongAudio, loadLocalSongHifiSource, loadNavidromeSongAudio } from '../source/songAudioSource';
 import { beginHifiTrack, hifiRouteFor } from '../../../../services/hifi/hifiPlayback';
@@ -123,6 +124,26 @@ const queueRewrittenFor = (options: PlaybackNavigationOptions): (() => boolean) 
     if (options.queueRewritten) return options.queueRewritten;
     const writesAtEntry = wholeQueueWritesSoFar();
     return () => options.unifiedQueue !== undefined && wholeQueueWritesSoFar() !== writesAtEntry;
+};
+
+/*
+ * How a library play starts. Every play starts its song at the beginning and plays it, with its own
+ * 'loading' / 'loaded' toasts; the HiFi bridge, when it moves the song it was playing to the other
+ * engine, asks for the place it was at (`startAtSec`), the paused state it was in (`autoplay`) and for
+ * the toast that says why to stay (`quietLoadedToast`).
+ */
+const playStartOf = (options: PlaybackNavigationOptions) => ({
+    startAtSec: typeof options.startAtSec === 'number' && Number.isFinite(options.startAtSec) && options.startAtSec > 0
+        ? options.startAtSec
+        : 0,
+    autoplay: options.autoplay ?? true,
+    quiet: options.quietLoadedToast === true,
+});
+
+// A play that is to play waits for its song to start; one asked to stay paused is paused at once.
+const settlePlayerStateForStart = (autoplay: boolean) => {
+    if (autoplay) startLoadingToPlay();
+    else setPlayerState(PlayerState.PAUSED);
 };
 
 /*
@@ -672,6 +693,7 @@ export function useLibraryPlaybackController({
     const onPlayLocalSong = useCallback(async (localSong: LocalSong, queue: LocalSong[] = [], options: PlaybackNavigationOptions = {}) => {
         const stillWanted = startPlay();
         const queueRewritten = queueRewrittenFor(options);
+        const start = playStartOf(options);
         interruptStagePlaybackForMainTransition();
 
         // Asked before the file is read: on the HiFi route mpv reads the file itself, and no blob URL is made.
@@ -714,22 +736,24 @@ export function useLibraryPlaybackController({
             retireBlobUrl(null);
         }
 
-        shouldAutoPlayRef.current = true;
+        shouldAutoPlayRef.current = start.autoplay;
         askForSong(initialMeta.unifiedSong);
-        // A new song starts at its beginning: a time to resume at was left for another song.
-        pendingResumeTimeRef.current = null;
+        // A new song starts at its beginning: a time to resume at was left for another song. A play
+        // asked to start further in leaves its own for the deck's loadedmetadata; mpv loads there itself.
+        pendingResumeTimeRef.current = start.startAtSec > 0 && !onHifi ? start.startAtSec : null;
         lastAudioRecoverySourceRef.current = null;
         setLyrics(initialMeta.lyrics);
         setActiveLocalLyricsSource(initialMeta.lyricsSource);
         setCurrentLineIndex(-1);
-        currentTime.set(0);
+        currentTime.set(start.startAtSec);
         showSong(initialMeta.unifiedSong);
         if ('file' in audio) {
             // Loaded paused from its beginning; the HiFi bridge starts it, as the web route's autoplay starts <audio>.
             void beginHifiTrack({
                 song: initialMeta.unifiedSong,
                 source: { kind: 'local', localSong: preparedLocalSong, file: audio.file },
-                startSec: 0,
+                startSec: start.startAtSec,
+                stillWanted,
             });
         } else {
             setAudioSrc(playbackUrl);
@@ -764,14 +788,14 @@ export function useLibraryPlaybackController({
         if (options.shouldNavigateToPlayer ?? true) {
             navigateToPlaybackView();
         }
-        startLoadingToPlay();
+        settlePlayerStateForStart(start.autoplay);
         if (shouldReportShiftedLyricFile(preparedLocalSong, initialMeta.lyricsSource)) {
             setStatusMsg({
                 type: 'info',
                 text: t('status.lyricFileIssueShifted', { title: initialMeta.unifiedSong.name }),
                 durationMs: 8000,
             });
-        } else {
+        } else if (!start.quiet) {
             setStatusMsg({ type: 'success', text: t('status.localMusicLoaded')});
         }
         void restoreCachedThemeForSong(initialMeta.unifiedSong).catch((error) => {
@@ -859,6 +883,7 @@ export function useLibraryPlaybackController({
     ) => {
         const stillWanted = startPlay();
         const queueRewritten = queueRewrittenFor(options);
+        const start = playStartOf(options);
         interruptStagePlaybackForMainTransition();
 
         const shouldNavigateToPlayer = options.shouldNavigateToPlayer ?? true;
@@ -916,7 +941,7 @@ export function useLibraryPlaybackController({
 
             if (!nextLyrics && !matchData?.noAutoMatch && !matchData?.matchedIsPureMusic) {
                 try {
-                    if (!showedLoadingToast) {
+                    if (!showedLoadingToast && !start.quiet) {
                         setStatusMsg({ type: 'info', text: t('status.loadingSong') || '' });
                         showedLoadingToast = true;
                     }
@@ -1047,14 +1072,15 @@ export function useLibraryPlaybackController({
             // The HiFi route looks for no copy the browser can play: mpv decodes every format itself.
             const recoveredRepresentation = onHifi ? null : audio.recoveredCopy(unifiedSong);
 
-            shouldAutoPlayRef.current = true;
+            shouldAutoPlayRef.current = start.autoplay;
             askForSong(unifiedSong);
-            // A new song starts at its beginning: a time to resume at was left for another song.
-            pendingResumeTimeRef.current = null;
+            // A new song starts at its beginning: a time to resume at was left for another song. A play
+            // asked to start further in leaves its own for the deck's loadedmetadata; mpv loads there itself.
+            pendingResumeTimeRef.current = start.startAtSec > 0 && !onHifi ? start.startAtSec : null;
             lastAudioRecoverySourceRef.current = null;
             setLyrics(nextLyrics);
             setCurrentLineIndex(-1);
-            currentTime.set(0);
+            currentTime.set(start.startAtSec);
             showSong(unifiedSong);
             setManagedCachedCoverUrl(coverUrl ?? null);
             if (onHifi) {
@@ -1065,7 +1091,8 @@ export function useLibraryPlaybackController({
                 void beginHifiTrack({
                     song: unifiedSong,
                     source: { kind: 'navidrome', carrier: navidromeSong, streamUrl: audio.rawStreamUrl() },
-                    startSec: 0,
+                    startSec: start.startAtSec,
+                    stillWanted,
                 });
             } else {
                 setAudioSrc(recoveredRepresentation?.url ?? audio.streamUrl);
@@ -1090,8 +1117,8 @@ export function useLibraryPlaybackController({
             if (shouldNavigateToPlayer) {
                 navigateToPlaybackView();
             }
-            startLoadingToPlay();
-            setStatusMsg({ type: 'success', text: t('status.navidromeSongLoaded')});
+            settlePlayerStateForStart(start.autoplay);
+            if (!start.quiet) setStatusMsg({ type: 'success', text: t('status.navidromeSongLoaded')});
             void restoreCachedThemeForSong(unifiedSong).catch((error) => {
                 console.warn('Theme load error', error);
             });

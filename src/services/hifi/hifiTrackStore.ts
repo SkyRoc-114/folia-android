@@ -15,9 +15,18 @@ export type HifiTrack = {
     song: SongResult;
     /** 本地歌曲登记在 hifiEngine.responder 的键；Navidrome 为 null。 */
     localSourceKey: string | null;
+    /**
+     * 起播（或恢复）拿到的“还要不要这一首”：之后又有一次播放开始了就答否。失败回落时先问它，答否就不在 Web 引擎上重放，
+     * 免得把那次更新的播放顶掉。没有时算一直要。
+     */
+    stillWanted?: () => boolean;
 };
 
-export type HifiLoadState = 'idle' | 'loading' | 'ready' | 'failed';
+/**
+ * deferred：恢复时没有播放意图，先不载入、不开输出设备；曲目照样显示，位置和时长取自恢复的数据。第一次播放、跳转或自动播放时
+ * 才真正载入（loadDeferredHifiTrack）。
+ */
+export type HifiLoadState = 'idle' | 'deferred' | 'loading' | 'ready' | 'failed';
 
 export type HifiTrackStoreState = {
     current: HifiTrack | null;

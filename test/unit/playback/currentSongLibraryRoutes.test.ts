@@ -15,6 +15,8 @@ import type { NavidromeSong } from '@/types/navidrome';
 // The last describe pins the same plays on the HiFi route: no blob URL is made and no address is
 // written; the track goes to the HiFi service (a stub here) with the file itself or the stream of the
 // original file, and the rest of the play is the web route's.
+// After it: a play the HiFi bridge asks to start further in, paused, or without its own toasts (a song
+// it moves to the other engine), on both routes.
 
 const env = vi.hoisted(() => ({
     note: (_label: string) => {},
@@ -152,7 +154,9 @@ vi.mock('@/services/prefetchService', async importOriginal => ({
 const { useLibraryPlaybackController } = await import('@/components/app/playback/start/useLibraryPlaybackController');
 const { usePlaybackRuntimeRefs } = await import('@/components/app/playback/usePlaybackRuntimeRefs');
 const { usePlaybackStore } = await import('@/stores/usePlaybackStore');
-const { askForSong, dropPlaysInFlight, makeSongCurrent } = await import('@/components/app/playback/currentSong');
+const { askForSong, dropPlaysInFlight, makeSongCurrent, startPlay } = await import('@/components/app/playback/currentSong');
+const { currentTime } = await import('@/stores/motionSignals');
+const { PlayerState } = await import('@/types');
 const { useStatusMessageStore } = await import('@/stores/useStatusMessageStore');
 const { retireBlobUrl } = await import('@/services/playbackBlobUrls');
 const { clearPlaybackRepresentationsForTests, registerPlaybackRepresentation } = await import('@/services/playbackRecovery/representationRegistry');
@@ -1124,5 +1128,101 @@ describe('a library play and the songs around it', () => {
 
         const calls = prefetchNearbySongs.mock.calls as unknown as [SongResult, SongResult[]][];
         expect(calls.map(([current]) => current.name)).toEqual(['L1', 'N1']);
+    });
+});
+
+describe('a play moved to the other engine: where it starts, whether it plays, and its toasts', () => {
+    const status = () => useStatusMessageStore.getState().message;
+    const aNavidromeSong = () => ({
+        id: 'n1', name: 'N1', artists: [], album: { id: 0, name: '' }, durationMs: 1000,
+        isNavidrome: true, navidromeData: { id: 'n1', title: 'N1', streamUrl: 'https://navi.test/stream/n1' },
+    } as unknown as NavidromeSong);
+    const moved = { startAtSec: 42.5, autoplay: false, quietLoadedToast: true };
+
+    beforeEach(() => {
+        retireBlobUrl(null);
+        vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+        currentTime.set(0);
+    });
+
+    it('a local file on the web route: the deck resumes there, paused, and no "loaded" toast takes the place of the one showing', async () => {
+        const { refs, library } = mount();
+        useStatusMessageStore.setState({ message: { type: 'error', text: 'hifi.errors.DEVICE_BUSY' } });
+
+        await library.onPlayLocalSong(localOne, [], moved);
+        await settle();
+
+        expect(usePlaybackStore.getState().audioSrc).toBe('blob:l1');
+        expect(refs.pendingResumeTimeRef.current).toBe(42.5);
+        expect(refs.shouldAutoPlay.current).toBe(false);
+        expect(currentTime.get()).toBe(42.5);
+        expect(usePlaybackStore.getState()).toMatchObject({ playerState: PlayerState.PAUSED, isLoadingToPlay: false });
+        expect(status()).toEqual({ type: 'error', text: 'hifi.errors.DEVICE_BUSY' });
+    });
+
+    it('a local file on the HiFi route: mpv loads there, with the play\'s own answer to "still wanted"', async () => {
+        const { refs, library } = mount();
+        env.route = 'hifi';
+
+        await library.onPlayLocalSong(localOne, [], { startAtSec: 42.5, autoplay: true });
+        await settle();
+
+        expect(env.hifiStarts).toHaveLength(1);
+        const [start] = env.hifiStarts as Array<{ startSec: number; stillWanted?: () => boolean }>;
+        expect(start.startSec).toBe(42.5);
+        // The time to resume at is mpv's to take, not the deck's.
+        expect(refs.pendingResumeTimeRef.current).toBeNull();
+        expect(refs.shouldAutoPlay.current).toBe(true);
+        expect(usePlaybackStore.getState()).toMatchObject({ isLoadingToPlay: true });
+        expect(status()).toMatchObject({ type: 'success', text: 'status.localMusicLoaded' });
+        expect(start.stillWanted?.()).toBe(true);
+        startPlay();
+        expect(start.stillWanted?.()).toBe(false);
+    });
+
+    it('a Navidrome song on the web route and on the HiFi route', async () => {
+        const { refs, library } = mount();
+        useStatusMessageStore.setState({ message: { type: 'error', text: 'hifi.errors.MPV_CRASHED' } });
+
+        await library.onPlayNavidromeSong(aNavidromeSong(), [], moved);
+        expect(usePlaybackStore.getState().audioSrc).toBe('https://navi.test/stream/n1');
+        expect(refs.pendingResumeTimeRef.current).toBe(42.5);
+        expect(refs.shouldAutoPlay.current).toBe(false);
+        expect(usePlaybackStore.getState().playerState).toBe(PlayerState.PAUSED);
+        expect(status()).toEqual({ type: 'error', text: 'hifi.errors.MPV_CRASHED' });
+
+        env.route = 'hifi';
+        await library.onPlayNavidromeSong(aNavidromeSong(), [], { startAtSec: 9 });
+        const [start] = env.hifiStarts as Array<{ startSec: number; stillWanted?: () => boolean }>;
+        expect(start.startSec).toBe(9);
+        expect(start.stillWanted?.()).toBe(true);
+        expect(refs.pendingResumeTimeRef.current).toBeNull();
+        expect(refs.shouldAutoPlay.current).toBe(true);
+        expect(status()).toMatchObject({ type: 'success', text: 'status.navidromeSongLoaded' });
+    });
+
+    it('a play with none of them starts at the beginning and plays, as before', async () => {
+        const { refs, library } = mount();
+        refs.pendingResumeTimeRef.current = 99;
+
+        await library.onPlayLocalSong(localOne);
+        await settle();
+
+        expect(refs.pendingResumeTimeRef.current).toBeNull();
+        expect(refs.shouldAutoPlay.current).toBe(true);
+        expect(currentTime.get()).toBe(0);
+        expect(usePlaybackStore.getState().isLoadingToPlay).toBe(true);
+    });
+
+    it('a start that is not a positive number is the beginning', async () => {
+        const { refs, library } = mount();
+
+        await library.onPlayLocalSong(localOne, [], { startAtSec: Number.NaN });
+        await settle();
+        expect(refs.pendingResumeTimeRef.current).toBeNull();
+        await library.onPlayLocalSong(localTwo, [], { startAtSec: -3 });
+        await settle();
+        expect(refs.pendingResumeTimeRef.current).toBeNull();
+        expect(currentTime.get()).toBe(0);
     });
 });

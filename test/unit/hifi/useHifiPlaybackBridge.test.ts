@@ -17,7 +17,8 @@ import type { HifiApi } from '@/services/hifi/hifiEngine';
 // test/unit/hifi/useHifiPlaybackBridge.test.ts
 // HiFi 播放桥挂在真的 hifiPlayback 服务上，主进程换成假的 window.electron.hifi：配置和循环的下发、载入就绪后的自动播放
 // （等歌词、恢复成暂停）、引擎状态写回播放 store、放完换歌和队尾放开设备、失败时只提示一次并回到 Web 引擎、熔断只提示一次，
-// 以及给传输控制用的跳转。
+// 以及给传输控制用的跳转。后半是回落和关掉 HiFi 时带着位置和播放状态挪到 Web 引擎、手动开播用掉意图、载入落定时补发
+// loop-file、队尾停下后跳转再播放，以及停着的恢复延后载入。
 
 vi.hoisted(() => {
     const values = new Map<string, string>();
@@ -40,7 +41,8 @@ vi.mock('@/services/hifi/sourceSpec', async importOriginal => ({
 }));
 
 const { resumeHifiPlayback, seekHifiRoute, useHifiPlaybackBridge } = await import('@/components/hifi/useHifiPlaybackBridge');
-const { beginHifiTrack, leaveHifiRoute, useHifiTrackStore } = await import('@/services/hifi/hifiPlayback');
+const { beginHifiTrack, getHifiPosition, leaveHifiRoute, useHifiTrackStore } = await import('@/services/hifi/hifiPlayback');
+const { startPlay } = await import('@/components/app/playback/currentSong');
 const { hifiEngine, useHifiEngineStore } = await import('@/services/hifi/hifiEngine');
 const { usePlaybackStore } = await import('@/stores/usePlaybackStore');
 const { useAudioSettingsStore } = await import('@/stores/useAudioSettingsStore');
@@ -170,11 +172,13 @@ const mount = (overrides: Partial<BridgeParams> = {}) => {
     return { params, rerender };
 };
 
+type BeginOptions = Partial<Omit<Parameters<typeof beginHifiTrack>[0], 'song' | 'source'>>;
+
 /** 像 onPlayLocalSong 那样起播一首：歌设成当前，然后 beginHifiTrack 暂停着载入。 */
-const startTrack = async () => {
+const startTrack = async (options: BeginOptions = {}) => {
     usePlaybackStore.setState({ currentSong: song });
     await act(async () => {
-        await beginHifiTrack({ song, source: { kind: 'local', localSong, file: new Blob([new Uint8Array([1, 2, 3])]) }, startSec: 0 });
+        await beginHifiTrack({ song, source: { kind: 'local', localSong, file: new Blob([new Uint8Array([1, 2, 3])]) }, startSec: 0, ...options });
     });
     const trackKey = useHifiTrackStore.getState().current?.trackKey;
     if (!trackKey) throw new Error('no HiFi track');
@@ -214,22 +218,29 @@ afterEach(async () => {
 });
 
 describe('useHifiPlaybackBridge', () => {
-    it('installs the HiFi playback on mount and pushes the settings with the volume in percent', async () => {
+    it('installs the HiFi playback on mount and pushes the settings, the volume on mpv\'s curve and the mute on its own', async () => {
         useHifiSettingsStore.setState({ softwareVolume: true, mpvPath: '', audioDevice: 'auto', exclusive: true, dsdMode: 'pcm' });
-        useAudioSettingsStore.setState({ volume: 0.5, isMuted: false });
+        useAudioSettingsStore.setState({ volume: 0.125, isMuted: false });
         mount();
         await act(flush);
         expect(api.onState).toHaveBeenCalled();
         expect(api.getRuntimeStatus).toHaveBeenCalled();
-        expect(api.configure).toHaveBeenLastCalledWith(expect.objectContaining({ softwareVolume: true, volume: 50 }));
+        // mpv's gain is (volume / 100)^3: 50 gives the app's linear 0.125.
+        expect(api.configure).toHaveBeenLastCalledWith(expect.objectContaining({ softwareVolume: true, volume: 50, muted: false }));
 
+        // Mute is its own field: the volume stays, so unmuting comes back at the same level.
         act(() => useAudioSettingsStore.setState({ isMuted: true }));
-        expect(api.configure).toHaveBeenLastCalledWith(expect.objectContaining({ volume: 0 }));
+        expect(api.configure).toHaveBeenLastCalledWith(expect.objectContaining({ volume: 50, muted: true }));
         act(() => useAudioSettingsStore.setState({ isMuted: false, volume: 0.8 }));
-        expect(api.configure).toHaveBeenLastCalledWith(expect.objectContaining({ volume: 80 }));
+        expect(api.configure).toHaveBeenLastCalledWith(expect.objectContaining({ volume: expect.closeTo(Math.cbrt(0.8) * 100, 9), muted: false }));
         act(() => useHifiSettingsStore.setState({ exclusive: false }));
-        expect(api.configure).toHaveBeenLastCalledWith(expect.objectContaining({ exclusive: false, volume: 80 }));
-        useHifiSettingsStore.setState({ softwareVolume: false, exclusive: true });
+        expect(api.configure).toHaveBeenLastCalledWith(expect.objectContaining({ exclusive: false, muted: false }));
+
+        // With software volume off, a mute still reaches mpv.
+        act(() => useHifiSettingsStore.setState({ softwareVolume: false, exclusive: true }));
+        act(() => useAudioSettingsStore.setState({ isMuted: true }));
+        expect(api.configure).toHaveBeenLastCalledWith(expect.objectContaining({ softwareVolume: false, muted: true }));
+        act(() => useAudioSettingsStore.setState({ isMuted: false, volume: 1 }));
     });
 
     it('waits for the lyrics before it spends the play intent, then starts mpv', async () => {
@@ -323,7 +334,10 @@ describe('useHifiPlaybackBridge', () => {
         expect(toast()).toEqual({ type: 'error', text: 'hifi.errors.DEVICE_BUSY' });
         expect(hifiEngine.isSongForcedWeb(SONG_KEY)).toBe(true);
         expect(playSong).toHaveBeenCalledTimes(1);
-        expect(playSong).toHaveBeenCalledWith(song, [], false, { shouldNavigateToPlayer: false });
+        // From where it was meant to start, playing as the play meant to, and without a 'loaded' toast over the reason.
+        expect(playSong).toHaveBeenCalledWith(song, [], false, {
+            shouldNavigateToPlayer: false, startAtSec: 0, autoplay: true, quietLoadedToast: true,
+        });
 
         // main also reports the same failure as a fatal error: no second toast, no second replay.
         useStatusMessageStore.setState({ message: null });
@@ -403,6 +417,286 @@ describe('seekHifiRoute', () => {
 
         act(() => { seekHifiRoute(-3, { resume: true }); });
         expect(api.seek).toHaveBeenLastCalledWith(0);
+        expect(api.play).toHaveBeenCalledTimes(1);
+        expect(usePlaybackStore.getState().playerState).toBe(PlayerState.PLAYING);
+    });
+});
+
+describe('moving a HiFi song to the Web engine', () => {
+    it('keeps the place and the playing state of a song that fails mid-song', async () => {
+        const playSong = vi.fn(async () => undefined);
+        mount({ playSong, shouldAutoPlayRef: { current: false } });
+        const trackKey = await startTrack();
+        await pushState({ trackKey, status: 'playing', paused: false, durationSec: 300 });
+        act(() => push.clock?.({ trackKey, positionSec: 192, paused: false, reason: 'tick', seq: 1 }));
+
+        await act(async () => {
+            push.error?.({ code: 'DEVICE_UNAVAILABLE', trackKey, fatal: true });
+            await flush();
+        });
+
+        expect(playSong).toHaveBeenCalledWith(song, [], false, {
+            shouldNavigateToPlayer: false, startAtSec: expect.closeTo(192, 0), autoplay: true, quietLoadedToast: true,
+        });
+    });
+
+    it('leaves a paused restore paused at its place when its load fails', async () => {
+        api.load.mockImplementation(async () => ({ ok: false, errorCode: 'DEVICE_UNAVAILABLE' }));
+        const playSong = vi.fn(async () => undefined);
+        mount({ playSong, shouldAutoPlayRef: { current: false } });
+        await startTrack({ startSec: 75 });
+
+        expect(playSong).toHaveBeenCalledWith(song, [], false, {
+            shouldNavigateToPlayer: false, startAtSec: 75, autoplay: false, quietLoadedToast: true,
+        });
+    });
+
+    it('still says why and keeps the song off HiFi, but does not replay it, once a newer play has started', async () => {
+        const failure = { promise: null as Promise<HifiLoadResult> | null, resolve: (_result: HifiLoadResult) => {} };
+        failure.promise = new Promise((resolve) => { failure.resolve = resolve; });
+        api.load.mockImplementation(() => failure.promise!);
+        const playSong = vi.fn(async () => undefined);
+        mount({ playSong });
+        usePlaybackStore.setState({ currentSong: song });
+        const stillWanted = startPlay();
+        let begun!: Promise<unknown>;
+        act(() => {
+            begun = beginHifiTrack({ song, source: { kind: 'local', localSong, file: new Blob([new Uint8Array([1])]) }, startSec: 0, stillWanted });
+        });
+        // The listener clicks an online song while the device answers: its play starts and fetches its address.
+        startPlay();
+
+        await act(async () => {
+            failure.resolve({ ok: false, errorCode: 'DEVICE_BUSY' });
+            await begun;
+            await flush();
+        });
+
+        expect(toast()).toEqual({ type: 'error', text: 'hifi.errors.DEVICE_BUSY' });
+        expect(hifiEngine.isSongForcedWeb(SONG_KEY)).toBe(true);
+        expect(playSong).not.toHaveBeenCalled();
+    });
+
+    it('does not fall back on an engine error pushed while the load is still deciding (a busy device being retried)', async () => {
+        let answer!: (result: HifiLoadResult) => void;
+        api.load.mockImplementationOnce(() => new Promise((resolve) => { answer = resolve; }));
+        const playSong = vi.fn(async () => undefined);
+        mount({ playSong });
+        usePlaybackStore.setState({ currentSong: song });
+        let begun!: Promise<unknown>;
+        act(() => {
+            begun = beginHifiTrack({ song, source: { kind: 'local', localSong, file: new Blob([new Uint8Array([1])]) }, startSec: 0 });
+        });
+        const trackKey = useHifiTrackStore.getState().current!.trackKey;
+
+        await pushState({ trackKey, status: 'error', errorCode: 'DEVICE_BUSY' });
+        expect(playSong).not.toHaveBeenCalled();
+        expect(toast()).toBeNull();
+
+        await act(async () => {
+            answer({ ok: true, state: engineState({ trackKey, songKey: SONG_KEY }) });
+            await begun;
+            await flush();
+        });
+        expect(playSong).not.toHaveBeenCalled();
+        expect(useHifiTrackStore.getState().loadState).toBe('ready');
+    });
+
+    it('moves the song when HiFi is switched off, keeping its place and its playing state, without marking it', async () => {
+        useHifiSettingsStore.setState({ enabled: true });
+        const playSong = vi.fn(async () => undefined);
+        mount({ playSong, shouldAutoPlayRef: { current: false } });
+        const trackKey = await startTrack();
+        await pushState({ trackKey, status: 'playing', paused: false, durationSec: 300 });
+        act(() => push.clock?.({ trackKey, positionSec: 64, paused: false, reason: 'tick', seq: 1 }));
+
+        act(() => useHifiSettingsStore.getState().setEnabled(false));
+
+        expect(playSong).toHaveBeenCalledTimes(1);
+        expect(playSong).toHaveBeenCalledWith(song, [], false, {
+            shouldNavigateToPlayer: false, startAtSec: expect.closeTo(64, 0), autoplay: true, quietLoadedToast: true,
+        });
+        expect(hifiEngine.isSongForcedWeb(SONG_KEY)).toBe(false);
+        expect(toast()).toBeNull();
+
+        // Switching it on and off again before the Web play lands moves nothing a second time.
+        act(() => useHifiSettingsStore.getState().setEnabled(true));
+        act(() => useHifiSettingsStore.getState().setEnabled(false));
+        expect(playSong).toHaveBeenCalledTimes(1);
+    });
+
+    it('moves a paused song paused, and a Navidrome song only when Navidrome stops going through HiFi', async () => {
+        useHifiSettingsStore.setState({ enabled: true, navidrome: true });
+        const playSong = vi.fn(async () => undefined);
+        mount({ playSong, shouldAutoPlayRef: { current: false } });
+        await startTrack({ startSec: 30 });
+        expect(usePlaybackStore.getState().playerState).toBe(PlayerState.PAUSED);
+
+        // A local song does not care about the Navidrome scope.
+        act(() => useHifiSettingsStore.getState().setNavidrome(false));
+        expect(playSong).not.toHaveBeenCalled();
+
+        act(() => useHifiSettingsStore.getState().setEnabled(false));
+        expect(playSong).toHaveBeenCalledWith(song, [], false, {
+            shouldNavigateToPlayer: false, startAtSec: 30, autoplay: false, quietLoadedToast: true,
+        });
+        useHifiSettingsStore.setState({ navidrome: true });
+    });
+});
+
+describe('the play intent and loop-file on the HiFi route', () => {
+    it('spends the intent when the listener starts the song by hand, so the lyrics finishing later do not resume it', async () => {
+        const shouldAutoPlayRef = { current: true };
+        const { rerender } = mount({ shouldAutoPlayRef, isLyricsLoading: true });
+        const trackKey = await startTrack();
+
+        act(() => { resumeHifiPlayback(); });
+        expect(shouldAutoPlayRef.current).toBe(false);
+        expect(api.play).toHaveBeenCalledTimes(1);
+        await pushState({ trackKey, status: 'playing', paused: false });
+        await pushState({ trackKey, status: 'paused', paused: true });
+
+        rerender({ isLyricsLoading: false });
+        expect(api.play).toHaveBeenCalledTimes(1);
+    });
+
+    it('spends the intent when mpv starts playing the song by any other way', async () => {
+        const shouldAutoPlayRef = { current: true };
+        const { rerender } = mount({ shouldAutoPlayRef, isLyricsLoading: true });
+        const trackKey = await startTrack();
+
+        await pushState({ trackKey, status: 'playing', paused: false });
+        expect(shouldAutoPlayRef.current).toBe(false);
+        await pushState({ trackKey, status: 'paused', paused: true });
+        rerender({ isLyricsLoading: false });
+        expect(api.play).not.toHaveBeenCalled();
+    });
+
+    it('leaves the intent of a newer play alone when a song that already started plays again', async () => {
+        const shouldAutoPlayRef = { current: true };
+        mount({ shouldAutoPlayRef });
+        const trackKey = await startTrack();
+        expect(shouldAutoPlayRef.current).toBe(false);
+        await pushState({ trackKey, status: 'playing', paused: false });
+        await pushState({ trackKey, status: 'paused', paused: true });
+
+        // An online song the listener clicked is fetching its address: its play has set the intent.
+        shouldAutoPlayRef.current = true;
+        act(() => { resumeHifiPlayback(); });
+        await pushState({ trackKey, status: 'playing', paused: false });
+        expect(shouldAutoPlayRef.current).toBe(true);
+    });
+
+    it('sends loop-file again when a load lands with mpv looping otherwise than the player shows', async () => {
+        const { rerender } = mount();
+        rerender({ effectiveLoopMode: 'one' });
+        // The load answers with loop-file off: mpv was still starting when the bridge asked for it.
+        api.load.mockImplementationOnce(async request => ({ ok: true, state: engineState({ trackKey: request.trackKey, songKey: request.songKey, loopFile: false }) }));
+        await startTrack();
+        expect(api.setLoopFile.mock.calls.map(([loop]) => loop)).toEqual([true, true]);
+
+        // A load that lands looping as shown sends nothing more.
+        api.setLoopFile.mockClear();
+        api.load.mockImplementationOnce(async request => ({ ok: true, state: engineState({ trackKey: request.trackKey, songKey: request.songKey, loopFile: true }) }));
+        await startTrack();
+        expect(api.setLoopFile).not.toHaveBeenCalled();
+    });
+});
+
+describe('after the queue ended on HiFi', () => {
+    const endTheQueue = async (playSong = vi.fn(async () => undefined)) => {
+        const handleNextTrack = vi.fn(async () => {
+            usePlaybackStore.getState().setPlayerState(PlayerState.IDLE);
+        });
+        mount({ handleNextTrack, playSong });
+        const trackKey = await startTrack();
+        await pushState({ trackKey, status: 'ended', paused: true, durationSec: 180 });
+        expect(api.stop).toHaveBeenCalledTimes(1);
+        api.seek.mockClear();
+        return playSong;
+    };
+
+    it('a seek then play replays the song from the place sought', async () => {
+        const playSong = await endTheQueue();
+
+        act(() => { seekHifiRoute(42); });
+        expect(api.seek).not.toHaveBeenCalled();
+        expect(getHifiPosition()).toBe(42);
+        expect(currentTime.get()).toBe(42);
+        expect(playSong).not.toHaveBeenCalled();
+
+        act(() => { resumeHifiPlayback(); });
+        expect(playSong).toHaveBeenCalledWith(song, [], false, { shouldNavigateToPlayer: false, startAtSec: 42 });
+    });
+
+    it('a seek on the progress bar (which resumes) replays from there at once', async () => {
+        const playSong = await endTheQueue();
+
+        act(() => { seekHifiRoute(17, { resume: true }); });
+        expect(playSong).toHaveBeenCalledTimes(1);
+        expect(playSong).toHaveBeenCalledWith(song, [], false, { shouldNavigateToPlayer: false, startAtSec: 17 });
+    });
+});
+
+describe('a restore that defers its load', () => {
+    const restoredSong = { ...song, durationMs: 240_000 } as SongResult;
+    const restore = async (startSec: number) => {
+        usePlaybackStore.setState({ currentSong: restoredSong });
+        await act(async () => {
+            await beginHifiTrack({
+                song: restoredSong,
+                source: { kind: 'local', localSong, file: new Blob([new Uint8Array([1, 2, 3])]) },
+                startSec,
+                adoptRunning: true,
+                deferLoad: true,
+            });
+            await flush();
+        });
+    };
+
+    it('shows the song paused with its length, and loads nothing until the listener plays it', async () => {
+        const shouldAutoPlayRef = { current: false };
+        mount({ shouldAutoPlayRef });
+        await restore(50);
+
+        expect(api.load).not.toHaveBeenCalled();
+        expect(useHifiTrackStore.getState().loadState).toBe('deferred');
+        expect(usePlaybackStore.getState()).toMatchObject({ playerState: PlayerState.PAUSED, duration: 240 });
+
+        await act(async () => {
+            expect(resumeHifiPlayback()).toBe(false);
+            await flush();
+        });
+        expect(api.load).toHaveBeenCalledTimes(1);
+        expect(api.load.mock.calls[0][0]).toMatchObject({ startSec: 50, paused: true });
+        // Started by the autoplay once the load is ready.
+        expect(api.play).toHaveBeenCalledTimes(1);
+        expect(shouldAutoPlayRef.current).toBe(false);
+        expect(usePlaybackStore.getState().playerState).toBe(PlayerState.PLAYING);
+    });
+
+    it('loads at the place sought when the first thing the listener does is a seek, and stays paused', async () => {
+        mount({ shouldAutoPlayRef: { current: false } });
+        await restore(50);
+
+        await act(async () => {
+            seekHifiRoute(120);
+            await flush();
+        });
+        expect(api.seek).not.toHaveBeenCalled();
+        expect(api.load).toHaveBeenCalledTimes(1);
+        expect(api.load.mock.calls[0][0].startSec).toBe(120);
+        expect(api.play).not.toHaveBeenCalled();
+        expect(usePlaybackStore.getState().playerState).toBe(PlayerState.PAUSED);
+    });
+
+    it('loads at once when the restore left an intent to play', async () => {
+        const shouldAutoPlayRef = { current: true };
+        mount({ shouldAutoPlayRef });
+        await restore(8);
+
+        expect(api.load).toHaveBeenCalledTimes(1);
+        expect(api.load.mock.calls[0][0].startSec).toBe(8);
         expect(api.play).toHaveBeenCalledTimes(1);
         expect(usePlaybackStore.getState().playerState).toBe(PlayerState.PLAYING);
     });

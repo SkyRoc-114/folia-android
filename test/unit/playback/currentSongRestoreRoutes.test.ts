@@ -48,6 +48,8 @@ const env = vi.hoisted(() => ({
     /** Whether the player is on the HiFi route, and mpv's position, for the hand-off's capture. */
     onHifiRoute: false,
     hifiPosition: 0,
+    /** The reasons the HiFi service was asked to stop a track an earlier window left playing. */
+    released: [] as string[],
 }));
 
 vi.mock('react', () => ({
@@ -116,6 +118,7 @@ vi.mock('@/services/hifi/hifiPlayback', () => ({
     whenHifiRuntimeKnown: () => { env.reached('hifi runtime'); return env.hifiRuntimeKnown; },
     isHifiRoute: () => env.onHifiRoute,
     getHifiPosition: () => env.hifiPosition,
+    releaseUnclaimedHifiTrack: (reason: string) => { env.released.push(reason); return false; },
 }));
 vi.mock('@/utils/appNavidromeLyrics', () => ({
     hydrateNavidromeLyricPayload: async () => {},
@@ -212,6 +215,7 @@ beforeEach(() => {
     env.hifiRuntimeKnown = Promise.resolve();
     env.onHifiRoute = false;
     env.hifiPosition = 0;
+    env.released.length = 0;
     useHifiSettingsStore.setState({ enabled: false });
     useAudioSettingsStore.setState({ autoPlayOnLaunch: false });
     vi.mocked(prefetchNearbySongs).mockClear();
@@ -1266,6 +1270,47 @@ describe('a local or Navidrome restore on the HiFi route', () => {
         })]);
         expect(refs.blobUrlRef.current).toBeNull();
         expect(refs.currentOnlineAudioUrlFetchedAtRef.current).toBeNull();
+    });
+
+    it('defers the load to the first play, and the track keeps the restore\'s answer to "still wanted"', async () => {
+        const { restored } = await restoreOnHifi(localSong, 42);
+
+        expect(restored).toBe('restored');
+        const [start] = env.hifiStarts as Array<{ startSec: number; adoptRunning?: boolean; deferLoad?: boolean; stillWanted?: () => boolean }>;
+        expect(start).toMatchObject({ startSec: 42, adoptRunning: true, deferLoad: true });
+        expect(start.stillWanted?.()).toBe(true);
+        askForSong(otherSong);
+        expect(start.stillWanted?.()).toBe(false);
+        // Taking over or deferring is the HiFi service's: nothing an earlier window left is stopped here.
+        expect(env.released).toEqual([]);
+    });
+
+    it('a Navidrome song defers its load the same way', async () => {
+        await restoreOnHifi(structuredClone(navidromeSong) as SongResult, 5);
+        expect(env.hifiStarts).toEqual([expect.objectContaining({ startSec: 5, adoptRunning: true, deferLoad: true })]);
+    });
+
+    it('a restore that takes nothing over (it failed, or was overtaken) stops what an earlier window left in mpv', async () => {
+        env.unreadable.add('l1');
+        expect((await restoreOnHifi(localSong)).restored).toBe('failed');
+        expect(env.released).toEqual(['restore failed']);
+
+        env.unreadable.clear();
+        env.released.length = 0;
+        const { refs, setLyrics } = watchWithRefs();
+        makeSongCurrent(localSong);
+        const restoring = restorePlaybackSourceForSong(localSong, sourceParams(refs, setLyrics, [localSong]));
+        askForSong(otherSong);
+        await expect(restoring).resolves.toBe('stale');
+        expect(env.released).toEqual(['restore stale']);
+    });
+
+    it('a restore that lands on the web route leaves the stopping to the route guard, which sees its address', async () => {
+        const { refs, setLyrics } = watchWithRefs();
+        makeSongCurrent(localSong);
+        await expect(restorePlaybackSourceForSong(localSong, sourceParams(refs, setLyrics, [localSong]))).resolves.toBe('restored');
+        expect(usePlaybackStore.getState().audioSrc).toBe('blob:l1');
+        expect(env.released).toEqual([]);
     });
 
     it('a local file found again under another id: the route is asked for the song it was found as', async () => {

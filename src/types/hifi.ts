@@ -97,6 +97,8 @@ export type HifiEngineConfig = {
     softwareVolume: boolean;
     /** 0–100，只在 softwareVolume 时下发；否则 mpv 固定 100。 */
     volume: number;
+    /** 应用里的静音：不论软件音量开没开都下发给 mpv 的 mute；不静音时不碰样本，比特完美不受影响。 */
+    muted: boolean;
 };
 
 export type HifiSourceRequest =

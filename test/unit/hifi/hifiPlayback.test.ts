@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { LocalSong, SongResult } from '@/types';
 import type {
     HifiClockUpdate,
@@ -17,6 +17,8 @@ import type { HifiApi } from '@/services/hifi/hifiEngine';
 // test/unit/hifi/hifiPlayback.test.ts
 // HiFi 路线的数据流：路由判定、起播的请求形状（本地 / Navidrome）、被顶替的起播不写 store、失败和取消、接管窗口重建前
 // 还在放的那首、路由守卫在同一次 setState 里停掉 mpv，以及按推送驱动时钟和 shim。
+// 后半是停着的恢复先不载入、刚离开 Web 引擎时 DEVICE_BUSY 的重试、曲目带着起播的 stillWanted，以及上一个窗口留下、
+// 这个窗口没接管的那一首什么时候停掉。
 
 const audio = vi.hoisted(() => ({ state: { loopMode: 'off' as 'off' | 'all' | 'one' } }));
 vi.mock('@/stores/useAudioSettingsStore', () => ({ useAudioSettingsStore: { getState: () => audio.state } }));
@@ -214,6 +216,13 @@ const record = (target: EventTarget) => {
 
 let shims: Array<{ reset: () => void }> = [];
 
+// 第一次 import 这串模块（music-metadata 最重）要转译好几秒：整套并行跑时第一个用例会撞上 5 秒的超时。先在这里热一遍，
+// 之后每个用例 resetModules 再 import 时只是重新求值。
+beforeAll(async () => {
+    await import('@/services/hifi/sourceSpec');
+    await import('@/services/hifi/hifiPlayback');
+}, 60_000);
+
 beforeEach(() => {
     audio.state.loopMode = 'off';
     shims = [];
@@ -222,6 +231,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+    vi.useRealTimers();
     shims.forEach(shim => shim.reset());
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -507,7 +517,8 @@ describe('clock and shim driving', () => {
         expect(playback.getHifiPosition()).toBeLessThan(11);
 
         push.clock?.({ trackKey, positionSec: 60, paused: true, reason: 'seek', seq: 3 });
-        expect(events.at(-1)).toBe('seeked');
+        // 还在放：和 <audio> 一样跳完再补一次 playing。
+        expect(events.slice(-2)).toEqual(['seeked', 'playing']);
         expect(playback.getHifiPosition()).toBe(60);
 
         // 被换下的那首（这里冒充成主进程的预载项）推来的状态和时钟都不理。
@@ -560,5 +571,237 @@ describe('clock and shim driving', () => {
         expect(api.pause).not.toHaveBeenCalled();
         expect(api.seek).not.toHaveBeenCalled();
         expect(playback.hifiTransport.isPaused()).toBe(true);
+    });
+});
+
+describe('a restore without a play intent (deferLoad)', () => {
+    const restoredSong = () => ({ ...localPlaybackSong(), durationMs: 200_000 }) as SongResult;
+
+    it('shows the track at the restore position without loading it, then loads where the clock is on the first call', async () => {
+        const { playback, api, shim, track } = await setup();
+
+        expect(await playback.beginHifiTrack({
+            song: restoredSong(), source: localSource(), startSec: 42, adoptRunning: true, deferLoad: true,
+        })).toBe('deferred');
+
+        expect(api.load).not.toHaveBeenCalled();
+        const current = track().current!;
+        expect(track()).toMatchObject({ loadState: 'deferred', current: { songKey: 'local:song-1' } });
+        expect(playback.getHifiPosition()).toBe(42);
+        expect(shim).toMatchObject({ paused: true, duration: 200, readyState: 1, currentSrc: `hifi:${current.trackKey}` });
+        // Nothing of another song was held by mpv (the snapshot is idle): nothing to stop.
+        expect(api.stop).not.toHaveBeenCalled();
+
+        // A seek before the first play moves the clock; the load starts there.
+        playback.hifiPlaybackClock.sync({ positionSec: 90, paused: true });
+        const outcome = playback.loadDeferredHifiTrack();
+        expect(track().loadState).toBe('loading');
+        expect(api.load).toHaveBeenCalledWith(expect.objectContaining({
+            trackKey: current.trackKey,
+            source: expect.objectContaining({ kind: 'local', sourceKey: current.localSourceKey }),
+            startSec: 90,
+            paused: true,
+        }));
+        expect(await outcome).toBe('ready');
+        expect(track()).toMatchObject({ loadState: 'ready', current: { trackKey: current.trackKey } });
+
+        expect(await playback.loadDeferredHifiTrack()).toBeNull();
+        expect(api.load).toHaveBeenCalledTimes(1);
+    });
+
+    it('stops what mpv still holds of another song, and its load is dropped by a newer begin or a route leave', async () => {
+        const { playback, playbackStore, api, track } = await setup();
+        api.getSnapshot.mockResolvedValueOnce(engineState({ status: 'ended', trackKey: 'local:other#x', songKey: 'local:other', seq: 9 }));
+
+        expect(await playback.beginHifiTrack({
+            song: restoredSong(), source: localSource(), startSec: 0, adoptRunning: true, deferLoad: true,
+        })).toBe('deferred');
+        expect(api.stop).toHaveBeenCalledTimes(1);
+
+        await playback.beginHifiTrack({ song: localPlaybackSong('b'), source: localSource(), startSec: 0 });
+        expect(await playback.loadDeferredHifiTrack()).toBeNull();
+        expect(api.load).toHaveBeenCalledTimes(1);
+        expect(track().current?.songKey).toBe('local:b');
+
+        await playback.beginHifiTrack({ song: restoredSong(), source: localSource(), startSec: 0, deferLoad: true });
+        playbackStore.getState().setAudioSrc('blob:web-song');
+        expect(await playback.loadDeferredHifiTrack()).toBeNull();
+        expect(api.load).toHaveBeenCalledTimes(1);
+    });
+
+    it('still takes over the same song when mpv plays it', async () => {
+        const { playback, api, track } = await setup();
+        api.getSnapshot.mockResolvedValueOnce(engineState({
+            status: 'paused', trackKey: 'local:song-1#before', songKey: 'local:song-1', localSourceKey: 'a'.repeat(32), seq: 9,
+        }));
+
+        expect(await playback.beginHifiTrack({
+            song: restoredSong(), source: localSource(), startSec: 3, adoptRunning: true, deferLoad: true,
+        })).toBe('adopted');
+        expect(track()).toMatchObject({ loadState: 'ready', current: { trackKey: 'local:song-1#before' } });
+        expect(api.stop).not.toHaveBeenCalled();
+    });
+});
+
+describe('DEVICE_BUSY right after the Web engine', () => {
+    const busy: HifiLoadResult = { ok: false, errorCode: 'DEVICE_BUSY', detail: 'busy' };
+    const fromTheWeb = async () => {
+        const context = await setup();
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        context.playbackStore.setState({ playbackRoute: 'web', audioSrc: 'blob:web-song' });
+        return context;
+    };
+
+    it('loads again up to three times, 1.5 s apart, while the attempt is current', async () => {
+        const { playback, api, track } = await fromTheWeb();
+        api.load.mockResolvedValueOnce(busy).mockResolvedValueOnce(busy);
+
+        const outcome = playback.beginHifiTrack({ song: localPlaybackSong(), source: localSource(), startSec: 4 });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(api.load).toHaveBeenCalledTimes(1);
+        expect(track().loadState).toBe('loading');
+        await vi.advanceTimersByTimeAsync(1499);
+        expect(api.load).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(api.load).toHaveBeenCalledTimes(2);
+        await vi.advanceTimersByTimeAsync(1500);
+        expect(api.load).toHaveBeenCalledTimes(3);
+
+        expect(await outcome).toBe('ready');
+        const trackKey = track().current!.trackKey;
+        expect(api.load.mock.calls.map(([request]) => [request.trackKey, request.startSec])).toEqual([
+            [trackKey, 4], [trackKey, 4], [trackKey, 4],
+        ]);
+        expect(track()).toMatchObject({ loadState: 'ready', loadError: null });
+    });
+
+    it('fails with DEVICE_BUSY after the third retry', async () => {
+        const { playback, api, track } = await fromTheWeb();
+        api.load.mockResolvedValue(busy);
+
+        const outcome = playback.beginHifiTrack({ song: localPlaybackSong(), source: localSource(), startSec: 0 });
+        await vi.advanceTimersByTimeAsync(4500);
+        expect(await outcome).toBe('failed');
+        expect(api.load).toHaveBeenCalledTimes(4);
+        expect(track()).toMatchObject({ loadState: 'failed', loadError: 'DEVICE_BUSY' });
+    });
+
+    it('does not retry other failures, a busy device long after the Web engine, or one that never followed it', async () => {
+        const { playback, playbackStore, api } = await fromTheWeb();
+        api.load.mockResolvedValueOnce({ ok: false, errorCode: 'DEVICE_UNAVAILABLE' });
+        expect(await playback.beginHifiTrack({ song: localPlaybackSong(), source: localSource(), startSec: 0 })).toBe('failed');
+        expect(api.load).toHaveBeenCalledTimes(1);
+
+        // The answer comes 7 s after the route left the Web source.
+        playbackStore.setState({ playbackRoute: 'web', audioSrc: 'blob:web-song' });
+        api.load.mockImplementationOnce(() => new Promise(resolve => setTimeout(() => resolve(busy), 7000)));
+        const late = playback.beginHifiTrack({ song: localPlaybackSong(), source: localSource(), startSec: 0 });
+        await vi.advanceTimersByTimeAsync(7000);
+        expect(await late).toBe('failed');
+        expect(api.load).toHaveBeenCalledTimes(2);
+
+        // From HiFi to HiFi: no Web engine had the device.
+        api.load.mockResolvedValueOnce(busy);
+        const hifiToHifi = playback.beginHifiTrack({ song: localPlaybackSong('b'), source: localSource(), startSec: 0 });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(await hifiToHifi).toBe('failed');
+        expect(api.load).toHaveBeenCalledTimes(3);
+    });
+
+    it('stops retrying once the route leaves HiFi', async () => {
+        const { playback, playbackStore, api, track } = await fromTheWeb();
+        api.load.mockResolvedValue(busy);
+
+        const outcome = playback.beginHifiTrack({ song: localPlaybackSong(), source: localSource(), startSec: 0 });
+        await vi.advanceTimersByTimeAsync(0);
+        playbackStore.getState().setAudioSrc('blob:another-web-song');
+        await vi.advanceTimersByTimeAsync(4500);
+        expect(await outcome).toBe('superseded');
+        expect(api.load).toHaveBeenCalledTimes(1);
+        expect(track().current).toBeNull();
+    });
+});
+
+describe('the track keeps its play\'s answer to "still wanted"', () => {
+    it('on a fresh load and on an adopted track', async () => {
+        const { playback, api, track } = await setup();
+        const stillWanted = () => false;
+        await playback.beginHifiTrack({ song: localPlaybackSong(), source: localSource(), startSec: 0, stillWanted });
+        expect(track().current?.stillWanted).toBe(stillWanted);
+
+        api.getSnapshot.mockResolvedValueOnce(engineState({
+            status: 'playing', paused: false, trackKey: 'local:song-1#before', songKey: 'local:song-1', localSourceKey: 'a'.repeat(32), seq: 9,
+        }));
+        const restoreWanted = () => true;
+        expect(await playback.beginHifiTrack({
+            song: localPlaybackSong(), source: localSource(), startSec: 0, adoptRunning: true, stillWanted: restoreWanted,
+        })).toBe('adopted');
+        expect(track().current?.stillWanted).toBe(restoreWanted);
+    });
+});
+
+describe('a track an earlier window left playing', () => {
+    const leftPlaying = (overrides: Partial<HifiEngineState> = {}) => engineState({
+        status: 'playing', paused: false, trackKey: 'local:song-1#old', songKey: 'local:song-1', localSourceKey: 'a'.repeat(32), seq: 7, ...overrides,
+    });
+
+    it('is stopped when this window starts a Web source instead, once', async () => {
+        const { playback, playbackStore, api } = await setup({ install: false });
+        api.getSnapshot.mockResolvedValueOnce(leftPlaying());
+        playback.installHifiPlayback();
+        await flush();
+        expect(api.stop).not.toHaveBeenCalled();
+
+        playbackStore.getState().setAudioSrc('blob:web-song');
+        expect(api.stop).toHaveBeenCalledTimes(1);
+        playbackStore.getState().setAudioSrc('blob:next-web-song');
+        expect(api.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('is stopped as soon as the snapshot comes when the Web source came first', async () => {
+        const { playback, playbackStore, api } = await setup({ install: false });
+        const snapshot = deferred<HifiEngineState>();
+        api.getSnapshot.mockReturnValueOnce(snapshot.promise);
+        playback.installHifiPlayback();
+        playbackStore.getState().setAudioSrc('blob:web-song');
+        expect(api.stop).not.toHaveBeenCalled();
+
+        snapshot.resolve(leftPlaying({ status: 'ended' }));
+        await flush();
+        expect(api.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('is stopped by releaseUnclaimedHifiTrack after a restore that took nothing over', async () => {
+        const { playback, api } = await setup({ install: false });
+        api.getSnapshot.mockResolvedValueOnce(leftPlaying());
+        playback.installHifiPlayback();
+        await flush();
+
+        expect(playback.releaseUnclaimedHifiTrack('restore failed')).toBe(true);
+        expect(api.stop).toHaveBeenCalledTimes(1);
+        expect(playback.releaseUnclaimedHifiTrack('restore failed')).toBe(false);
+        expect(api.stop).toHaveBeenCalledTimes(1);
+    });
+
+    it('is left alone once this window took it over', async () => {
+        const { playback, api } = await setup({ install: false });
+        api.getSnapshot.mockResolvedValue(leftPlaying());
+        playback.installHifiPlayback();
+        await flush();
+
+        expect(await playback.beginHifiTrack({ song: localPlaybackSong(), source: localSource(), startSec: 0, adoptRunning: true })).toBe('adopted');
+        expect(playback.releaseUnclaimedHifiTrack('restore stale')).toBe(false);
+        expect(api.stop).not.toHaveBeenCalled();
+    });
+
+    it('is forgotten once mpv moved on from it', async () => {
+        const { playback, api, push, nextSeq } = await setup({ install: false });
+        api.getSnapshot.mockResolvedValueOnce(leftPlaying());
+        playback.installHifiPlayback();
+        await flush();
+
+        push.state?.(engineState({ status: 'idle', trackKey: null, seq: nextSeq() + 10 }));
+        expect(playback.releaseUnclaimedHifiTrack('restore failed')).toBe(false);
+        expect(api.stop).not.toHaveBeenCalled();
     });
 });

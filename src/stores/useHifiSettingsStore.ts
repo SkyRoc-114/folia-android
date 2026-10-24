@@ -19,7 +19,7 @@ export const HIFI_AUDIO_DEVICE_LABEL_KEY = 'folia_hifi_audio_device_label';
 
 export const HIFI_EXCLUSIVE_KEY = 'folia_hifi_exclusive';
 
-/** 'pcm' 或 'dop'。默认 pcm：不支持 DoP 的 DAC 收到 DoP 会放出满幅噪声，MPD 也默认关。 */
+/** 'pcm' 或 'dop'。默认 pcm：不支持 DoP 的 DAC 收到 DoP 放出的是沙沙的噪声而不是音乐，MPD 也默认关。 */
 export const HIFI_DSD_MODE_KEY = 'folia_hifi_dsd_mode';
 
 /** Navidrome 歌曲是否也走 HiFi（以 format=raw 拉原始文件）。 */
@@ -119,20 +119,26 @@ export const useHifiSettingsStore = create<HifiSettingsState>((set) => ({
     },
 }));
 
+/** 0–1 之间；非有限数按 0 算：软件音量下宁可无声，也不要满音量。 */
+const clampUnit = (value: number) => (Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 0);
+
 /**
  * 把设置拼成下发给主进程的 HifiEngineConfig。
  *
- * volumePercent 是 0–100 的百分比，取整并夹到这个范围；应用音量（useAudioSettingsStore.volume）是 0–1，
- * 调用方要先乘 100，静音时传 0。非有限数按 0 算：软件音量下宁可无声，也不要满音量。
+ * appVolume 是应用音量（useAudioSettingsStore.volume），0–1，Web 引擎把它直接当线性增益用。mpv 的 volume 却按三次方
+ * 曲线换成增益（50 → 0.125）：下发的是它的立方根乘 100、不取整，mpv 那边的增益就和 Web 引擎一样等于应用音量。
+ * 超出 0–1 的夹回来。muted 是应用里的静音，单独下发，不折进音量：不开软件音量时它也要能让 mpv 静音。
  */
 export const selectHifiEngineConfig = (
     state: Pick<HifiSettingsState, 'mpvPath' | 'audioDevice' | 'exclusive' | 'dsdMode' | 'softwareVolume'>,
-    volumePercent: number,
+    appVolume: number,
+    muted: boolean,
 ): HifiEngineConfig => ({
     mpvPath: state.mpvPath.trim() ? state.mpvPath : null,
     audioDevice: state.audioDevice || DEFAULT_AUDIO_DEVICE,
     exclusive: state.exclusive,
     dsdMode: state.dsdMode === 'dop' ? 'dop' : 'pcm',
     softwareVolume: state.softwareVolume,
-    volume: Number.isFinite(volumePercent) ? Math.min(100, Math.max(0, Math.round(volumePercent))) : 0,
+    volume: Math.cbrt(clampUnit(appVolume)) * 100,
+    muted: muted === true,
 });

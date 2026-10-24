@@ -73,6 +73,7 @@ const engineConfig = (overrides: Partial<HifiEngineConfig> = {}): HifiEngineConf
     dsdMode: 'pcm',
     softwareVolume: false,
     volume: 100,
+    muted: false,
     ...overrides,
 });
 
@@ -299,11 +300,11 @@ describe('hifi engine client', () => {
         expect(isHifiLoadCancelled({ ok: true, state: engineState() })).toBe(false);
     });
 
-    const runtimeFailureCodes: string[] = ['MPV_NOT_FOUND', 'MPV_SPAWN_FAILED', 'MPV_TOO_OLD'];
+    const runtimeFailureCodes: HifiErrorCode[] = ['MPV_NOT_FOUND', 'MPV_SPAWN_FAILED', 'MPV_TOO_OLD'];
     it.each(runtimeFailureCodes)('refreshes the runtime when a load fails with %s', async (code) => {
         const { api, engine } = setup();
         api.getRuntimeStatus.mockResolvedValueOnce(runtimeStatus({ available: false, path: null, source: null, errorCode: 'MPV_NOT_FOUND' }));
-        api.load.mockResolvedValueOnce({ ok: false, errorCode: code as HifiErrorCode });
+        api.load.mockResolvedValueOnce({ ok: false, errorCode: code });
 
         await engine.load(loadRequest('local:1#a'));
         expect(api.getRuntimeStatus).toHaveBeenCalledTimes(1);
@@ -340,6 +341,22 @@ describe('hifi engine client', () => {
         await engine.configure(engineConfig({ volume: 55, exclusive: false, softwareVolume: true }));
         expect(api.configure).toHaveBeenCalledTimes(4);
         expect(api.configure).toHaveBeenLastCalledWith(engineConfig({ volume: 55, exclusive: false, softwareVolume: true }));
+    });
+
+    it('always sends a change of mute, with software volume on or off', async () => {
+        const { api, engine } = setup();
+
+        await engine.configure(engineConfig());
+        await engine.configure(engineConfig({ muted: true }));
+        expect(api.configure).toHaveBeenCalledTimes(2);
+        expect(api.configure).toHaveBeenLastCalledWith(engineConfig({ muted: true }));
+        // The volume of a muted config still does not matter while software volume is off.
+        await engine.configure(engineConfig({ muted: true, volume: 30 }));
+        expect(api.configure).toHaveBeenCalledTimes(2);
+
+        await engine.configure(engineConfig({ muted: false, volume: 30 }));
+        expect(api.configure).toHaveBeenCalledTimes(3);
+        expect(api.configure).toHaveBeenLastCalledWith(engineConfig({ muted: false, volume: 30 }));
     });
 
     it('does not let a caller mutating its config object defeat the comparison', async () => {
@@ -440,7 +457,7 @@ describe('hifi engine client', () => {
         await expect(engine.stop()).resolves.toBeUndefined();
         await expect(engine.setLoopFile(true)).resolves.toBeUndefined();
         await expect(engine.clearNext()).resolves.toBeUndefined();
-        await expect(engine.configure({ mpvPath: null, audioDevice: 'auto', exclusive: true, dsdMode: 'pcm', softwareVolume: false, volume: 100 })).resolves.toBeUndefined();
+        await expect(engine.configure({ mpvPath: null, audioDevice: 'auto', exclusive: true, dsdMode: 'pcm', softwareVolume: false, volume: 100, muted: false })).resolves.toBeUndefined();
         await expect(engine.preloadNext(loadRequest('local:2#b'))).resolves.toBe(false);
         await expect(engine.listDevices()).resolves.toEqual([]);
         expect(warn).toHaveBeenCalledWith('[HiFi] play failed', failure);

@@ -116,12 +116,17 @@ export class HifiMediaShim extends EventTarget {
         this.fire('pause');
     }
 
+    /**
+     * 跳转落定：timeupdate、seeked；还在放时再补一次 playing，和 <audio> 跳完的 seeking → waiting → seeked → canplay → playing
+     * 一样。Media Session 在 playing 上重报位置，少了它系统的媒体面板会一直从跳转前的位置往前外推。
+     */
     markSeeked() {
         if (this.trackKey === null) return;
         this.endedFlag = false;
         this.endedAtSec = null;
         this.fire('timeupdate');
         this.fire('seeked');
+        if (!this.pausedFlag) this.fire('playing');
     }
 
     /** 按 HTML 的结束顺序：最后一次 timeupdate，然后 paused / ended 置真，再派发 pause 和 ended。 */

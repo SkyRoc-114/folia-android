@@ -185,6 +185,21 @@ describe('HifiMediaShim', () => {
         expect(events.slice(2)).toEqual(['play', 'playing']);
     });
 
+    it('fires playing after a seek that lands while playing, as <audio> does, so Media Session reports the new position', () => {
+        shim.beginTrack('t1');
+        shim.setDuration(100);
+        shim.markPlaying();
+        const events = record(shim);
+        clockSec = 60;
+
+        shim.markSeeked();
+
+        expect(events).toEqual(['timeupdate', 'seeked', 'playing']);
+        expect(shim.paused).toBe(false);
+        // Only one play: the element never paused.
+        expect(events).not.toContain('play');
+    });
+
     it('throws when something assigns currentTime', () => {
         shim.beginTrack('t1');
         expect(() => {

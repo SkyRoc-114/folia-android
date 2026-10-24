@@ -157,16 +157,17 @@ describe('selectHifiEngineConfig', () => {
         softwareVolume: false,
     };
 
-    it('maps the settings onto the engine config, with no manual path as null', async () => {
+    it('maps the settings onto the engine config, with no manual path as null and mute passed as it is', async () => {
         const { selectHifiEngineConfig } = await loadStore();
 
-        expect(selectHifiEngineConfig(base, 80)).toEqual({
+        expect(selectHifiEngineConfig(base, 1, false)).toEqual({
             mpvPath: null,
             audioDevice: 'auto',
             exclusive: true,
             dsdMode: 'pcm',
             softwareVolume: false,
-            volume: 80,
+            volume: 100,
+            muted: false,
         });
         expect(selectHifiEngineConfig({
             ...base,
@@ -175,29 +176,44 @@ describe('selectHifiEngineConfig', () => {
             exclusive: false,
             dsdMode: 'dop',
             softwareVolume: true,
-        }, 35)).toEqual({
+        }, 0.125, true)).toEqual({
             mpvPath: 'C:\\mpv\\mpv.exe',
             audioDevice: 'wasapi/{abc}',
             exclusive: false,
             dsdMode: 'dop',
             softwareVolume: true,
-            volume: 35,
+            volume: 50,
+            muted: true,
         });
     });
 
     it('treats a blank path as auto-detection', async () => {
         const { selectHifiEngineConfig } = await loadStore();
 
-        expect(selectHifiEngineConfig({ ...base, mpvPath: '  ' }, 100).mpvPath).toBeNull();
+        expect(selectHifiEngineConfig({ ...base, mpvPath: '  ' }, 1, false).mpvPath).toBeNull();
     });
 
-    it('clamps the volume to an integer from 0 to 100', async () => {
+    it('sends mpv the cube root of the app volume, so its cubic curve gives the same gain as the Web engine', async () => {
         const { selectHifiEngineConfig } = await loadStore();
-        const volumeOf = (volume: number) => selectHifiEngineConfig(base, volume).volume;
+        const volumeOf = (appVolume: number) => selectHifiEngineConfig(base, appVolume, false).volume;
+        // mpv's gain for a volume v is (v / 100)^3; the Web engine's gain is the app volume itself.
+        const mpvGainOf = (appVolume: number) => (volumeOf(appVolume) / 100) ** 3;
 
-        expect(volumeOf(150)).toBe(100);
-        expect(volumeOf(-5)).toBe(0);
-        expect(volumeOf(42.6)).toBe(43);
+        expect(volumeOf(1)).toBe(100);
+        expect(volumeOf(0)).toBe(0);
+        expect(mpvGainOf(0.5)).toBeCloseTo(0.5, 10);
+        expect(mpvGainOf(0.2)).toBeCloseTo(0.2, 10);
+        // Not rounded: 0.5 is 79.37…, which an integer would move off by a fraction of a dB.
+        expect(volumeOf(0.5)).toBeCloseTo(79.3700526, 6);
+        expect(Number.isInteger(volumeOf(0.5))).toBe(false);
+    });
+
+    it('clamps the app volume to 0–1, and reads anything not finite as silence', async () => {
+        const { selectHifiEngineConfig } = await loadStore();
+        const volumeOf = (appVolume: number) => selectHifiEngineConfig(base, appVolume, false).volume;
+
+        expect(volumeOf(1.5)).toBe(100);
+        expect(volumeOf(-0.05)).toBe(0);
         expect(volumeOf(Number.NaN)).toBe(0);
         expect(volumeOf(Number.POSITIVE_INFINITY)).toBe(0);
     });
@@ -206,6 +222,6 @@ describe('selectHifiEngineConfig', () => {
         const { selectHifiEngineConfig, useHifiSettingsStore } = await loadStore();
         useHifiSettingsStore.getState().setAudioDevice('coreaudio/BuiltInSpeakerDevice', 'MacBook Speakers');
 
-        expect(selectHifiEngineConfig(useHifiSettingsStore.getState(), 100).audioDevice).toBe('coreaudio/BuiltInSpeakerDevice');
+        expect(selectHifiEngineConfig(useHifiSettingsStore.getState(), 1, false).audioDevice).toBe('coreaudio/BuiltInSpeakerDevice');
     });
 });

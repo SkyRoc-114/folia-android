@@ -10,7 +10,17 @@ import type {
     HifiRuntimeStatus,
 } from '../../types/hifi';
 import { createHifiEngineStore, useHifiEngineStore, type HifiEngineStore } from './hifiEngineStore';
-import { createHifiSourceResponder, type HifiSourceResponder } from './hifiSourceResponder';
+import {
+    CANCELLED_LOAD_DETAILS,
+    RUNTIME_FAILURE_CODES,
+    createListeners,
+    isHifiLoadCancelled,
+    isLoadResult,
+    isSameEngineConfig,
+    type HifiApi,
+    type HifiEngine,
+} from './hifiEngineRules';
+import { createHifiSourceResponder } from './hifiSourceResponder';
 
 // src/services/hifi/hifiEngine.ts
 // 渲染端的 HiFi 引擎客户端：包住 window.electron.hifi，把主进程推来的状态写进 useHifiEngineStore，把时钟、错误和状态
@@ -18,110 +28,21 @@ import { createHifiSourceResponder, type HifiSourceResponder } from './hifiSourc
 
 export { useHifiEngineStore };
 export type { HifiEngineStore, HifiEngineStoreState } from './hifiEngineStore';
-
-export type HifiApi = NonNullable<NonNullable<Window['electron']>['hifi']>;
-
-export type HifiEngine = {
-    /** 这个客户端写的 store；单例写的就是 useHifiEngineStore。 */
-    store: HifiEngineStore;
-    /** 本地歌曲的 sourceKey → File；起播前在这里登记。 */
-    responder: HifiSourceResponder;
-    /** 订阅主进程的推送；重复调用不重复订阅。没有接口时返回 false。 */
-    attach: () => boolean;
-    /** 退订主进程的推送并忘掉已见过的 seq，测试用。 */
-    detach: () => void;
-    refreshRuntime: () => Promise<HifiRuntimeStatus | null>;
-    detect: () => Promise<HifiRuntimeStatus | null>;
-    install: () => Promise<HifiInstallResult | null>;
-    cancelInstall: () => Promise<void>;
-    pickRuntimePath: () => Promise<string | null>;
-    /** 和上一次发出的配置相同就不发；手动 mpv 路径变了，主进程收下后重新取运行时状态。 */
-    configure: (config: HifiEngineConfig) => Promise<void>;
-    listDevices: () => Promise<HifiDevice[]>;
-    /** 取消的载入（见 isHifiLoadCancelled）不记 lastError；mpv 找不到、起不来或太旧时顺带刷新运行时状态。 */
-    load: (request: HifiLoadRequest) => Promise<HifiLoadResult>;
-    play: () => Promise<void>;
-    pause: () => Promise<void>;
-    seek: (positionSec: number) => Promise<void>;
-    stop: () => Promise<void>;
-    setLoopFile: (loop: boolean) => Promise<void>;
-    preloadNext: (request: HifiLoadRequest) => Promise<boolean>;
-    clearNext: () => Promise<void>;
-    /** 主动拉一次引擎状态；seq 和已收下的相同也收（主进程拼快照不加 seq），更旧时返回已收下的那份。 */
-    getSnapshot: () => Promise<HifiEngineState | null>;
-    onState: (listener: (state: HifiEngineState) => void) => () => void;
-    onClock: (listener: (update: HifiClockUpdate) => void) => () => void;
-    onError: (listener: (event: HifiErrorEvent) => void) => () => void;
-    /** 这首歌本次会话里 HiFi 起播失败过，之后都走 Web 引擎。 */
-    isSongForcedWeb: (songKey: string) => boolean;
-    markSongForcedWeb: (songKey: string) => void;
-    clearForcedWeb: () => void;
-};
-
-type Listener<T> = (value: T) => void;
+export { isHifiLoadCancelled };
+export type { HifiApi, HifiEngine } from './hifiEngineRules';
 
 const getWindowHifiApi = (): HifiApi | undefined => (
     typeof window === 'undefined' ? undefined : window.electron?.hifi
 );
-
-const addListener = <T>(listeners: Set<Listener<T>>, listener: Listener<T>) => {
-    listeners.add(listener);
-    return () => {
-        listeners.delete(listener);
-    };
-};
-
-/** 逐个通知订阅者；一个订阅者抛错不耽误其余的。 */
-const notify = <T>(listeners: Set<Listener<T>>, value: T, label: string) => {
-    listeners.forEach((listener) => {
-        try {
-            listener(value);
-        } catch (error) {
-            console.warn(`[HiFi] ${label} listener failed`, error);
-        }
-    });
-};
-
-const isLoadResult = (value: unknown): value is HifiLoadResult => (
-    typeof value === 'object' && value !== null && typeof (value as { ok?: unknown }).ok === 'boolean'
-);
-
-/**
- * HifiLoadResult 失败时 detail 有两个值不算失败，是这次载入被取消了（errorCode 仍是 LOAD_FAILED）：
- * - 'superseded'：一次更新的 load 顶替了它；
- * - 'stopped'：还在载入时被 stop() 取消，比如路由守卫切去 Web 引擎。
- * 这两种不提示、不记 lastError、不让这首歌回落 Web。
- */
-const CANCELLED_LOAD_DETAILS: Record<string, string> = {
-    superseded: 'superseded by a newer one',
-    stopped: 'cancelled by stop',
-};
-
-type CancelledLoadResult = Extract<HifiLoadResult, { ok: false }> & { detail: string };
-
-export const isHifiLoadCancelled = (result: HifiLoadResult): result is CancelledLoadResult => (
-    !result.ok && typeof result.detail === 'string' && Object.hasOwn(CANCELLED_LOAD_DETAILS, result.detail)
-);
-
-/** 这几种失败说明 mpv 本身不能用了（没找到、拉不起来、版本太旧）：运行时状态要重新取，路由才会及时改走 Web。 */
-const RUNTIME_FAILURE_CODES: ReadonlySet<string> = new Set(['MPV_NOT_FOUND', 'MPV_SPAWN_FAILED', 'MPV_TOO_OLD']);
-
-/** 两份配置对主进程是否一样；不开软件音量时 mpv 固定 100，音量不同也算一样。 */
-const isSameEngineConfig = (a: HifiEngineConfig, b: HifiEngineConfig) => {
-    const keys = new Set([...Object.keys(a), ...Object.keys(b)] as Array<keyof HifiEngineConfig>);
-    return [...keys].every(key => (
-        Object.is(a[key], b[key]) || (key === 'volume' && !a.softwareVolume && !b.softwareVolume)
-    ));
-};
 
 /** store 默认是新建的一份，测试互不干扰；单例传入 useHifiEngineStore。 */
 export const createHifiEngine = (
     getApi: () => HifiApi | undefined = getWindowHifiApi,
     store: HifiEngineStore = createHifiEngineStore(),
 ): HifiEngine => {
-    const stateListeners = new Set<Listener<HifiEngineState>>();
-    const clockListeners = new Set<Listener<HifiClockUpdate>>();
-    const errorListeners = new Set<Listener<HifiErrorEvent>>();
+    const stateListeners = createListeners<HifiEngineState>('state');
+    const clockListeners = createListeners<HifiClockUpdate>('clock');
+    const errorListeners = createListeners<HifiErrorEvent>('error');
     const forcedWebSongs = new Set<string>();
     let unsubscribers: Array<() => void> | null = null;
     let lastSeq = Number.NEGATIVE_INFINITY;
@@ -153,7 +74,7 @@ export const createHifiEngine = (
         lastSeq = state.seq;
         if (state.circuitOpen) openCircuit();
         store.setState({ engine: state });
-        notify(stateListeners, state, 'state');
+        stateListeners.notify(state);
     };
 
     /**
@@ -182,7 +103,7 @@ export const createHifiEngine = (
         console.warn('[HiFi] engine error', event);
         store.setState({ lastError: event });
         if (event.code === 'CIRCUIT_OPEN') openCircuit();
-        notify(errorListeners, event, 'error');
+        errorListeners.notify(event);
     };
 
     /** 调一个主进程方法；没有接口或调用抛错时回 fallback，不往外抛。 */
@@ -273,7 +194,7 @@ export const createHifiEngine = (
             unsubscribers = [
                 api.onState(acceptState),
                 api.onClock((update) => {
-                    if (isClockForKnownTrack(update)) notify(clockListeners, update, 'clock');
+                    if (isClockForKnownTrack(update)) clockListeners.notify(update);
                 }),
                 api.onError(handleError),
                 api.onInstallProgress((installProgress) => {
@@ -332,9 +253,9 @@ export const createHifiEngine = (
             acceptSnapshot(snapshot);
             return store.getState().engine ?? snapshot;
         },
-        onState: listener => addListener(stateListeners, listener),
-        onClock: listener => addListener(clockListeners, listener),
-        onError: listener => addListener(errorListeners, listener),
+        onState: stateListeners.add,
+        onClock: clockListeners.add,
+        onError: errorListeners.add,
         isSongForcedWeb: songKey => forcedWebSongs.has(songKey),
         markSongForcedWeb: (songKey) => {
             if (forcedWebSongs.has(songKey)) return;
