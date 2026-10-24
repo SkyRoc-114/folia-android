@@ -1,0 +1,429 @@
+import { createHash, randomBytes } from 'crypto';
+import fs from 'fs';
+import fsp from 'fs/promises';
+import { createRequire } from 'module';
+import os from 'os';
+import path from 'path';
+import { zipSync } from 'fflate';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { HifiErrorCode, HifiInstallProgress } from '../../../src/types/hifi';
+
+// 钉住 mpv 运行时安装：用 fflate 现做的 zip 走一遍下载、校验、解压、改名、清旧版本，以及校验失败、取消、macOS 的 ditto。
+
+type ExecFileCallback = (error: Error | null) => void;
+type ExecFileFn = (file: string, args: string[], options: Record<string, unknown>, callback: ExecFileCallback) => void;
+type FetchFn = (url: string, init: { redirect: string; signal: AbortSignal }) => Promise<Response>;
+
+interface InstallerOptions {
+    manifest: unknown;
+    platform: string;
+    arch: string;
+    getUserDataPath: () => string;
+    fetchFn: FetchFn;
+    execFileFn?: ExecFileFn;
+    onProgress?: (progress: HifiInstallProgress) => void;
+    now?: () => number;
+    systemVersion?: string | null;
+    logInfo?: (...args: unknown[]) => void;
+    logWarn?: (...args: unknown[]) => void;
+}
+
+interface InstallResult {
+    ok: boolean;
+    errorCode: HifiErrorCode | null;
+    version: string | null;
+    executablePath: string | null;
+}
+
+interface MpvRuntimeInstaller {
+    install: () => Promise<InstallResult>;
+    cancel: () => void;
+    isInstalling: () => boolean;
+    listInstalled: () => string[];
+}
+
+const require = createRequire(import.meta.url);
+const { createMpvRuntimeInstaller, safeEntrySegments } = require('../../../electron/hifi/mpvRuntimeInstaller.cjs') as {
+    createMpvRuntimeInstaller: (options: InstallerOptions) => MpvRuntimeInstaller;
+    safeEntrySegments: (name: unknown) => string[] | null | undefined;
+};
+
+const ASSET_URL = 'https://github.example.test/mpv-player/mpv/releases/download/v0.41.0/mpv-test-win.zip';
+// 随机字节压不小，zip 才会分成几十块下载。
+const MPV_EXE = new Uint8Array(randomBytes(200_000));
+const silent = { logInfo: () => { }, logWarn: () => { } };
+
+const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+
+const windowsZip = (extra: Record<string, Uint8Array> = {}) => zipSync({
+    'mpv.exe': MPV_EXE,
+    'mpv.com': new TextEncoder().encode('console wrapper'),
+    'mpv.pdb': new Uint8Array(4096).fill(7),
+    'doc/readme.txt': new TextEncoder().encode('hello'),
+    ...extra,
+});
+
+const manifestFor = (key: string, build: Record<string, unknown>) => ({
+    schema: 1,
+    recommended: '0.41.0',
+    versions: [{ version: '0.41.0', builds: { [key]: build } }],
+});
+
+const windowsManifest = (zip: Uint8Array, overrides: Record<string, unknown> = {}) => manifestFor('win32-x64', {
+    url: ASSET_URL,
+    bytes: zip.byteLength,
+    sha256: sha256(zip),
+    archive: 'zip',
+    executable: 'mpv.exe',
+    ...overrides,
+});
+
+/** 把 bytes 分成小块慢慢给；stallAfter 块之后就不再给，也不结束（模拟卡住的下载）。 */
+const streamOf = (bytes: Uint8Array, { chunkSize = 8192, stallAfter = Infinity } = {}) => {
+    let offset = 0;
+    let served = 0;
+    return new ReadableStream<Uint8Array>({
+        pull(controller) {
+            if (served >= stallAfter) return new Promise<void>(() => { });
+            if (offset >= bytes.byteLength) {
+                controller.close();
+                return undefined;
+            }
+            controller.enqueue(bytes.slice(offset, offset + chunkSize));
+            offset += chunkSize;
+            served += 1;
+            return undefined;
+        },
+    });
+};
+
+const createFakeFetch = (bytes: Uint8Array, options: { stallAfter?: number; status?: number } = {}) => {
+    const calls: Array<{ url: string; init: { redirect: string; signal: AbortSignal } }> = [];
+    const fetchFn: FetchFn = async (url, init) => {
+        calls.push({ url, init });
+        if (options.status && options.status !== 200) return new Response('nope', { status: options.status });
+        return new Response(streamOf(bytes, { stallAfter: options.stallAfter }), {
+            headers: { 'content-length': String(bytes.byteLength) },
+        });
+    };
+    return { fetchFn, calls };
+};
+
+describe('safeEntrySegments', () => {
+    it('splits plain names, skips directories and refuses traversal', () => {
+        expect(safeEntrySegments('mpv.exe')).toEqual(['mpv.exe']);
+        expect(safeEntrySegments('./doc//readme.txt')).toEqual(['doc', 'readme.txt']);
+        expect(safeEntrySegments('doc/')).toBeNull();
+        for (const unsafe of ['../evil.dll', 'doc/../../evil.dll', '/etc/passwd', 'C:/Windows/evil.dll', 'a\\..\\b', 'mpv.exe:stream', 42]) {
+            expect(safeEntrySegments(unsafe)).toBeUndefined();
+        }
+    });
+});
+
+describe('createMpvRuntimeInstaller', () => {
+    let userData = '';
+    let root = '';
+
+    beforeEach(async () => {
+        userData = await fsp.mkdtemp(path.join(os.tmpdir(), 'folia-hifi-install-'));
+        root = path.join(userData, 'hifi-runtime', 'mpv');
+    });
+
+    afterEach(async () => {
+        await fsp.rm(userData, { recursive: true, force: true });
+    });
+
+    const windowsInstaller = (manifest: unknown, fetchFn: FetchFn, extra: Partial<InstallerOptions> = {}) => {
+        const progress: HifiInstallProgress[] = [];
+        const installer = createMpvRuntimeInstaller({
+            manifest,
+            platform: 'win32',
+            arch: 'x64',
+            getUserDataPath: () => userData,
+            fetchFn,
+            onProgress: event => progress.push(event),
+            now: () => 0,
+            ...silent,
+            ...extra,
+        });
+        return { installer, progress };
+    };
+
+    const leftovers = async () => (await fsp.readdir(root).catch(() => [] as string[])).sort();
+
+    it('downloads, verifies, extracts and moves the runtime into place', async () => {
+        const zip = windowsZip();
+        const fetch = createFakeFetch(zip);
+        const { installer, progress } = windowsInstaller(windowsManifest(zip), fetch.fetchFn);
+
+        const pending = installer.install();
+        expect(installer.isInstalling()).toBe(true);
+        expect(installer.install()).toBe(pending);
+        const result = await pending;
+
+        const executablePath = path.join(root, '0.41.0', 'mpv.exe');
+        expect(result).toEqual({ ok: true, errorCode: null, version: '0.41.0', executablePath });
+        expect(new Uint8Array(await fsp.readFile(executablePath))).toEqual(MPV_EXE);
+        expect(await fsp.readFile(path.join(root, '0.41.0', 'doc', 'readme.txt'), 'utf8')).toBe('hello');
+        // 调试符号不解出来。
+        expect(fs.existsSync(path.join(root, '0.41.0', 'mpv.pdb'))).toBe(false);
+        // .part、zip 和 .tmp 都不留。
+        expect(await leftovers()).toEqual(['0.41.0']);
+        expect(installer.isInstalling()).toBe(false);
+        expect(installer.listInstalled()).toEqual(['0.41.0']);
+        expect(fetch.calls).toHaveLength(1);
+        expect(fetch.calls[0].url).toBe(ASSET_URL);
+        expect(fetch.calls[0].init.redirect).toBe('follow');
+
+        // 时钟不动时下载阶段只报开头和结尾两次，每个阶段都有收尾的一条。
+        expect(progress.map(event => event.phase)).toEqual(['downloading', 'downloading', 'verifying', 'extracting', 'done']);
+        expect(progress[0]).toEqual({ phase: 'downloading', version: '0.41.0', receivedBytes: 0, totalBytes: zip.byteLength, errorCode: null });
+        expect(progress.at(-1)).toMatchObject({ receivedBytes: zip.byteLength, totalBytes: zip.byteLength });
+
+        // 再装一次：已经装好，不再下载。
+        expect((await installer.install()).ok).toBe(true);
+        expect(fetch.calls).toHaveLength(1);
+    });
+
+    it('reports download progress at most every 200 ms', async () => {
+        const zip = windowsZip();
+        let clock = 0;
+        const { installer, progress } = windowsInstaller(windowsManifest(zip), createFakeFetch(zip).fetchFn, {
+            now: () => {
+                clock += 50;
+                return clock;
+            },
+        });
+        await installer.install();
+        const downloading = progress.filter(event => event.phase === 'downloading');
+        const chunks = Math.ceil(zip.byteLength / 8192);
+        // 每块推进 50 ms，四块才报一次，再加开头和结尾。
+        expect(downloading.length).toBeLessThanOrEqual(Math.ceil(chunks / 4) + 2);
+        expect(downloading.length).toBeGreaterThan(2);
+        const received = downloading.map(event => event.receivedBytes);
+        expect(received).toEqual([...received].sort((a, b) => a - b));
+    });
+
+    it('throws the download away on a checksum mismatch', async () => {
+        const zip = windowsZip();
+        const { installer, progress } = windowsInstaller(
+            windowsManifest(zip, { sha256: 'f'.repeat(64) }),
+            createFakeFetch(zip).fetchFn,
+        );
+        const result = await installer.install();
+        expect(result).toEqual({ ok: false, errorCode: 'INSTALL_CHECKSUM_MISMATCH', version: '0.41.0', executablePath: null });
+        expect(await leftovers()).toEqual([]);
+        expect(progress.at(-1)).toMatchObject({ phase: 'error', errorCode: 'INSTALL_CHECKSUM_MISMATCH' });
+        expect(installer.listInstalled()).toEqual([]);
+    });
+
+    it('treats too few or too many bytes as a mismatch', async () => {
+        const zip = windowsZip();
+        for (const bytes of [zip.byteLength + 10, zip.byteLength - 10]) {
+            const { installer } = windowsInstaller(windowsManifest(zip, { bytes }), createFakeFetch(zip).fetchFn);
+            const result = await installer.install();
+            expect(result.errorCode).toBe('INSTALL_CHECKSUM_MISMATCH');
+            expect(await leftovers()).toEqual([]);
+        }
+    });
+
+    it('fails on an HTTP error without leaving files', async () => {
+        const zip = windowsZip();
+        const { installer, progress } = windowsInstaller(windowsManifest(zip), createFakeFetch(zip, { status: 404 }).fetchFn);
+        const result = await installer.install();
+        expect(result.errorCode).toBe('INSTALL_FAILED');
+        expect(await leftovers()).toEqual([]);
+        expect(progress.at(-1)?.phase).toBe('error');
+    });
+
+    it('cancels mid-download and removes the partial file', async () => {
+        const zip = windowsZip();
+        const fetch = createFakeFetch(zip, { stallAfter: 2 });
+        let clock = 0;
+        let cancelled = false;
+        let partSeen = false;
+        const { installer, progress } = windowsInstaller(windowsManifest(zip), fetch.fetchFn, {
+            now: () => {
+                clock += 1000;
+                return clock;
+            },
+            onProgress: (event) => {
+                progress.push(event);
+                if (event.phase === 'downloading' && event.receivedBytes > 0 && !cancelled) {
+                    cancelled = true;
+                    partSeen = fs.existsSync(path.join(root, 'mpv-test-win.zip.part'));
+                    installer.cancel();
+                }
+            },
+        });
+        const result = await installer.install();
+        expect(partSeen).toBe(true);
+        expect(result).toEqual({ ok: false, errorCode: 'INSTALL_CANCELLED', version: '0.41.0', executablePath: null });
+        expect(await leftovers()).toEqual([]);
+        expect(installer.isInstalling()).toBe(false);
+        expect(progress.at(-1)).toMatchObject({ phase: 'cancelled', errorCode: 'INSTALL_CANCELLED' });
+        expect(fetch.calls[0].init.signal.aborted).toBe(true);
+    });
+
+    it('keeps only the newest two versions, and always the one just installed', async () => {
+        for (const version of ['0.38.5', '0.39.0', '0.40.0']) {
+            await fsp.mkdir(path.join(root, version), { recursive: true });
+            await fsp.writeFile(path.join(root, version, 'mpv.exe'), 'old');
+        }
+        await fsp.mkdir(path.join(root, 'notes'), { recursive: true });
+        const zip = windowsZip();
+        const { installer } = windowsInstaller(windowsManifest(zip), createFakeFetch(zip).fetchFn);
+        expect((await installer.install()).ok).toBe(true);
+        expect(await leftovers()).toEqual(['0.40.0', '0.41.0', 'notes']);
+
+        // 已经有更新的两个版本时，刚装的旧版本也不删。
+        await fsp.rm(path.join(root, '0.41.0'), { recursive: true });
+        for (const version of ['0.42.0', '0.43.0']) {
+            await fsp.mkdir(path.join(root, version), { recursive: true });
+        }
+        const again = windowsInstaller(windowsManifest(zip), createFakeFetch(zip).fetchFn);
+        expect((await again.installer.install()).ok).toBe(true);
+        expect(await leftovers()).toEqual(['0.41.0', '0.43.0', 'notes']);
+    });
+
+    it('refuses a zip with a path that escapes the install directory', async () => {
+        const zip = windowsZip({ '../escape.dll': new TextEncoder().encode('evil') });
+        const { installer } = windowsInstaller(windowsManifest(zip), createFakeFetch(zip).fetchFn);
+        const result = await installer.install();
+        expect(result.errorCode).toBe('INSTALL_FAILED');
+        expect(fs.existsSync(path.join(root, '..', 'escape.dll'))).toBe(false);
+        expect(fs.existsSync(path.join(userData, 'escape.dll'))).toBe(false);
+        expect(await leftovers()).toEqual([]);
+    });
+
+    it('fails when the archive has no executable', async () => {
+        const zip = zipSync({ 'readme.txt': new TextEncoder().encode('no mpv here') });
+        const { installer } = windowsInstaller(windowsManifest(zip), createFakeFetch(zip).fetchFn);
+        expect((await installer.install()).errorCode).toBe('INSTALL_FAILED');
+        expect(await leftovers()).toEqual([]);
+    });
+
+    it('answers UNSUPPORTED_PLATFORM on Linux without touching the network or disk', async () => {
+        const fetch = createFakeFetch(new Uint8Array(1));
+        const installer = createMpvRuntimeInstaller({
+            manifest: require('../../../shared/mpvRuntimeManifest.json'),
+            platform: 'linux',
+            arch: 'x64',
+            getUserDataPath: () => userData,
+            fetchFn: fetch.fetchFn,
+            ...silent,
+        });
+        expect(await installer.install()).toEqual({ ok: false, errorCode: 'UNSUPPORTED_PLATFORM', version: null, executablePath: null });
+        expect(fetch.calls).toHaveLength(0);
+        expect(fs.existsSync(root)).toBe(false);
+        expect(installer.isInstalling()).toBe(false);
+        expect(installer.listInstalled()).toEqual([]);
+    });
+
+    it('treats a macOS older than the build needs as unsupported', async () => {
+        const fetch = createFakeFetch(new Uint8Array(1));
+        const installer = createMpvRuntimeInstaller({
+            manifest: require('../../../shared/mpvRuntimeManifest.json'),
+            platform: 'darwin',
+            arch: 'x64',
+            getUserDataPath: () => userData,
+            fetchFn: fetch.fetchFn,
+            systemVersion: '14.7.2',
+            ...silent,
+        });
+        expect((await installer.install()).errorCode).toBe('UNSUPPORTED_PLATFORM');
+        expect(fetch.calls).toHaveLength(0);
+    });
+
+    it('extracts on macOS with ditto, then tar, and makes the binary executable', async () => {
+        const zip = zipSync({ 'mpv.tar.gz': new Uint8Array([1, 2, 3]) });
+        const manifest = manifestFor('darwin-arm64', {
+            url: 'https://github.example.test/mpv-v0.41.0-macos-14-arm.zip',
+            bytes: zip.byteLength,
+            sha256: sha256(zip),
+            archive: 'zip+tar.gz',
+            tarball: 'mpv.tar.gz',
+            executable: 'mpv.app/Contents/MacOS/mpv',
+            minOsVersion: '14.0',
+        });
+        const calls: Array<{ file: string; args: string[] }> = [];
+        const execFileFn: ExecFileFn = (file, args, _options, callback) => {
+            calls.push({ file, args });
+            // 假的 ditto 解出 mpv.tar.gz，假的 tar 解出不带执行位的 mpv.app。
+            if (file === 'ditto') {
+                fs.writeFileSync(path.join(args[3], 'mpv.tar.gz'), 'tarball');
+            } else if (file === 'tar') {
+                const macos = path.join(args[3], 'mpv.app', 'Contents', 'MacOS');
+                fs.mkdirSync(macos, { recursive: true });
+                fs.writeFileSync(path.join(macos, 'mpv'), 'mach-o', { mode: 0o644 });
+            }
+            callback(null);
+        };
+        const installer = createMpvRuntimeInstaller({
+            manifest,
+            platform: 'darwin',
+            arch: 'arm64',
+            getUserDataPath: () => userData,
+            fetchFn: createFakeFetch(zip).fetchFn,
+            execFileFn,
+            systemVersion: '14.5.0',
+            ...silent,
+        });
+        const result = await installer.install();
+
+        const zipPath = path.join(root, 'mpv-v0.41.0-macos-14-arm.zip');
+        const tmpDir = path.join(root, '0.41.0.tmp');
+        expect(calls).toEqual([
+            { file: 'ditto', args: ['-x', '-k', zipPath, tmpDir] },
+            { file: 'tar', args: ['-xzf', path.join(tmpDir, 'mpv.tar.gz'), '-C', tmpDir] },
+        ]);
+        const executablePath = path.join(root, '0.41.0', 'mpv.app', 'Contents', 'MacOS', 'mpv');
+        expect(result).toEqual({ ok: true, errorCode: null, version: '0.41.0', executablePath });
+        expect(fs.statSync(executablePath).mode & 0o777).toBe(0o755);
+        expect(fs.existsSync(path.join(root, '0.41.0', 'mpv.tar.gz'))).toBe(false);
+        expect(await leftovers()).toEqual(['0.41.0']);
+        expect(installer.listInstalled()).toEqual(['0.41.0']);
+    });
+
+    it('fails cleanly when ditto fails', async () => {
+        const zip = zipSync({ 'mpv.tar.gz': new Uint8Array([1]) });
+        const manifest = manifestFor('darwin-x64', {
+            url: 'https://github.example.test/mpv-v0.41.0-macos-15-intel.zip',
+            bytes: zip.byteLength,
+            sha256: sha256(zip),
+            archive: 'zip+tar.gz',
+            tarball: 'mpv.tar.gz',
+            executable: 'mpv.app/Contents/MacOS/mpv',
+        });
+        const installer = createMpvRuntimeInstaller({
+            manifest,
+            platform: 'darwin',
+            arch: 'x64',
+            getUserDataPath: () => userData,
+            fetchFn: createFakeFetch(zip).fetchFn,
+            execFileFn: (_file, _args, _options, callback) => callback(new Error('ditto: Couldn\'t read PKZip signature')),
+            ...silent,
+        });
+        expect((await installer.install()).errorCode).toBe('INSTALL_FAILED');
+        expect(await leftovers()).toEqual([]);
+    });
+});
+
+describe('shared/mpvRuntimeManifest.json', () => {
+    it('lists official v0.41.0 builds with a hash, a size and an executable for each platform', () => {
+        const manifest = require('../../../shared/mpvRuntimeManifest.json') as {
+            schema: number;
+            recommended: string;
+            versions: Array<{ version: string; builds: Record<string, Record<string, unknown>> }>;
+        };
+        expect(manifest.schema).toBe(1);
+        const recommended = manifest.versions.find(entry => entry.version === manifest.recommended);
+        expect(Object.keys(recommended?.builds ?? {}).sort()).toEqual(['darwin-arm64', 'darwin-x64', 'win32-arm64', 'win32-x64']);
+        for (const [key, build] of Object.entries(recommended?.builds ?? {})) {
+            expect(build.url).toMatch(/^https:\/\/github\.com\/mpv-player\/mpv\/releases\/download\/v0\.41\.0\//);
+            expect(build.sha256).toMatch(/^[0-9a-f]{64}$/);
+            expect(Number.isSafeInteger(build.bytes)).toBe(true);
+            expect(build.executable).toBe(key.startsWith('win32') ? 'mpv.exe' : 'mpv.app/Contents/MacOS/mpv');
+        }
+    });
+});
