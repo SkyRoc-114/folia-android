@@ -20,7 +20,7 @@ mpv ──HTTP（Range）──> electron/hifi/sourceBridge.cjs（127.0.0.1，�
 ### 主进程 `electron/hifi/`
 
 - `hifiErrors.cjs`：错误码表（和 `HifiErrorCode` 一致）、带码的 Error；把 mpv 的日志行和 `end-file` 归到错误码；给日志的说明去掉查询串。
-- `mpvArgs.cjs`：启动参数和 `loadfile` 命令（纯函数）；设备名不合规时回落 `auto`。
+- `mpvArgs.cjs`：启动参数和 `loadfile` 命令（纯函数）。命令行上的设备永远是 `auto`；设备名只认白名单里的字符，ALSA 会执行或写文件的插件（`file:`、`pipe` 等）一律回落 `auto`。Linux 上永远不请求独占（`effectiveExclusive`）。
 - `mpvIpcClient.cjs`：JSON IPC 客户端，一行一个 JSON，按 `request_id` 配对回复、按 observe id 分发属性变化；Windows 命名管道的连接。
 - `mpvRuntime.cjs`：找 mpv、探版本（最低 0.39.0）、判能不能做 DoP，结果是 `HifiRuntimeStatus`。
 - `mpvRuntimeInstaller.cjs`：按清单下载 mpv，边下边算 sha256，核对后解压到 `userData/hifi-runtime/mpv/<version>/`，只留最新两个版本。
@@ -72,7 +72,7 @@ mpv ──HTTP（Range）──> electron/hifi/sourceBridge.cjs（127.0.0.1，�
 
 ### 设置页
 
-`src/components/modal/settings/pages/HifiPage.tsx` 只做组装，每组一个文件在 `pages/hifi/`：`HifiEngineGroup.tsx`（开关、mpv 状态、下载 / 更新、手动路径、重新检测、Linux 的包管理器提示）、`HifiOutputGroup.tsx`（输出设备、独占模式）、`HifiDsdGroup.tsx`（转 PCM 或 DoP）、`HifiScopeGroup.tsx`（Navidrome 走不走 HiFi）、`HifiVolumeGroup.tsx`（软件音量）、`HifiLimitsGroup.tsx`（已知限制）。`options.ts` 声明组和选项，组 id 就是锚点（`hifiEngine`、`hifiOutput`、`hifiDsd`、`hifiScope`、`hifiVolume`、`hifiLimits`）；`runtimeState.ts` 是设置页和命令面板共用的运行时判断。分区 `hifi` 在 `music` 组里 `playback` 之后，只在桌面版出现（`settingsNavModel.ts`）。
+`src/components/modal/settings/pages/HifiPage.tsx` 只做组装，每组一个文件在 `pages/hifi/`：`HifiEngineGroup.tsx`（开关、mpv 状态、下载 / 更新、手动路径、重新检测、Linux 的包管理器提示）、`HifiOutputGroup.tsx`（输出设备，Windows / macOS 上还有独占模式；Linux 不画这个开关）、`HifiDsdGroup.tsx`（转 PCM 或 DoP）、`HifiScopeGroup.tsx`（Navidrome 走不走 HiFi）、`HifiVolumeGroup.tsx`（软件音量）、`HifiLimitsGroup.tsx`（已知限制）。`options.ts` 声明组和选项，组 id 就是锚点（`hifiEngine`、`hifiOutput`、`hifiDsd`、`hifiScope`、`hifiVolume`、`hifiLimits`）；`runtimeState.ts` 是设置页和命令面板共用的运行时判断。分区 `hifi` 在 `music` 组里 `playback` 之后，只在桌面版出现（`settingsNavModel.ts`）。
 
 ### 命令
 
@@ -86,7 +86,7 @@ mpv ──HTTP（Range）──> electron/hifi/sourceBridge.cjs（127.0.0.1，�
 | `src/components/app/playback/start/useLibraryPlaybackController.ts` | 本地 / Navidrome 起播：读文件前先 `hifiRouteFor`，HiFi 不做 blob URL，改调 `beginHifiTrack` |
 | `src/components/app/playback/source/songAudioSource.ts` | `loadLocalSongHifiSource`；Navidrome 用 `getStreamUrl(config, id, 'raw')` |
 | `src/components/app/playback/restore/*` | 恢复和窗口交接的 HiFi 分支（`adoptRunning`、延后载入、`releaseUnclaimedHifiTrack`、交接时的位置取 `getHifiPosition()`） |
-| `src/components/app/playback/useStagePlaybackController.ts` | Stage 快照记下路线，回来时重新按 HiFi 起播 |
+| `src/components/app/playback/useStagePlaybackController.ts` | Stage 快照记下路线，回来时先卸掉 deck，再重新按 HiFi 起播 |
 | `src/components/app/playback/bridges/` | 传输控制、空格键、遥控跳转的 HiFi 分支；`usePlaybackVisualizerBridge.ts` 在 HiFi 上按 `getHifiPosition()` 走时钟，频谱停在待机动画 |
 | `useMediaSessionBridge`、`usePlaybackReporter`、`useNavidromeScrobbleReporter`、`useRecentPlaysRecorder`、`useObsBrowserSourcePublisher`、`useElectronPlaybackBridge` | 读 `getObservedMedia()`，路线变了重新绑定 |
 | `src/components/FloatingPlayerControls.tsx`、`src/components/panelTab/`（`controls/SoundTiles.tsx`、`controls/VolumeRow.tsx`、`AudioEqualizerDialog.tsx`、`ReplayGainControl.tsx`） | 进度条旁的徽标；链路入口代替智能过渡和均衡器两格；音量行停用；绕过说明 |
@@ -96,9 +96,9 @@ mpv ──HTTP（Range）──> electron/hifi/sourceBridge.cjs（127.0.0.1，�
 ## 为什么用 mpv
 
 - 有先例：Feishin（Electron 的 Navidrome / Jellyfin 客户端）在主进程里起 mpv、走 IPC 控制；Supersonic（Subsonic / Jellyfin 桌面客户端）用 libmpv；Jellyfin Media Player 内嵌 mpv。拿 mpv 当桌面音乐后端是走过的路。
-- 独占输出是现成的：WASAPI 独占、Core Audio 独占（hog 模式）、ALSA hw: 直连都只是 `--audio-device` 和 `--audio-exclusive`。不设 `--audio-samplerate` / `--audio-format`，mpv 就按源的格式开输出。
+- 独占输出是现成的：WASAPI 独占、Core Audio 独占（hog 模式）只是 `audio-device` 和 `audio-exclusive` 两个属性，ALSA hw: 直连只是选一个 hw: 设备。不设 `--audio-samplerate` / `--audio-format`，mpv 就按源的格式开输出。
 - 格式它自己解：FLAC、ALAC、DSD（DSF / DFF）等都由 mpv 解码，HiFi 路线不去找浏览器能放的副本。
-- 链路看得见：`audio-params`（解码出的格式）、`audio-out-params`（送进设备的格式）、`current-ao`（实际用的输出驱动）、`audio-device-list`（设备）、`track-list`（编码名和 demux 采样率，用来认 DSD）这五个属性够判断每一级，`signalPath.ts` 拿它们和源格式逐级比，不靠猜。`request_log_messages warn` 收到的日志行再把失败归到错误码（`hifiErrors.cjs`：`AUDCLNT_E_DEVICE_IN_USE`、ALSA 的 busy、hog mode → `DEVICE_BUSY`）。
+- 链路看得见：`audio-params`（解码出的格式）、`audio-out-params`（送进设备的格式）、`current-ao`（实际用的输出驱动）、`audio-device-list`（设备）、`track-list`（编码名和 demux 采样率，用来认 DSD）这五个属性够判断每一级，`signalPath.ts` 拿它们和源格式逐级比，不靠猜。`request_log_messages warn` 收到的日志行再把失败归到错误码（`hifiErrors.cjs`：`AUDCLNT_E_DEVICE_IN_USE`、ALSA 的 busy、hog mode → `DEVICE_BUSY`；PipeWire / PulseAudio 输出断流的「no target node available」「Stream in error state」也算，否则 mpv 会丢帧快进、假装放完）。
 - 子进程 + JSON IPC：不用给 Electron 编原生模块；mpv 崩了不带走应用。Unix 上 IPC 是 fd 3 上的 socketpair（`--input-ipc-client=fd://3`），连接一断 mpv 就退出，不留孤儿进程；Windows 用随机名字的命名管道 `\\.\pipe\folia-hifi-<hex>`。
 
 启动参数（`mpvArgs.cjs`）先关掉一切会碰声音和界面的东西：`--no-config`（不读用户的 mpv.conf）、`--af=`、`--replaygain=no`、`--audio-pitch-correction=no`、`--audio-normalize-downmix=no`、`--volume=100 --volume-max=100`。`--audio-fallback-to-null=no`：设备开不了就报错，不悄悄放进空输出。`--gapless-audio=weak`：下一首格式变了就按新格式重开输出；`yes` 会把后面的歌都重采样成第一首的格式。源从不上命令行，只经 IPC 的 `loadfile` 下发。
@@ -150,7 +150,7 @@ mpv ──HTTP（Range）──> electron/hifi/sourceBridge.cjs（127.0.0.1，�
 | --- | --- | --- |
 | Windows | WASAPI 独占：「独占模式」开着 | 独占关着（WASAPI 共享模式） |
 | macOS | Core Audio 独占（hog 模式）：「独占模式」开着，mpv 改用 `coreaudio_exclusive`，按源格式切换设备的采样率 | 独占关着 |
-| Linux | 只有 ALSA 的 hw: 直连设备（设置里标「直连」） | PipeWire、PulseAudio、JACK 不论独占开关都混音；`plughw` 会在 mpv 背后转格式，不算直连 |
+| Linux | 只有 ALSA 的 hw: 直连设备（设置里标「直连」） | PipeWire、PulseAudio、JACK 一律混音；mpv 在 Linux 上固定 `--audio-exclusive=no`（PipeWire 下独占会让 mpv 的流连不上别的流在用的输出，丢帧快进），设置页不画独占开关；`plughw` 会在 mpv 背后转格式，不算直连 |
 
 除此之外每一级都要原样：
 
@@ -176,10 +176,12 @@ DSD：默认转 PCM，mpv 把 DSD 解成 PCM（DSD64 → 352.8 kHz 浮点），�
 
 - **系统媒体控制只在共享输出时有**：mpv 发声时页面里没有在放的媒体元素，Chromium 就不登记媒体会话。`useHifiMediaSessionKeepAlive.ts` 在 HiFi 放着时循环一段音量为 0 的 6 秒静音，让 Linux 的 MPRIS、Windows 的 SMTC、macOS 的「正在播放」一直在。独占输出（Windows / macOS 开着独占，或 Linux 选了 hw: 设备）时不放：页面里多开一路流会和 mpv 抢设备，系统媒体控制和媒体键这时没有。只在 Linux 的 MPRIS 上实测过。
 - 不能导出歌词视频，没有频谱（见上表）。
-- **设备被占**：别的程序占着输出设备（独占时尤其）时载入报 `DEVICE_BUSY`，这首回落 Web 引擎。Linux 上 PipeWire 正在用的声卡的 hw: 设备也算被占。
+- **设备被占**：别的程序占着输出设备（独占时尤其）时载入报 `DEVICE_BUSY`，这首回落 Web 引擎。Linux 上 PipeWire 正在用的声卡的 hw: 设备也算被占；放着放着输出断流也报 `DEVICE_BUSY`。
+- **设备名只认设备表里的**：设置里的设备要在这个 mpv 列出的设备表里（Linux 再加主进程补的 hw:）才交给 mpv，不在就留在 `auto` 并记日志；之后每次载入（至少隔 5 秒）再核对一次，DAC 插上了就换过去。
 - 没有 ASIO；DoP 只在 Windows，要比 0.41.0 新的 mpv。
 - 格式变化处的无缝接播会有一下输出重开（`--gapless-audio=weak`）；同格式的两首才严丝合缝。
 - 只有本地曲库和 Navidrome；在线歌曲不走 HiFi。
+- **恢复出来的那首的起播凭据**：会话恢复、窗口重建接过来的那首拿的是 `startRestore()` 的答案，它在任何一次点播（包括被顶替的点播撤回时那一下）之后就一直是 false。很窄的连点竞态下，这首随后会丢掉无缝跟进、失败回落和关掉 HiFi 时的换引擎；换一首歌就恢复。
 
 ## 测试
 

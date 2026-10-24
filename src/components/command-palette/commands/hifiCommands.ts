@@ -60,7 +60,8 @@ export const hifiCommands: CommandPaletteCommand[] = [
         'Turn on or off whether HiFi takes the output device for itself, so the system mixer stays out of the way',
         ['exclusive', 'wasapi exclusive', 'hog mode', 'device busy', 'system mixer', '独占', '系统混音器', '设备被占用', '独占设备'],
         context => context.settings.toggleHifiExclusive(),
-        { platform: ['electron'], icon: Lock, isAvailable: whereHifiIsSupported },
+        // Linux 上 mpv 一律不请求独占（PipeWire 下独占反而让 mpv 连不上），设置页也不画这个开关。
+        { platform: ['win', 'mac'], icon: Lock, isAvailable: whereHifiIsSupported },
     ),
     createToggleCommand(
         'hifi-navidrome-toggle',

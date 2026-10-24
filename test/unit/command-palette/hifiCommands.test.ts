@@ -83,11 +83,11 @@ const settle = () => new Promise(resolve => setTimeout(resolve, 0));
 const command = (id: string) => hifiCommands.find(item => item.id === id)!;
 
 describe('hifi commands', () => {
-    it('are desktop-only', () => {
+    it('are desktop-only, and exclusive mode only where mpv can ask for it (not Linux)', () => {
         expect(hifiCommands.map(item => [item.id, item.platform])).toEqual([
             ['hifi-toggle', ['electron']],
             ['hifi-settings', ['electron']],
-            ['hifi-exclusive-toggle', ['electron']],
+            ['hifi-exclusive-toggle', ['win', 'mac']],
             ['hifi-navidrome-toggle', ['electron']],
             ['hifi-software-volume-toggle', ['electron']],
             ['hifi-redetect-mpv', ['electron']],
