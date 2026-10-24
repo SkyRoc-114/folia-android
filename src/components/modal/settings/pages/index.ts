@@ -6,6 +6,7 @@ import * as desktop from './DesktopPage';
 import * as developer from './DeveloperPage';
 import * as general from './GeneralPage';
 import * as graphics from './GraphicsPage';
+import * as hifi from './HifiPage';
 import * as home from './HomePage';
 import * as integration from './IntegrationPage';
 import * as interaction from './InteractionPage';
@@ -27,6 +28,7 @@ const PAGE_MODULES: Record<SettingsSectionId, PageModule> = {
     player,
     home,
     playback,
+    hifi,
     lyrics,
     general,
     interaction,

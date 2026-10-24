@@ -67,6 +67,8 @@ const createContext = (overrides: CommandPaletteContextOverrides = {}): CommandP
             runAutoMatchBestLyric: vi.fn(async () => true),
             toggleCurrentSongPureMusicMark: vi.fn(async () => true),
             canToggleCurrentSongPureMusicMark: true,
+            isHifiRoute: () => false,
+            openHifiSignalPath: vi.fn(),
         },
         navigation: {
         navigateToHome: vi.fn(),
@@ -191,6 +193,10 @@ const createContext = (overrides: CommandPaletteContextOverrides = {}): CommandP
             setTransitionMode: vi.fn(),
             toggleTransitionPerformance: vi.fn(),
             canUseTransitionPerformance: vi.fn(() => true),
+            isHifiSupported: () => true,
+            isHifiEnabled: () => false,
+            isHifiVolumeConfirmed: () => false,
+            setHifiEnabled: vi.fn(),
         },
         visualizer: {
             visualizerMode: 'classic',

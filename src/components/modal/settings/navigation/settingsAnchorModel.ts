@@ -42,6 +42,14 @@ export const SETTINGS_ANCHOR_DEFINITIONS = {
     lyrics: { section: 'lyrics' },
     scrobbleSettings: { section: 'integration' },
 
+    // pages/HifiPage (desktop app only)
+    hifiEngine: { section: 'hifi' },
+    hifiOutput: { section: 'hifi' },
+    hifiDsd: { section: 'hifi' },
+    hifiScope: { section: 'hifi' },
+    hifiVolume: { section: 'hifi' },
+    hifiLimits: { section: 'hifi' },
+
     // pages/GeneralPage, and the pinned commands on pages/InteractionPage
     languageSettings: { section: 'general' },
     ponderHints: { section: 'general' },

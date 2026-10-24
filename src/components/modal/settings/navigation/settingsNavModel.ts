@@ -1,4 +1,4 @@
-import { Boxes, Contrast, Database, Gauge, Keyboard, LayoutGrid, Link2, Monitor, MonitorPlay, PlayCircle, SlidersHorizontal, Terminal, TextAlignStart, type LucideIcon } from 'lucide-react';
+import { AudioWaveform, Boxes, Contrast, Database, Gauge, Keyboard, LayoutGrid, Link2, Monitor, MonitorPlay, PlayCircle, SlidersHorizontal, Terminal, TextAlignStart, type LucideIcon } from 'lucide-react';
 // src/components/modal/settings/navigation/settingsNavModel.ts
 // Single source of truth for the settings categories: their order in the side list, their grouping,
 // icons and names. A category is cut by what the listener is looking at or doing, so each page holds
@@ -9,6 +9,7 @@ export type SettingsSectionId =
     | 'player'
     | 'home'
     | 'playback'
+    | 'hifi'
     | 'lyrics'
     | 'general'
     | 'interaction'
@@ -62,6 +63,8 @@ export const SETTINGS_NAV_GROUP_SPECS: GroupSpec[] = [
         labelKey: 'options.settingsGroupMusic',
         sections: [
             { id: 'playback', icon: PlayCircle, labelKey: 'options.settingsPagePlayback' },
+            // mpv runs as a child of the desktop main process; the web build has no engine to set up.
+            { id: 'hifi', icon: AudioWaveform, labelKey: 'options.settingsPageHifi', electronOnly: true },
             { id: 'lyrics', icon: TextAlignStart, labelKey: 'options.settingsPageLyrics' },
         ],
     },

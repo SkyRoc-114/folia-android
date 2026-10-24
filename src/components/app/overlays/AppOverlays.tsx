@@ -5,6 +5,7 @@ import DevDebugOverlay from '../../DevDebugOverlay';
 import MemoryMonitorWindow from '../../debug/MemoryMonitorWindow';
 import NowPlayingToast from './NowPlayingToast';
 import BottomCommandPaletteButton from './BottomCommandPaletteButton';
+import HifiSignalPathPanel from '../../hifi/HifiSignalPathPanel';
 import type { AppOverlaysModel } from './buildAppOverlaysModel';
 import { countRender } from '../../../dev/renderCount';
 import { useLatticeControlsStore } from '../../../stores/useLatticeControlsStore';
@@ -40,6 +41,9 @@ const AppOverlays: React.FC<AppOverlaysProps> = ({ model }) => {
                 && <FloatingPlayerControls {...floatingControls} />}
 
             {nowPlayingToast && <NowPlayingToast {...nowPlayingToast} />}
+
+            {/* The one HiFi signal-path sheet: the badge, the controls tab tile and the palette command open it through hifiPanelStore. */}
+            <HifiSignalPathPanel />
         </>
     );
 };

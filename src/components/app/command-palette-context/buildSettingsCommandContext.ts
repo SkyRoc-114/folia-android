@@ -3,6 +3,8 @@ import type { LyricStaffPolicy } from '../../../utils/lyrics/staffCreditsPolicy'
 import type { ThemeGenerationSource } from '../../../services/themePreferences';
 import { useAudioSettingsStore } from '../../../stores/useAudioSettingsStore';
 import { useAutomixSettingsStore } from '../../../stores/useAutomixSettingsStore';
+import { useHifiSettingsStore } from '../../../stores/useHifiSettingsStore';
+import { useHifiEngineStore } from '../../../services/hifi/hifiEngine';
 import { useDesktopSettingsStore } from '../../../stores/useDesktopSettingsStore';
 import { useLocalLibrarySettingsStore } from '../../../stores/useLocalLibrarySettingsStore';
 import { isLocalLibraryAutoScanSupported } from '../../../services/localLibraryAutoScan';
@@ -262,5 +264,10 @@ export const buildSettingsCommandContext = (
             !useAutomixSettingsStore.getState().transitionPerformance,
         ),
         canUseTransitionPerformance: deps.canUseTransitionPerformance,
+        // Read at the press, like the settings page: none of these rebuild the context.
+        isHifiSupported: () => useHifiEngineStore.getState().supported,
+        isHifiEnabled: () => useHifiSettingsStore.getState().enabled,
+        isHifiVolumeConfirmed: () => useHifiSettingsStore.getState().volumeConfirmed,
+        setHifiEnabled: enabled => useHifiSettingsStore.getState().setEnabled(enabled),
     };
 };

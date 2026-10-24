@@ -206,6 +206,13 @@ export type CommandPalettePlaybackContext = {
     toggleCurrentSongPureMusicMark: () => Promise<boolean>;
     /** Whether the current song is a local song, the only kind the instrumental mark applies to. */
     canToggleCurrentSongPureMusicMark: boolean;
+    /**
+     * Whether the current song plays through the HiFi engine (mpv) rather than the Web engine.
+     * A getter: the route changes with each song, and the context is not rebuilt for it.
+     */
+    isHifiRoute: () => boolean;
+    /** Opens the HiFi signal-path panel (the same one the badge by the progress bar opens). */
+    openHifiSignalPath: () => void;
 };
 
 export type CommandPaletteNavigationContext = {
@@ -407,6 +414,19 @@ export type CommandPaletteSettingsContext = {
      * model" for the rest of the session.
      */
     canUseTransitionPerformance: () => boolean;
+    /**
+     * Whether this desktop build has the HiFi engine (window.electron.hifi). A getter like the
+     * other capability checks; the HiFi settings page gates its switch on the same answer.
+     */
+    isHifiSupported: () => boolean;
+    /** The HiFi switch as stored, read at the press. */
+    isHifiEnabled: () => boolean;
+    /**
+     * Whether the "output is at full volume" warning was accepted once. Until it is, turning HiFi
+     * on goes through the settings page, where the warning is asked.
+     */
+    isHifiVolumeConfirmed: () => boolean;
+    setHifiEnabled: (enabled: boolean) => void;
 };
 
 /**
