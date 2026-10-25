@@ -66,6 +66,7 @@ const clock = (overrides: Partial<HifiClockUpdate> = {}): HifiClockUpdate => ({
     paused: false,
     reason: 'tick',
     seq: 1,
+    sampledAtMs: 0,
     ...overrides,
 });
 

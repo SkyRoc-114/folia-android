@@ -189,6 +189,8 @@ const detailOf = error => (error && isHifiErrorCode(error.code) ? error.hifiDeta
 
 const createFileProps = () => ({
     timePos: null,
+    // 读到 timePos 时的 now()，随时钟推送带给渲染进程。
+    timePosAt: null,
     duration: null,
     eofReached: false,
     audioParams: null,
@@ -372,12 +374,15 @@ const createMpvSession = ({
         if (disposed) return;
         lastClockAt = now();
         clockSeq += 1;
+        const fromTimePos = Boolean(current?.started) && mpv.timePos !== null && mpv.timePosAt !== null;
         callListener(onClock, {
             trackKey: current?.trackKey ?? null,
             positionSec: position(),
             paused: isClockPaused(),
             reason,
             seq: clockSeq,
+            // 尾随定时器推的是窗口里最后一个 time-pos，读到它的时刻比推送早；渲染进程按这个补。
+            sampledAtMs: fromTimePos ? mpv.timePosAt : lastClockAt,
         }, 'clock');
     };
 
@@ -386,6 +391,7 @@ const createMpvSession = ({
         // 当前项已经失败时 mpv 可能还在报别的项的位置（停下之前接上了预载项），不收；mpv 在放别的项时也不收。
         if (typeof value !== 'number' || !Number.isFinite(value) || !isOnCurrentEntry() || current.failed) return;
         mpv.timePos = value;
+        mpv.timePosAt = now();
         if (forcedClockReason) {
             const reason = forcedClockReason;
             forcedClockReason = null;
@@ -677,6 +683,7 @@ const createMpvSession = ({
         }
         entry.started = true;
         mpv.timePos = null;
+        mpv.timePosAt = null;
         mpv.eofReached = false;
         seekPending = false;
         track = null;
@@ -1187,6 +1194,7 @@ const createMpvSession = ({
     const seekTo = async (record, target) => {
         seekRequests += 1;
         mpv.timePos = target;
+        mpv.timePosAt = now();
         mpv.eofReached = false;
         seekPending = true;
         // 上一次 playback-restart 留下的“下一个 time-pos 立刻推”作废：这次跳转自己会推。

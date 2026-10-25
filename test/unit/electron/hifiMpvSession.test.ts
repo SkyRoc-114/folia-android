@@ -526,7 +526,7 @@ describe('mpv session: transport and clock', () => {
         expect(mpv.commands('set_property').slice(-2)).toEqual([['set_property', 'pause', true], ['set_property', 'pause', false]]);
         expect(mpv.commands('seek')).toEqual([['seek', 42.5, 'absolute']]);
         // mpv 还在找位置：时钟按停着报，渲染端不往前外推。
-        expect(harness.clocks).toEqual([{ trackKey: 'local:a#1', positionSec: 42.5, paused: true, reason: 'seek', seq: expect.any(Number) }]);
+        expect(harness.clocks).toEqual([{ trackKey: 'local:a#1', positionSec: 42.5, paused: true, reason: 'seek', seq: expect.any(Number), sampledAtMs: expect.any(Number) }]);
         // 状态里不算暂停：播放键不该在每次跳转时闪一下。
         await flush();
         expect(harness.lastState()).toMatchObject({ status: 'playing', paused: false });
@@ -536,7 +536,7 @@ describe('mpv session: transport and clock', () => {
         expect(harness.clocks.at(-1)).toMatchObject({ reason: 'tick', paused: true });
         harness.clocks.length = 0;
         mpv.event('playback-restart');
-        expect(harness.clocks).toEqual([{ trackKey: 'local:a#1', positionSec: 42.5, paused: false, reason: 'resume', seq: expect.any(Number) }]);
+        expect(harness.clocks).toEqual([{ trackKey: 'local:a#1', positionSec: 42.5, paused: false, reason: 'resume', seq: expect.any(Number), sampledAtMs: expect.any(Number) }]);
         // 跳完的那次已经推过了，下一个 time-pos 照常节流。
         mpv.prop('time-pos', 42.51);
         expect(harness.clocks).toHaveLength(1);
@@ -576,7 +576,7 @@ describe('mpv session: transport and clock', () => {
         const statesBefore = harness.states.length;
 
         mpv.prop('paused-for-cache', true);
-        expect(harness.clocks).toEqual([{ trackKey: 'local:a#1', positionSec: 3, paused: true, reason: 'tick', seq: expect.any(Number) }]);
+        expect(harness.clocks).toEqual([{ trackKey: 'local:a#1', positionSec: 3, paused: true, reason: 'tick', seq: expect.any(Number), sampledAtMs: expect.any(Number) }]);
         // 缓存见底期间推的 tick 也是停着的。
         await vi.advanceTimersByTimeAsync(300);
         mpv.prop('time-pos', 3.01);
@@ -587,6 +587,22 @@ describe('mpv session: transport and clock', () => {
         await flush();
         expect(harness.states.length).toBe(statesBefore);
         expect(harness.lastState()).toMatchObject({ status: 'playing', paused: false });
+    });
+
+    it('stamps each clock push with when its time-pos was read, not when the trailing timer sent it', async () => {
+        const harness = createHarness();
+        await loadAndStart(harness, localRequest('local:a#1'), 1);
+        const mpv = harness.mpv();
+        mpv.prop('time-pos', 1);
+        harness.clocks.length = 0;
+
+        await vi.advanceTimersByTimeAsync(100);
+        const readAt = Date.now();
+        mpv.prop('time-pos', 1.1);
+        expect(harness.clocks).toEqual([]);
+        await vi.advanceTimersByTimeAsync(300);
+        expect(harness.clocks).toEqual([expect.objectContaining({ reason: 'tick', positionSec: 1.1, sampledAtMs: readAt })]);
+        expect(Date.now()).toBeGreaterThan(readAt);
     });
 
     it('throttles time-pos to at most 4 pushes a second, but pushes the first value after a restart and pause flips at once', async () => {

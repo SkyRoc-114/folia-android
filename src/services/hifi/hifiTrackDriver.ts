@@ -1,4 +1,5 @@
 import type { HifiClockUpdate, HifiEngineState } from '../../types/hifi';
+import { MAX_EXTRAPOLATION_SEC } from './hifiClock';
 import { hifiMediaShim } from './hifiMediaShim';
 import { hifiPlaybackClock, isCurrentHifiTrackKey } from './hifiTrackStore';
 
@@ -11,14 +12,17 @@ const isValidDuration = (durationSec: number | null): durationSec is number => (
 
 /** 只换时钟的时长：基准位置和起算时刻原样保留，外推的上限也就不会被一次状态推送续上。 */
 const syncClockDuration = (durationSec: number) => {
-    const clock = hifiPlaybackClock.state();
-    if (clock.durationSec === durationSec) return;
-    hifiPlaybackClock.sync({
-        positionSec: clock.baseSec,
-        paused: clock.paused,
-        durationSec,
-        nowMs: clock.startedAtMs ?? undefined,
-    });
+    if (hifiPlaybackClock.state().durationSec === durationSec) return;
+    hifiPlaybackClock.setDuration(durationSec);
+};
+
+/**
+ * 推送从主进程读到位置到这里处理掉过了多久（毫秒）。两边用同一个墙钟；主进程忙或渲染进程卡一下，这段能有几百毫秒，
+ * 播放中按它把位置补到现在，不补就等于把画面往回拉这么多。负数（时钟被调过）当 0，太大的不补满，跟外推同一个上限。
+ */
+const clockUpdateAgeSec = (update: HifiClockUpdate, nowWallMs: number) => {
+    if (typeof update.sampledAtMs !== 'number' || !Number.isFinite(update.sampledAtMs)) return 0;
+    return Math.min(Math.max(0, (nowWallMs - update.sampledAtMs) / 1000), MAX_EXTRAPOLATION_SEC);
 };
 
 /**
@@ -45,9 +49,15 @@ export const applyHifiEngineState = (state: HifiEngineState) => {
     if (state.paused && !hifiMediaShim.paused) hifiMediaShim.markPaused();
 };
 
-/** 当前曲目的时钟推送 → 外推时钟；跳转（含单曲循环绕回开头）补一次 seeked。 */
-export const applyHifiClock = (update: HifiClockUpdate) => {
+/** 当前曲目的时钟推送 → 外推时钟（补上推送路上耽搁的时间，晚到的 tick 不往回拉）；跳转（含单曲循环绕回开头）补一次 seeked。 */
+export const applyHifiClock = (update: HifiClockUpdate, nowWallMs = Date.now()) => {
     if (!isCurrentHifiTrackKey(update.trackKey)) return;
-    hifiPlaybackClock.sync({ positionSec: update.positionSec, paused: update.paused });
+    const ageSec = update.paused ? 0 : clockUpdateAgeSec(update, nowWallMs);
+    hifiPlaybackClock.sync({
+        positionSec: update.positionSec + ageSec,
+        paused: update.paused,
+        // 只有例行 tick 不许往回拉：跳转、暂停、恢复、载入报的位置就是要显示的位置。
+        holdBackward: update.reason === 'tick',
+    });
     if (update.reason === 'seek') hifiMediaShim.markSeeked();
 };

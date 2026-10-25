@@ -8,6 +8,13 @@
  */
 export const MAX_EXTRAPOLATION_SEC = 1;
 
+/**
+ * 播放中的 tick 比画面已经走到的位置早，且差不超过这么多（秒）时，当成推送晚到：画面停在原处等 mpv 追上，不往回跳。
+ * 主进程忙、渲染进程在给 mpv 读文件时，一条 tick 能晚到几百毫秒；歌词把这种小幅倒退当成拖动，会重新定位而抽动一下。
+ * 真正的往回跳（拖动、单曲循环、换歌）走 seek / load，不经过这里。
+ */
+export const MAX_HELD_LAG_SEC = MAX_EXTRAPOLATION_SEC;
+
 export type HifiClockState = {
     baseSec: number;
     /** 基准对应的 performance.now()；暂停时为 null。 */
@@ -15,6 +22,8 @@ export type HifiClockState = {
     paused: boolean;
     /** 未知时为 null，外推就不按时长封顶（仍受 MAX_EXTRAPOLATION_SEC 限制）。 */
     durationSec: number | null;
+    /** 推送晚到时画面已经走到的位置：外推追上之前读数停在这里。没有时为 null。 */
+    floorSec: number | null;
 };
 
 export type HifiClockSync = {
@@ -23,11 +32,15 @@ export type HifiClockSync = {
     /** 省略时沿用上一次的时长，null 表示时长未知。 */
     durationSec?: number | null;
     nowMs?: number;
+    /** 播放中的例行 tick：比当前读数稍早时不往回拉（见 MAX_HELD_LAG_SEC）。 */
+    holdBackward?: boolean;
 };
 
 export type HifiClock = {
     sync: (update: HifiClockSync) => void;
     read: (nowMs?: number) => number;
+    /** 只换时长：基准、起算时刻和停住的位置都不动。 */
+    setDuration: (durationSec: number | null) => void;
     state: () => HifiClockState;
 };
 
@@ -41,24 +54,41 @@ const clampToDuration = (timeSec: number, durationSec: number | null) => {
 };
 
 export const createHifiClock = (): HifiClock => {
-    let clock: HifiClockState = { baseSec: 0, startedAtMs: null, paused: true, durationSec: null };
+    let clock: HifiClockState = { baseSec: 0, startedAtMs: null, paused: true, durationSec: null, floorSec: null };
 
-    const sync = ({ positionSec, paused, durationSec, nowMs = performance.now() }: HifiClockSync) => {
-        const nextDuration = durationSec === undefined ? clock.durationSec : normalizeDuration(durationSec);
-        const safePosition = Number.isFinite(positionSec) ? positionSec : 0;
-        clock = {
-            baseSec: clampToDuration(safePosition, nextDuration),
-            startedAtMs: paused ? null : nowMs,
-            paused,
-            durationSec: nextDuration,
-        };
+    const extrapolate = (nowMs: number) => {
+        if (clock.startedAtMs === null) return clock.baseSec;
+        const elapsedSec = Math.min(Math.max(0, (nowMs - clock.startedAtMs) / 1000), MAX_EXTRAPOLATION_SEC);
+        return clock.baseSec + elapsedSec;
     };
 
     const read = (nowMs = performance.now()) => {
-        if (clock.startedAtMs === null) return clampToDuration(clock.baseSec, clock.durationSec);
-        const elapsedSec = Math.min(Math.max(0, (nowMs - clock.startedAtMs) / 1000), MAX_EXTRAPOLATION_SEC);
-        return clampToDuration(clock.baseSec + elapsedSec, clock.durationSec);
+        const timeSec = extrapolate(nowMs);
+        return clampToDuration(clock.floorSec === null ? timeSec : Math.max(timeSec, clock.floorSec), clock.durationSec);
     };
 
-    return { sync, read, state: () => ({ ...clock }) };
+    const sync = ({ positionSec, paused, durationSec, nowMs = performance.now(), holdBackward = false }: HifiClockSync) => {
+        const nextDuration = durationSec === undefined ? clock.durationSec : normalizeDuration(durationSec);
+        const safePosition = Number.isFinite(positionSec) ? positionSec : 0;
+        const baseSec = clampToDuration(safePosition, nextDuration);
+        let floorSec: number | null = null;
+        if (holdBackward && !paused && !clock.paused) {
+            const shownSec = read(nowMs);
+            const lagSec = shownSec - baseSec;
+            if (lagSec > 0 && lagSec <= MAX_HELD_LAG_SEC) floorSec = shownSec;
+        }
+        clock = {
+            baseSec,
+            startedAtMs: paused ? null : nowMs,
+            paused,
+            durationSec: nextDuration,
+            floorSec,
+        };
+    };
+
+    const setDuration = (durationSec: number | null) => {
+        clock = { ...clock, durationSec: normalizeDuration(durationSec) };
+    };
+
+    return { sync, read, setDuration, state: () => ({ ...clock }) };
 };

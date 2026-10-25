@@ -527,18 +527,23 @@ describe('clock and shim driving', () => {
         expect(events).toEqual(['durationchange', 'loadedmetadata', 'play', 'playing']);
         expect(shim).toMatchObject({ paused: false, duration: 180, readyState: 1 });
 
-        push.clock?.({ trackKey, positionSec: 10, paused: false, reason: 'tick', seq: 2 });
+        push.clock?.({ trackKey, positionSec: 10, paused: false, reason: 'tick', seq: 2, sampledAtMs: Date.now() });
         expect(playback.getHifiPosition()).toBeGreaterThanOrEqual(10);
         expect(playback.getHifiPosition()).toBeLessThan(11);
 
-        push.clock?.({ trackKey, positionSec: 60, paused: true, reason: 'seek', seq: 3 });
+        // 主进程 400 ms 前读到的 10.2 s：补上路上的 400 ms，不把画面拉回 10.2。
+        push.clock?.({ trackKey, positionSec: 10.2, paused: false, reason: 'tick', seq: 3, sampledAtMs: Date.now() - 400 });
+        expect(playback.getHifiPosition()).toBeGreaterThanOrEqual(10.6);
+        expect(playback.getHifiPosition()).toBeLessThan(10.7);
+
+        push.clock?.({ trackKey, positionSec: 60, paused: true, reason: 'seek', seq: 3, sampledAtMs: Date.now() });
         // 还在放：和 <audio> 一样跳完再补一次 playing。
         expect(events.slice(-2)).toEqual(['seeked', 'playing']);
         expect(playback.getHifiPosition()).toBe(60);
 
         // 被换下的那首（这里冒充成主进程的预载项）推来的状态和时钟都不理。
         push.state?.(state({ trackKey: 'local:other#x', next: { trackKey, songKey: 'local:song-1' }, status: 'paused' }));
-        push.clock?.({ trackKey: 'local:other#x', positionSec: 5, paused: true, reason: 'seek', seq: 4 });
+        push.clock?.({ trackKey: 'local:other#x', positionSec: 5, paused: true, reason: 'seek', seq: 4, sampledAtMs: Date.now() });
         expect(shim.paused).toBe(false);
         expect(playback.getHifiPosition()).toBe(60);
 
@@ -567,7 +572,7 @@ describe('clock and shim driving', () => {
         void playback.hifiTransport.seek(90);
         expect(api.seek).toHaveBeenCalledWith(90);
         expect(playback.hifiPlaybackClock.state()).toMatchObject({ baseSec: 90, paused: true });
-        push.clock?.({ trackKey, positionSec: 90, paused: false, reason: 'resume', seq: 5 });
+        push.clock?.({ trackKey, positionSec: 90, paused: false, reason: 'resume', seq: 5, sampledAtMs: Date.now() });
         expect(playback.hifiPlaybackClock.state()).toMatchObject({ baseSec: 90, paused: false });
 
         await playback.hifiTransport.pause();

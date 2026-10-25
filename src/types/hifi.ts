@@ -199,6 +199,8 @@ export type HifiClockUpdate = {
     paused: boolean;
     reason: HifiClockReason;
     seq: number;
+    /** 主进程从 mpv 读到这个位置时的 Date.now()；渲染进程按它补上推送路上耽搁的时间。 */
+    sampledAtMs: number;
 };
 
 export type HifiErrorEvent = {

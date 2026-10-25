@@ -451,7 +451,7 @@ describe('moving a HiFi song to the Web engine', () => {
         mount({ playSong, shouldAutoPlayRef: { current: false } });
         const trackKey = await startTrack();
         await pushState({ trackKey, status: 'playing', paused: false, durationSec: 300 });
-        act(() => push.clock?.({ trackKey, positionSec: 192, paused: false, reason: 'tick', seq: 1 }));
+        act(() => push.clock?.({ trackKey, positionSec: 192, paused: false, reason: 'tick', seq: 1, sampledAtMs: Date.now() }));
 
         await act(async () => {
             push.error?.({ code: 'DEVICE_UNAVAILABLE', trackKey, fatal: true });
@@ -558,7 +558,7 @@ describe('moving a HiFi song to the Web engine', () => {
         mount({ playSong, shouldAutoPlayRef: { current: false } });
         const trackKey = await startTrack();
         await pushState({ trackKey, status: 'playing', paused: false, durationSec: 300 });
-        act(() => push.clock?.({ trackKey, positionSec: 64, paused: false, reason: 'tick', seq: 1 }));
+        act(() => push.clock?.({ trackKey, positionSec: 64, paused: false, reason: 'tick', seq: 1, sampledAtMs: Date.now() }));
 
         act(() => useHifiSettingsStore.getState().setEnabled(false));
 

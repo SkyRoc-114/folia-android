@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_EXTRAPOLATION_SEC, createHifiClock } from '@/services/hifi/hifiClock';
+import { MAX_EXTRAPOLATION_SEC, MAX_HELD_LAG_SEC, createHifiClock } from '@/services/hifi/hifiClock';
 
 // test/unit/hifi/hifiClock.test.ts
 // The extrapolated HiFi position: it moves on between mpv's ticks while playing, holds while paused,
@@ -9,7 +9,7 @@ describe('createHifiClock', () => {
     it('starts at zero, paused, with no duration', () => {
         const clock = createHifiClock();
         expect(clock.read(1000)).toBe(0);
-        expect(clock.state()).toEqual({ baseSec: 0, startedAtMs: null, paused: true, durationSec: null });
+        expect(clock.state()).toEqual({ baseSec: 0, startedAtMs: null, paused: true, durationSec: null, floorSec: null });
     });
 
     it('extrapolates from the last sync while playing', () => {
@@ -17,7 +17,7 @@ describe('createHifiClock', () => {
         clock.sync({ positionSec: 10, paused: false, durationSec: 200, nowMs: 1000 });
         expect(clock.read(1000)).toBe(10);
         expect(clock.read(1750)).toBeCloseTo(10.75);
-        expect(clock.state()).toEqual({ baseSec: 10, startedAtMs: 1000, paused: false, durationSec: 200 });
+        expect(clock.state()).toEqual({ baseSec: 10, startedAtMs: 1000, paused: false, durationSec: 200, floorSec: null });
     });
 
     it('holds the position while paused', () => {
@@ -72,6 +72,63 @@ describe('createHifiClock', () => {
         expect(clock.read(500)).toBeCloseTo(0.5);
         // A clock read before the sync time (another frame's timestamp) does not run backwards.
         expect(clock.read(-1000)).toBe(0);
+    });
+
+    it('holds instead of stepping back when a playing tick lands behind what is already shown', () => {
+        expect(MAX_HELD_LAG_SEC).toBe(1);
+        const clock = createHifiClock();
+        clock.sync({ positionSec: 10, paused: false, durationSec: 200, nowMs: 0 });
+        expect(clock.read(500)).toBeCloseTo(10.5);
+        // The tick sampled at 10.2 s only arrives at 500 ms: the screen stays at 10.5 until mpv catches up.
+        clock.sync({ positionSec: 10.2, paused: false, nowMs: 500, holdBackward: true });
+        expect(clock.read(500)).toBeCloseTo(10.5);
+        expect(clock.read(700)).toBeCloseTo(10.5);
+        expect(clock.read(900)).toBeCloseTo(10.6);
+        expect(clock.state()).toMatchObject({ baseSec: 10.2, startedAtMs: 500, floorSec: 10.5 });
+    });
+
+    it('neither runs ahead nor steps back over a hundred ticks that each arrive 25 ms late', () => {
+        const clock = createHifiClock();
+        clock.sync({ positionSec: 0, paused: false, durationSec: 600, nowMs: 0 });
+        let shown = 0;
+        for (let i = 1; i <= 100; i += 1) {
+            const nowMs = i * 40;
+            clock.sync({ positionSec: nowMs / 1000 - 0.025, paused: false, nowMs, holdBackward: true });
+            for (const frameMs of [nowMs, nowMs + 16, nowMs + 33]) {
+                const read = clock.read(frameMs);
+                expect(read).toBeGreaterThanOrEqual(shown);
+                shown = read;
+            }
+        }
+        // Real position at 4.033 s is 4.008 s (25 ms behind): the screen sits at most one tick interval ahead of it.
+        expect(shown).toBeLessThanOrEqual(4.033 - 0.025 + 0.04 + 1e-9);
+    });
+
+    it('follows a real step back: a seek, a pause, a lag over the limit, or a tick after a pause', () => {
+        const clock = createHifiClock();
+        clock.sync({ positionSec: 50, paused: false, durationSec: 200, nowMs: 0 });
+        clock.sync({ positionSec: 49.8, paused: false, nowMs: 500 });
+        expect(clock.read(500)).toBeCloseTo(49.8);
+
+        clock.sync({ positionSec: 50, paused: false, nowMs: 0 });
+        clock.sync({ positionSec: 48, paused: false, nowMs: 900, holdBackward: true });
+        expect(clock.read(900)).toBeCloseTo(48);
+
+        clock.sync({ positionSec: 50, paused: false, nowMs: 0 });
+        clock.sync({ positionSec: 50.1, paused: true, nowMs: 500, holdBackward: true });
+        expect(clock.read(500)).toBeCloseTo(50.1);
+        clock.sync({ positionSec: 50, paused: false, nowMs: 600, holdBackward: true });
+        expect(clock.read(600)).toBeCloseTo(50);
+    });
+
+    it('changes only the duration on setDuration, keeping a held position', () => {
+        const clock = createHifiClock();
+        clock.sync({ positionSec: 10, paused: false, durationSec: 200, nowMs: 0 });
+        clock.sync({ positionSec: 10.2, paused: false, nowMs: 500, holdBackward: true });
+        clock.setDuration(180);
+        expect(clock.state()).toEqual({ baseSec: 10.2, startedAtMs: 500, paused: false, durationSec: 180, floorSec: 10.5 });
+        clock.setDuration(Number.NaN);
+        expect(clock.state().durationSec).toBeNull();
     });
 
     it('reads performance.now() when no time is given', () => {
