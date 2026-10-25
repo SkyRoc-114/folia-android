@@ -42,7 +42,7 @@ vi.mock('@/services/hifi/sourceSpec', async importOriginal => ({
 
 const { useHifiPlaybackBridge } = await import('@/components/hifi/useHifiPlaybackBridge');
 const { resumeHifiPlayback, seekHifiRoute } = await import('@/components/hifi/hifiRouteTransport');
-const { beginHifiTrack, getHifiPosition, leaveHifiRoute, useHifiTrackStore } = await import('@/services/hifi/hifiPlayback');
+const { beginHifiTrack, getHifiPosition, isHifiRoute, leaveHifiRoute, useHifiTrackStore } = await import('@/services/hifi/hifiPlayback');
 const { startPlay } = await import('@/components/app/playback/currentSong');
 const { hifiEngine, useHifiEngineStore } = await import('@/services/hifi/hifiEngine');
 const { usePlaybackStore } = await import('@/stores/usePlaybackStore');
@@ -346,6 +346,56 @@ describe('useHifiPlaybackBridge', () => {
         act(() => { resumed = resumeHifiPlayback(); });
         expect(resumed).toBe(true);
         expect(playSong).toHaveBeenCalledTimes(1);
+    });
+
+    it('on Windows keeps a song whose device another app holds on HiFi, paused, and loads it again on play', async () => {
+        const electron = window.electron as unknown as { platform?: string };
+        electron.platform = 'win32';
+        try {
+            api.load.mockImplementation(async () => ({ ok: false, errorCode: 'DEVICE_BUSY' }));
+            const playSong = vi.fn(async () => undefined);
+            mount({ playSong });
+            const trackKey = await startTrack();
+            expect(useHifiTrackStore.getState()).toMatchObject({ loadState: 'failed', loadError: 'DEVICE_BUSY' });
+            expect(toast()).toEqual({ type: 'error', text: 'hifi.notice.deviceBusyHeld' });
+            // Not handed to the Web engine: on the same held device it would stall at 0:00 or play on another device.
+            expect(hifiEngine.isSongForcedWeb(SONG_KEY)).toBe(false);
+            expect(playSong).not.toHaveBeenCalled();
+            expect(isHifiRoute()).toBe(true);
+            expect(usePlaybackStore.getState().playerState).toBe(PlayerState.PAUSED);
+
+            // A seek while it waits only moves the clock; nothing goes to mpv.
+            act(() => { seekHifiRoute(42); });
+            expect(api.seek).not.toHaveBeenCalled();
+            expect(api.load).toHaveBeenCalledTimes(1);
+            expect(getHifiPosition()).toBe(42);
+
+            // Still held: one more load from there, then it waits again with the same notice.
+            useStatusMessageStore.setState({ message: null });
+            let resumed = true;
+            await act(async () => {
+                resumed = resumeHifiPlayback();
+                await flush();
+            });
+            expect(resumed).toBe(false);
+            expect(api.load).toHaveBeenCalledTimes(2);
+            expect(api.load.mock.calls[1][0]).toMatchObject({ trackKey, startSec: 42 });
+            expect(toast()).toEqual({ type: 'error', text: 'hifi.notice.deviceBusyHeld' });
+            expect(usePlaybackStore.getState().playerState).toBe(PlayerState.PAUSED);
+
+            // Released: the next play loads it and starts it on mpv.
+            api.load.mockImplementation(okLoad);
+            await act(async () => {
+                resumeHifiPlayback();
+                await flush();
+            });
+            expect(api.load).toHaveBeenCalledTimes(3);
+            expect(useHifiTrackStore.getState().loadState).toBe('ready');
+            expect(api.play).toHaveBeenCalled();
+            expect(playSong).not.toHaveBeenCalled();
+        } finally {
+            delete electron.platform;
+        }
     });
 
     it('falls back to the Web engine once per track, with one toast, when the load fails', async () => {

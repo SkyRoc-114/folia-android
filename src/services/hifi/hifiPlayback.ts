@@ -50,7 +50,7 @@ export type { HifiLoadState, HifiNextTrack, HifiTrack, HifiTrackStoreState } fro
 export { isHifiRoute, leaveHifiRoute, releaseUnclaimedHifiTrack } from './hifiRouteGuard';
 export { clearNextHifiTrack, preloadNextHifiTrack } from './hifiGapless';
 export { hifiTransport } from './hifiTransport';
-export { loadDeferredHifiTrack } from './hifiTrackLoad';
+export { isHifiTrackWaitingForDevice, loadDeferredHifiTrack, retryBusyHifiTrack } from './hifiTrackLoad';
 export type { BeginHifiTrackOutcome, HifiTrackSource } from './hifiTrackLoad';
 
 export type BeginHifiTrackOptions = {

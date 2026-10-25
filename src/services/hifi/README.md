@@ -126,6 +126,8 @@ mpv ──HTTP（Range）──> electron/hifi/sourceBridge.cjs（127.0.0.1，�
 4. 在线歌曲和 Stage 推来的歌一律走 Web。
 
 - **按歌回落**：载入失败或放到一半报致命错误时，提示 `hifi.errors.<code>`，`markSongForcedWeb` 记下这首本次会话走 Web，再让它在 Web 引擎上从原来的位置、按原来的播停接着放。只记在渲染端的内存里，重启应用、窗口重建后就清掉。被更新的载入顶替、被 stop 取消的载入（`superseded`、`stopped`）不算失败。刚从有源的 Web 路线换过来的 6 秒内报 `DEVICE_BUSY`（AudioContext 挂起后系统要过一会儿才关掉那条流），先隔 1.5 秒重试，最多三次。
+- **设备被别的程序独占时停住等重试**（Windows、macOS）：重试完仍是 `DEVICE_BUSY` 时不回落：这首留在 HiFi 路线上停着，提示 `hifi.notice.deviceBusyHeld`，不记 forcedWeb。之后按播放（`resumeHifiPlayback` → `retryBusyHifiTrack`）从时钟的位置再载一次，等着时的跳转只挪时钟；还忙就再停住、再提示。原因是 #353 的 Windows 实测：别的程序独占着 DAC 时回落到 Web，Chromium 要么改从系统默认设备出声，要么卡在 0:00，设备放开后也不会自己恢复。Linux 上忙多半是 PipeWire 占着声卡的 hw: 设备，Web 引擎经 PipeWire 照样出声，照旧回落。
+- **在线歌曲提示一次**：开着 HiFi、mpv 可用时，本次会话第一首开始放的在线歌曲提示它不经过 HiFi、从播放设置里的设备出声（`useHifiWebRouteNotice.ts`），开着独占（非 Linux）时说明独占只管本地曲库和 Navidrome。
 - **会话熔断**：60 秒内 mpv 出事三次（进程退出、IPC 断开、命令超时、拉不起来）时主进程打开熔断，这次会话剩下的时间里载入都回 `CIRCUIT_OPEN`，只提示一次，所有歌走 Web。重启应用才恢复。
 - `MPV_NOT_FOUND`、`MPV_SPAWN_FAILED`、`MPV_TOO_OLD` 会顺带刷新运行时状态，之后的歌直接判 Web。
 - **进出路线**：切到 HiFi 时 `useWebEngineYield` 让 Web 引擎让位（Windows 上 Chromium 在同一设备上的共享流会挡住 WASAPI 独占）。离开只经 `hifiRouteGuard.ts`：Web 引擎拿到源、Stage 接管、或别处把路线改回 web 时，在 zustand 的 setState 里同步停掉 mpv，早于 React 渲染和 `<audio>` 换源，独占的设备先放开。放着时关掉 HiFi（或放着 Navidrome 歌时关掉「Navidrome 歌曲」），这首当场挪去 Web 引擎接着放，不算回落，再打开时照样走 mpv。
@@ -217,7 +219,7 @@ mpv 的采样率不在这张表里时（DSD 转出的 352.8 kHz 这类），面�
 
 - **系统媒体控制只在共享输出时有**：mpv 发声时页面里没有在放的媒体元素，Chromium 就不登记媒体会话。`useHifiMediaSessionKeepAlive.ts` 在 HiFi 放着时循环一段音量为 0 的 6 秒静音，让 Linux 的 MPRIS、Windows 的 SMTC、macOS 的「正在播放」一直在。独占输出（Windows / macOS 开着独占，或 Linux 选了 hw: 设备）时不放：页面里多开一路流会和 mpv 抢设备，系统媒体控制和媒体键这时没有。只在 Linux 的 MPRIS 上实测过。
 - 不能导出歌词视频，没有频谱（见上表）。
-- **设备被占**：别的程序占着输出设备（独占时尤其）时载入报 `DEVICE_BUSY`，这首回落 Web 引擎。Linux 上 PipeWire 正在用的声卡的 hw: 设备也算被占；放着放着输出断流也报 `DEVICE_BUSY`。
+- **设备被占**：别的程序占着输出设备（独占时尤其）时载入报 `DEVICE_BUSY`；Windows、macOS 上这首停着等按播放重试，Linux 上回落 Web 引擎。不会自己在设备放开时重试：Folia 看不到别的程序什么时候放开。Linux 上 PipeWire 正在用的声卡的 hw: 设备也算被占；放着放着输出断流也报 `DEVICE_BUSY`。
 - **设备名只认设备表里的**：设置里的设备要在这个 mpv 列出的设备表里（Linux 再加主进程补的 hw:）才交给 mpv，不在就留在 `auto` 并记日志；之后每次载入（至少隔 5 秒）再核对一次，DAC 插上了就换过去。
 - 没有 ASIO；DoP 只在 Windows，要比 0.41.0 新的 mpv。
 - 格式变化处的无缝接播会有一下输出重开（`--gapless-audio=weak`）；同格式的两首才严丝合缝。
@@ -260,7 +262,7 @@ node test/manual/hifiMpvSmoke.mjs a44.flac b96.flac --mpv /usr/bin/mpv
 | Windows | WASAPI 独占 192 kHz | 同上，放 192 kHz / 24 bit FLAC | DAC 支持时同上、切到 192 kHz；不支持时判途中经过转换，面板写明重采样 |
 | Windows | DoP DSD64 | 手动选一个比 0.41.0 新的 mpv（引擎组显示能做 DoP），DSD 选 DoP，独占开；接支持 DoP 的 DAC，放 DSD64 `.dsf` | 判经 DoP 原生输出 DSD；输出 176400 Hz、24 / 32 位整数；DAC 亮 DSD 指示 |
 | Windows | DoP DSD128 | 同上，放 DSD128 | 输出 352800 Hz；DAC 显示 DSD128 |
-| Windows | 设备被占 | 先让别的程序以 WASAPI 独占占住这块 DAC，再放一首本地歌 | 提示设备被占（`hifi.errors.DEVICE_BUSY`）；这首在 Web 引擎上接着放，没有徽标；别的歌照样先试 HiFi |
+| Windows | 设备被占 | 先让别的程序以 WASAPI 独占占住这块 DAC，再放一首本地歌；然后让那个程序放开设备，再按播放 | 提示设备被别的程序独占（`hifi.notice.deviceBusyHeld`），这首停着，电视或系统默认设备上**不出声**；放开后按播放，这首从停下的位置经 mpv 独占播放 |
 | macOS | hog 模式切采样率 | 独占开，依次放 44.1 kHz 和 96 kHz 的歌 | 日志里的输出驱动是 `coreaudio_exclusive`，判原生直通；「音频 MIDI 设置」里设备格式跟着切到 44.1 / 96 kHz；放着时别的程序没有声音 |
 | Linux | hw: 直连 | 输出设备选标「直连」的 hw: 设备（PipeWire 没在用的声卡，如配置文件设为关的 USB DAC），放 96 kHz / 24 bit | 日志 `-> alsa 96000 Hz`，判原生直通；`/proc/asound/card<N>/pcm<D>p/sub0/hw_params` 显示 `rate: 96000` |
 | Linux | PipeWire 占着声卡 | 选 PipeWire 正在放音的那块声卡的 hw: 设备 | 提示设备被占，这首回落 Web 引擎；换回默认设备（pipewire）判经过系统混音器 |

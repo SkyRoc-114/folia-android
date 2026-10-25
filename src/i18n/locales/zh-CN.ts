@@ -2988,6 +2988,9 @@ export default {
     "audioOutputUnsupported": "当前环境不支持切换播放设备。",
     "audioOutputLoadFailed": "读取播放设备失败。",
     "audioOutputSelectFailed": "切换播放设备失败。",
+    "audioOutputMissing": "找不到所选的播放设备，声音现在从系统默认设备输出。",
+    "audioOutputNotApplied": "没能切到所选的播放设备，声音现在从系统默认设备输出。",
+    "audioOutputFallbackNote": "设备可能被拔掉后重新接上，或正被其他程序独占。请在设置里重新选择播放设备。",
     "audioOutputUnnamed": "播放设备",
     "audioOutputDefault": "系统默认",
     "audioOutputLoading": "正在读取播放设备...",
@@ -4285,6 +4288,12 @@ export default {
         "commandLabel": "终端命令",
         "footnote": "以上是 PipeWire 报告的状态。Folia 只读得到 PipeWire 报的内容，确认不了 DAC 实际收到的采样率：请看 DAC 的采样率指示，或者用耳朵听。"
       }
+    },
+    "notice": {
+      "deviceBusyHeld": "输出设备正被其他程序独占，这首歌先停着。那个程序放开设备后，按播放重试。",
+      "onlineNotHifi": "在线歌曲不经过 HiFi，照常从播放设置里的播放设备出声。",
+      "onlineNotHifiNote": "HiFi 只接管本地曲库和 Navidrome 的歌曲。",
+      "onlineNotHifiExclusiveNote": "HiFi 的独占模式只对本地曲库和 Navidrome 的歌曲生效。"
     },
     "errors": {
       "MPV_NOT_FOUND": "未找到 mpv。请安装 mpv，或在 HiFi 设置里指定它。",

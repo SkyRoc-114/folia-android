@@ -2988,6 +2988,9 @@ export default {
     "audioOutputUnsupported": "This environment does not support switching audio output devices.",
     "audioOutputLoadFailed": "Failed to load audio output devices.",
     "audioOutputSelectFailed": "Failed to switch the audio output device.",
+    "audioOutputMissing": "The selected playback device is not found. Sound now plays on the system default device.",
+    "audioOutputNotApplied": "Could not switch to the selected playback device. Sound now plays on the system default device.",
+    "audioOutputFallbackNote": "The device may have been unplugged and plugged back in, or another app may hold it in exclusive mode. Choose the playback device again in the settings.",
     "audioOutputUnnamed": "Output Device",
     "audioOutputDefault": "System Default",
     "audioOutputLoading": "Loading output devices...",
@@ -4285,6 +4288,12 @@ export default {
         "commandLabel": "Terminal command",
         "footnote": "This is what PipeWire reports. Folia can only read what PipeWire reports and cannot confirm what your DAC receives: check your DAC's sample-rate indicator, or listen."
       }
+    },
+    "notice": {
+      "deviceBusyHeld": "Another app holds the output device in exclusive mode, so this song waits. Press play to try again once that app releases the device.",
+      "onlineNotHifi": "Online songs do not go through HiFi. They play on the playback device in the playback settings.",
+      "onlineNotHifiNote": "HiFi plays only songs from your local library and Navidrome.",
+      "onlineNotHifiExclusiveNote": "HiFi's exclusive mode applies only to songs from your local library and Navidrome."
     },
     "errors": {
       "MPV_NOT_FOUND": "mpv was not found. Install it or choose it in the HiFi settings.",

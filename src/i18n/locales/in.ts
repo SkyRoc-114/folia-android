@@ -2988,6 +2988,9 @@ export default {
     "audioOutputUnsupported": "Lingkungan ini tidak mendukung penggantian perangkat output audio.",
     "audioOutputLoadFailed": "Gagal memuat perangkat output audio.",
     "audioOutputSelectFailed": "Gagal mengganti perangkat output audio.",
+    "audioOutputMissing": "Perangkat pemutaran yang dipilih tidak ditemukan. Suara sekarang diputar di perangkat bawaan sistem.",
+    "audioOutputNotApplied": "Tidak bisa beralih ke perangkat pemutaran yang dipilih. Suara sekarang diputar di perangkat bawaan sistem.",
+    "audioOutputFallbackNote": "Perangkat mungkin dicabut lalu dipasang lagi, atau sedang dipakai eksklusif oleh aplikasi lain. Pilih lagi perangkat pemutaran di pengaturan.",
     "audioOutputUnnamed": "Perangkat Output",
     "audioOutputDefault": "Bawaan Sistem",
     "audioOutputLoading": "Memuat perangkat output...",
@@ -4285,6 +4288,12 @@ export default {
         "commandLabel": "Perintah terminal",
         "footnote": "Ini yang dilaporkan PipeWire. Folia hanya bisa membaca laporan PipeWire dan tidak bisa memastikan apa yang diterima DAC Anda: periksa indikator laju sampel DAC, atau dengarkan."
       }
+    },
+    "notice": {
+      "deviceBusyHeld": "Aplikasi lain memakai perangkat output secara eksklusif, jadi lagu ini menunggu. Tekan putar untuk mencoba lagi setelah aplikasi itu melepas perangkat.",
+      "onlineNotHifi": "Lagu online tidak melewati HiFi. Lagu diputar di perangkat pemutaran dari pengaturan pemutaran.",
+      "onlineNotHifiNote": "HiFi hanya memutar lagu dari pustaka lokal dan Navidrome.",
+      "onlineNotHifiExclusiveNote": "Mode eksklusif HiFi hanya berlaku untuk lagu dari pustaka lokal dan Navidrome."
     },
     "errors": {
       "MPV_NOT_FOUND": "mpv tidak ditemukan. Pasang mpv atau pilih di pengaturan HiFi.",

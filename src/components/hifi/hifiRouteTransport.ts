@@ -10,7 +10,9 @@ import {
     hifiPlaybackClock,
     hifiTransport,
     isHifiRoute,
+    isHifiTrackWaitingForDevice,
     loadDeferredHifiTrack,
+    retryBusyHifiTrack,
     useHifiTrackStore,
     type HifiTrack,
 } from '../../services/hifi/hifiPlayback';
@@ -128,6 +130,17 @@ export const moveHifiTrackToWeb = (playSong: HifiPlaySong, track: HifiTrack, lab
 };
 
 /**
+ * 载入一直报 DEVICE_BUSY（别的程序独占着设备）：这一首留在 HiFi 路线上停着，不交给 Web 引擎。Windows、macOS 上 Web 引擎
+ * 在同一台设备上也出不了声：实测 Chromium 要么改从系统默认设备出声，要么卡在 0:00，设备放开后也不会自己恢复。
+ * 意图用掉，状态写成暂停；之后按播放由 resumeHifiPlayback 再载一次。
+ */
+export const holdHifiTrackForDevice = (trackKey: string) => {
+    spendHifiPlayIntent(trackKey);
+    if (!hifiMediaShim.paused) hifiMediaShim.markPaused();
+    setPlayerState(PlayerState.PAUSED);
+};
+
+/**
  * HiFi 路线上的“播放”。平常是让 mpv 接着放。队尾停掉 mpv 之后再按，交给 playSong 重放这一首：从头，或从停下后跳到的位置
  * （Web 引擎放完再按也是这样）。恢复时还没载入的那一首，这时才载入，载入好由自动播放开播。
  * 返回 true 表示接着放了，调用方照常把状态写成 PLAYING；false 表示状态由别处写（playSong，或载入好之后的自动播放）。
@@ -147,6 +160,14 @@ export const resumeHifiPlayback = (): boolean => {
         void loadDeferredHifiTrack();
         return false;
     }
+    // 停在“设备被别的程序占着”上：再载一次，载入好由自动播放开播；还忙就又停回来，再提示一次。
+    if (current && isHifiTrackWaitingForDevice(current.trackKey)) {
+        if (intent.ref) intent.ref.current = true;
+        intent.startedTrackKey = null;
+        startLoadingToPlay();
+        void retryBusyHifiTrack();
+        return false;
+    }
     if (current) spendHifiPlayIntent(current.trackKey);
     void hifiTransport.resume();
     return true;
@@ -163,11 +184,13 @@ export const seekHifiRoute = (timeSec: number, { resume = false }: { resume?: bo
     const target = Math.max(0, timeSec);
     const { current, loadState } = useHifiTrackStore.getState();
     const pending = pendingQueueEndReplay(current?.trackKey);
-    if (pending || loadState === 'deferred') {
+    // 等设备的那一首 mpv 里没有：只挪时钟，再按播放时从这里载入。
+    const waitingForDevice = isHifiTrackWaitingForDevice(current?.trackKey);
+    if (pending || loadState === 'deferred' || waitingForDevice) {
         hifiPlaybackClock.sync({ positionSec: target, paused: true });
         hifiMediaShim.markSeeked();
         if (pending) pending.startAtSec = target;
-        else if (!resume) void loadDeferredHifiTrack();
+        else if (!resume && !waitingForDevice) void loadDeferredHifiTrack();
     } else {
         void hifiTransport.seek(target);
     }

@@ -16,6 +16,7 @@ import {
     hifiTransport,
     installHifiPlayback,
     isHifiRoute,
+    isHifiTrackWaitingForDevice,
     loadDeferredHifiTrack,
     useHifiTrackStore,
     type HifiTrack,
@@ -24,6 +25,7 @@ import {
     armQueueEndReplay,
     bindHifiPlayIntent,
     clearQueueEndReplay,
+    holdHifiTrackForDevice,
     isHifiTrackStarted,
     markHifiTrackStarted,
     moveHifiTrackToWeb,
@@ -60,6 +62,12 @@ const showCircuitOpenToast = (t: TFunction) => {
 const isValidDuration = (durationSec: number | null): durationSec is number => (
     typeof durationSec === 'number' && Number.isFinite(durationSec) && durationSec > 0
 );
+
+/** 设备忙时停住等重试的系统：别的程序在那里能独占设备，Web 引擎在同一台设备上也出不了声。不知道平台时照旧回落。 */
+const holdsForBusyDevice = () => {
+    const platform = typeof window !== 'undefined' ? window.electron?.platform ?? null : null;
+    return platform === 'win32' || platform === 'darwin';
+};
 
 // 挂在 App 里一次。每帧的值不经这里：时钟由 hifiPlayback 驱动，可视化桥逐帧读它。
 export function useHifiPlaybackBridge({
@@ -173,6 +181,14 @@ export function useHifiPlaybackBridge({
          */
         const fail = (track: HifiTrack, code: HifiErrorCode) => {
             if (handedOverTrackKey === track.trackKey) return;
+            // 别的程序独占着设备（Windows、macOS）：停在这里等它放开，不交给 Web 引擎，见 holdHifiTrackForDevice。
+            // 每次重试再忙都会到这里，所以不记 handedOverTrackKey。Linux 上忙多半是 PipeWire 占着声卡，Web 引擎经 PipeWire 照样出声，照旧回落。
+            if (code === 'DEVICE_BUSY' && holdsForBusyDevice() && isHifiTrackWaitingForDevice(track.trackKey)) {
+                setStatusMessage({ type: 'error', text: latestRef.current.t('hifi.notice.deviceBusyHeld') });
+                console.warn('[HiFi] the output device is held by another app, the song waits for a retry', { trackKey: track.trackKey });
+                holdHifiTrackForDevice(track.trackKey);
+                return;
+            }
             handedOverTrackKey = track.trackKey;
             const { t: translate } = latestRef.current;
             if (code === 'CIRCUIT_OPEN' || useHifiEngineStore.getState().circuitOpen) showCircuitOpenToast(translate);

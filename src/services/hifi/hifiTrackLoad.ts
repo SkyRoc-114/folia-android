@@ -119,7 +119,8 @@ const waitMs = (ms: number) => new Promise<void>((resolve) => {
  * 把一次载入发给主进程，一律暂停着载入；刚离开 Web 引擎时的 DEVICE_BUSY 隔 1.5 秒再试，最多三次。结果按这次起播还算不算数
  * 写进 store：被顶替的什么都不写。
  */
-export const runHifiLoad = async ({ attempt, track, source }: HifiLoadJob, startSec: number): Promise<BeginHifiTrackOutcome> => {
+export const runHifiLoad = async (job: HifiLoadJob, startSec: number): Promise<BeginHifiTrackOutcome> => {
+    const { attempt, track, source } = job;
     const request = (): HifiLoadRequest => ({
         trackKey: track.trackKey,
         songKey: track.songKey,
@@ -153,8 +154,34 @@ export const runHifiLoad = async ({ attempt, track, source }: HifiLoadJob, start
         useHifiTrackStore.setState({ loadState: 'idle' });
         return 'cancelled';
     }
+    // 设备忙到最后：记下这次载入，设备放开后按播放可以原样再载一次（retryBusyHifiTrack）。
+    busyJob = isDeviceBusy(result) ? job : null;
     useHifiTrackStore.setState({ loadState: 'failed', loadError: result.errorCode });
     return 'failed';
+};
+
+// 最后一次载入报 DEVICE_BUSY 的那一首：别的程序独占着设备，等它放开再载入。
+let busyJob: HifiLoadJob | null = null;
+
+/** 当前曲目是不是停在“设备被别的程序占着”上，等按播放再载入。换了歌、重新起播过就不算。 */
+export const isHifiTrackWaitingForDevice = (trackKey: string | null | undefined): boolean => {
+    const { current, loadState, loadError } = useHifiTrackStore.getState();
+    return Boolean(busyJob && trackKey && current?.trackKey === trackKey && busyJob.track.trackKey === trackKey
+        && loadState === 'failed' && loadError === 'DEVICE_BUSY' && isCurrentHifiAttempt(busyJob.attempt));
+};
+
+/**
+ * 设备放开后再载一次停在 DEVICE_BUSY 上的当前曲目：从时钟现在的位置（失败时的位置，或之后跳到的位置）暂停着载入，
+ * 开不开播归桥的自动播放。当前曲目没在等设备时什么都不做，返回 null。
+ */
+export const retryBusyHifiTrack = async (): Promise<BeginHifiTrackOutcome | null> => {
+    const job = busyJob;
+    if (!job || !isHifiTrackWaitingForDevice(job.track.trackKey)) return null;
+    busyJob = null;
+    useHifiTrackStore.setState({ loadState: 'loading', loadError: null });
+    const startSec = hifiLoadStartSec(hifiPlaybackClock.read(), hifiPlaybackClock.state().durationSec);
+    console.info('[HiFi] loading again after the output device was busy', { trackKey: job.track.trackKey, startSec });
+    return runHifiLoad(job, startSec);
 };
 
 /**
