@@ -22,6 +22,10 @@ import { setTemperaTransitionBlur } from './temperaSceneFilters';
 import { destroyTemperaGradientFills } from './temperaShapes';
 import { TemperaImageTextures } from './temperaImageTextures';
 import { TemperaOverlay } from './temperaOverlay';
+import { TemperaInkFlash } from './temperaInkFlash';
+import { getBeatEffectStrength, getBeatFxHeard } from '../../../services/beatFx/beatFxLive';
+import { BEAT_EFFECT_IDS } from '../../../services/beatFx/beatEffects';
+import { getDrumHits } from '../../../services/analysis/drumHits';
 import { resolveTemperaCreditsFrame, TemperaCreditsLayer } from './temperaCreditsLayer';
 import { resolveTemperaShotExit, updateTemperaShot } from './temperaShotFrame';
 import {
@@ -125,6 +129,8 @@ export class TemperaPixiRuntime {
     private creditsLayer!: TemperaCreditsLayer;
     private imageTextures!: TemperaImageTextures;
     private overlay!: TemperaOverlay;
+    /** 智能动感模式「墨渍晕开」: the stain and the ink flash, between the scenes and the overlay. */
+    private inkFlash!: TemperaInkFlash;
     /**
      * An in-flight song handover, spread over exactly two frames. A track change is a plain cut
      * here - no wipe, no dissolve - but a cut must not also be a stall, so the incoming scene is
@@ -181,7 +187,8 @@ export class TemperaPixiRuntime {
         runtime.sceneContainer.sortableChildren = true;
         runtime.creditsLayer = new TemperaCreditsLayer(pixi);
         runtime.overlay = new TemperaOverlay(pixi);
-        app.stage.addChild(runtime.sceneContainer, runtime.creditsLayer.container, runtime.overlay.container);
+        runtime.inkFlash = new TemperaInkFlash(pixi);
+        app.stage.addChild(runtime.sceneContainer, runtime.creditsLayer.container, runtime.inkFlash.container, runtime.overlay.container);
 
         // Textures are loaded once and shared by every scene: paragraph scenes are rebuilt as
         // playback moves, and reloading a character cut-out on each one would thrash.
@@ -510,8 +517,27 @@ export class TemperaPixiRuntime {
         });
 
         if (!wipeDrawn) this.overlay.drawWipe(0, 0, width, height, '#000000');
+        this.updateInkFlash(time, width, height, paragraphIndex);
         this.creditsLayer.applyFrame(creditsFrame, hasCredits, time, finalParagraph?.endTime, width, height);
     };
+
+    /**
+     * 墨渍晕开 reads the drum hits off the beat clock's heard track, as 时计 does: nothing until the
+     * playing track's hits are in, and nothing past where a track still separating has them.
+     */
+    private updateInkFlash(time: number, width: number, height: number, paragraphIndex: number) {
+        const strength = this.options.staticMode ? 0 : getBeatEffectStrength(BEAT_EFFECT_IDS.temperaInkFlash);
+        const heard = getBeatFxHeard();
+        const known = strength > 0 ? getDrumHits(heard.key) : null;
+        const hitTime = heard.time ?? time;
+        const hits = known && (known.until === undefined || hitTime < known.until) ? known : null;
+        if (!hits) {
+            this.inkFlash.update({ time: hitTime, width, height, strength: 0, hits: null, paragraphIndex, inkColor: '' });
+            return;
+        }
+        const inkColor = this.sceneCache.get(paragraphIndex)?.palette.accent ?? this.options.theme.accentColor;
+        this.inkFlash.update({ time: hitTime, width, height, strength, hits, paragraphIndex, inkColor });
+    }
 
     renderOnce() {
         if (this.destroyed || !this.app.canvas.isConnected) return;
@@ -671,6 +697,7 @@ export class TemperaPixiRuntime {
         this.sceneCache.destroyAll();
         this.creditsLayer.dispose();
         this.overlay.release();
+        this.inkFlash.destroy();
         this.imageTextures.destroy();
         this.app.destroy({ removeView: true }, { children: true, texture: true });
     }

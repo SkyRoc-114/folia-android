@@ -2599,6 +2599,8 @@ export default {
     "beatEffect_dioramaRippleDesc": "On the beats beat_this detects: the particles ripple on every beat, with a large ripple on each bar's first beat, and the word being sung hops.",
     "beatEffect_pendoloDrumhead": "Drumhead",
     "beatEffect_pendoloDrumheadDesc": "On the drums HTDemucs separates: the kick swells the dial, a hard one shakes the screen; the snare strikes off centre and tilts it that way; hats light the ticks and the inner ring.",
+    "beatEffect_temperaInkFlash": "Ink Bloom",
+    "beatEffect_temperaInkFlashDesc": "On the drums HTDemucs separates: the paper rests under a faint grey stain, and each kick and snare spreads an ink blot across the screen that fades within half a second. The ink takes the accent colour of Tempera's palette.",
     "beatEffect_pendoloGearBeats": "Gear Beat",
     "beatEffect_pendoloGearBeatsDesc": "The gears step on the beats beat_this detects. (Retired)",
     "beatEffect_latentPulse": "Tidal Pulse",

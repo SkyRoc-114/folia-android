@@ -2599,6 +2599,8 @@ export default {
     "beatEffect_dioramaRippleDesc": "跟着 beat_this 识别的节拍：粒子每拍泛起涟漪，小节第一拍泛起大涟漪，正在唱的字随拍跳动。",
     "beatEffect_pendoloDrumhead": "仿真鼓面",
     "beatEffect_pendoloDrumheadDesc": "跟着 HTDemucs 分离出的鼓声：底鼓让表盘鼓起，重的震屏；军鼓打在偏处，表盘朝那边倾；镲片点亮刻度和内圈。",
+    "beatEffect_temperaInkFlash": "墨渍晕开",
+    "beatEffect_temperaInkFlashDesc": "跟着 HTDemucs 分离出的鼓声：平时纸面带一层浅灰水渍，底鼓、军鼓打下时漫过一片墨渍，约半秒淡回。墨的颜色跟随凝彩配色的强调色。",
     "beatEffect_pendoloGearBeats": "齿轮随拍",
     "beatEffect_pendoloGearBeatsDesc": "齿轮跟着 beat_this 识别的节拍转动。（已停用）",
     "beatEffect_latentPulse": "潮汐脉动",

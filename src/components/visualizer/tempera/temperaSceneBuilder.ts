@@ -20,6 +20,7 @@ import {
     type TemperaSceneFilterTarget,
 } from './temperaSceneFilters';
 import { buildTemperaImageLayer, type TemperaImageLayerView } from './temperaImageLayer';
+import { buildTemperaDepth, type TemperaDepthView } from './temperaDepth';
 import {
     buildCrossRow,
     buildCrossingLines,
@@ -77,6 +78,8 @@ export interface TemperaShotView {
     baseY: number;
     /** Carries the difference inversion filter; the runtime clears it on destroy. */
     textLayer: import('pixi.js').Container;
+    /** The layers in front of and behind the lyric, offset per frame for parallax (temperaDepth.ts). */
+    depth: TemperaDepthView;
     revealDoneTime: number;
 }
 
@@ -550,6 +553,12 @@ export const buildTemperaScene = (
             textLayer.filters = [textFilter];
             postProcessFilters.push(textFilter);
         }
+        // 景深：水印和背景图片在后、略虚；歌词残影和前景图片在前、更虚。歌词层本身不动。
+        const depth = buildTemperaDepth(pixi, {
+            back: [watermarkLayer, images.back],
+            front: [echoLayer, images.front],
+        }, { tuning, renderResolution: options.renderResolution, staticMode: options.staticMode, width });
+        postProcessFilters.push(...depth.filters);
         // A bridge shot has no type to reveal, so the camera breath may start immediately -
         // an instrumental gap should not hold a rigid frame.
         const revealDoneTime = glyphs.length > 0
@@ -570,6 +579,7 @@ export const buildTemperaScene = (
             baseX: shotContainer.x,
             baseY: shotContainer.y,
             textLayer,
+            depth,
             revealDoneTime,
         };
     });

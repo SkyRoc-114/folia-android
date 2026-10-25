@@ -41,6 +41,7 @@ export const BEAT_EFFECT_IDS = {
     latentPulse: 'latent.pulse',
     hanabiBeatBursts: 'hanabi.beatBursts',
     hanabiBeatPulse: 'hanabi.beatPulse',
+    temperaInkFlash: 'tempera.inkFlash',
 } as const;
 
 /**

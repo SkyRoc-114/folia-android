@@ -6,6 +6,7 @@ import {
     resolveTemperaCameraFrame,
 } from './temperaCamera';
 import type { TemperaShotView } from './temperaSceneBuilder';
+import { applyTemperaParallax } from './temperaDepth';
 import {
     clamp01,
     easeTemperaEnter,
@@ -75,10 +76,11 @@ export const updateTemperaShot = (
     const enter = easeTemperaEnter(clamp01((time - view.shot.startTime) / (handoff * 0.8)));
     const exit = easeTemperaInOut(resolveTemperaShotExit(view, time));
     const travel = exit * span * 0.55 - (1 - enter) * span * 0.32;
-    view.container.position.set(
-        view.baseX + frame.x * width * camera + Math.cos(view.shot.flowAngle) * travel,
-        view.baseY + frame.y * height * camera + Math.sin(view.shot.flowAngle) * travel,
-    );
+    const cameraX = frame.x * width * camera + Math.cos(view.shot.flowAngle) * travel;
+    const cameraY = frame.y * height * camera + Math.sin(view.shot.flowAngle) * travel;
+    view.container.position.set(view.baseX + cameraX, view.baseY + cameraY);
+    // Parallax: the layers behind the lyric lag the shot's camera travel, the ones in front lead it.
+    applyTemperaParallax(view.depth, cameraX, cameraY);
     // Opaque on the way in: this is a push, not a dissolve. Only the exit fades.
     view.container.alpha = 1 - exit;
     view.container.scale.set((1 + (frame.scale - 1) * camera) * (1 - exit * 0.08));

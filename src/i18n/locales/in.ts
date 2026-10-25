@@ -2706,6 +2706,8 @@ export default {
     "beatEffect_dioramaRippleDesc": "Mengikuti ketukan yang dideteksi beat_this: partikel beriak setiap ketukan, riak besar pada ketukan pertama tiap birama, dan kata yang sedang dinyanyikan melompat.",
     "beatEffect_pendoloDrumhead": "Kulit Drum",
     "beatEffect_pendoloDrumheadDesc": "Mengikuti drum yang dipisahkan HTDemucs: kick menggembungkan dial, yang keras mengguncang layar; snare memukul di luar tengah dan memiringkannya ke sana; hi-hat menyalakan garis skala dan cincin dalam.",
+    "beatEffect_temperaInkFlash": "Noda Tinta",
+    "beatEffect_temperaInkFlashDesc": "Mengikuti drum yang dipisahkan HTDemucs: kertas diam di bawah noda abu-abu tipis, dan setiap kick dan snare menyebarkan noda tinta di layar yang memudar dalam setengah detik. Warna tinta mengikuti warna aksen palet Tempera.",
     "beatEffect_pendoloGearBeats": "Gigi Berdetak",
     "beatEffect_pendoloGearBeatsDesc": "Roda gigi melangkah mengikuti ketukan yang dideteksi beat_this. (Dihentikan)",
     "beatEffect_latentPulse": "Denyut Pasang",
