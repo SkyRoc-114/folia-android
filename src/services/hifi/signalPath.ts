@@ -122,6 +122,14 @@ const isLosslessFormatChange = (input: HifiMpvAudioParams, out: HifiMpvAudioPara
     return to.width >= effectiveWidth;
 };
 
+/**
+ * 32 位浮点转 s32：float32 只有 24 位有效数字，±1.0 以内乘 2³¹ 都落在整数上，数值不变；超过 0 dBFS 的截顶，
+ * 低于约 -186 dBFS 的舍入。很多 USB DAC 独占时只收整数 PCM，mpv 只能这样转。转 s24 / s16 会丢精度，不算这一种。
+ */
+const isFloatToS32 = (input: HifiMpvAudioParams, out: HifiMpvAudioParams) => (
+    parseSampleFormat(input.format).base === 'float' && parseSampleFormat(out.format).base === 's32'
+);
+
 /** 认 --audio-exclusive 的驱动：开了独占就绕过系统混音器。Core Audio 开独占时 mpv 会改用 coreaudio_exclusive。 */
 const EXCLUSIVE_CAPABLE_DRIVERS = new Set(['wasapi', 'coreaudio']);
 
@@ -237,7 +245,7 @@ export const buildSignalPath = (
     } else if (out && input) {
         if (input.samplerate !== out.samplerate) outputConversions.push('resample');
         if (input.channelCount !== out.channelCount) outputConversions.push('channels');
-        if (!isLosslessFormatChange(input, out, sourceSpec)) outputConversions.push('format');
+        if (!isLosslessFormatChange(input, out, sourceSpec)) outputConversions.push(isFloatToS32(input, out) ? 'float-to-int' : 'format');
     }
     // 有 PipeWire 的探测时，「可能被系统混音器改动」换成 system 一级里 PipeWire 报的实情。
     const system = out && input && !dop && probe && isPipewireOutputDriver(mpvState.currentAo)

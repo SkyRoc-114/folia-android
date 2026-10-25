@@ -85,6 +85,13 @@ export const verdictDescription = (path: HifiSignalPath, t: TFunction, platform:
         if (platform === 'linux') return t('hifi.signal.verdictDesc.sharedMixerLinux');
         if (path.output.exclusive) return t('hifi.signal.verdictDesc.sharedMixerExclusiveOn');
     }
+    // mpv 一路只把 32 位浮点转成了 s32：仍是「已转换」，但说清楚数值没变。PipeWire 那一级的改动另由那一级说。
+    if (path.verdict === 'converted') {
+        const mpvConversions = path.stages.filter(stage => stage.id !== 'system').flatMap(stage => stage.conversions);
+        if (mpvConversions.length > 0 && mpvConversions.every(conversion => conversion === 'float-to-int')) {
+            return t('hifi.signal.verdictDesc.convertedFloatToInt');
+        }
+    }
     return t(`hifi.signal.verdictDesc.${VERDICT_KEY[path.verdict]}`);
 };
 
@@ -241,6 +248,8 @@ export const describeConversion = (
             return between('resample', formatSampleRate(decoded?.sampleRate, t, locale), formatSampleRate(output?.sampleRate, t, locale));
         case 'format':
             return between('format', formatSampleDepth(decoded, t), formatSampleDepth(output, t));
+        case 'float-to-int':
+            return t('hifi.signal.conversion.floatToInt');
         case 'channels':
             return between('channels', formatChannels(decoded?.channels, t), formatChannels(output?.channels, t));
         case 'dsd-to-pcm':
@@ -269,8 +278,8 @@ export const describeConversion = (
     }
 };
 
-/** 只有 DoP 打包是原样送达，别的改动都改了数据或交给了系统混音器。 */
-export const isConversionLossless = (conversion: HifiSignalConversion) => conversion === 'dop';
+/** DoP 打包原样送达，32 位浮点转 s32 数值不变（只截超过 0 dBFS 的），用不警示的颜色；别的改动都改了数据或交给了系统混音器。 */
+export const isConversionLossless = (conversion: HifiSignalConversion) => conversion === 'dop' || conversion === 'float-to-int';
 
 /**
  * 每一级格式之外的一句说明：传输看来源（本机曲库还是 Navidrome 原文件），处理级说绕过了什么，输出级说独占还是共享。

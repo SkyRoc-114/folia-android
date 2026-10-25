@@ -161,6 +161,7 @@ mpv ──HTTP（Range）──> electron/hifi/sourceBridge.cjs（127.0.0.1，�
 
 - 解码出的采样率、声道数和送进设备的一样；不一样就是重采样或声道转换（设备收不下源的格式时 mpv 会换成它收得下的）。
 - 采样格式一样，或者只是整数低位补零（s16 → s24 / s32、s24 → s32）。mpv 把 24 位 FLAC 解成 s32，仍算直通。
+  32 位浮点（含 mp3、AAC 这类解成 floatp 的）送成 s32 单独记一项 `float-to-int`：±1.0 以内每个采样的数值不变，只有超过 0 dBFS 的被截顶，面板用不警示的颜色写明这一点；但送到 DAC 的数据格式和文件不同，判定仍是“途中经过转换”，不算原生直通。很多 USB DAC 独占时只收整数 PCM，mpv 只能这样转。float 转 s24 / s16、double 转整数会丢精度，仍记 `format`。
 - 软件音量关着。
 
 Linux 的 hw: 设备 mpv 的 `audio-device-list` 里没有（它都滤掉了），`mpvSession.cjs` 从 `/proc/asound/cards` 和 `/proc/asound/pcm` 补上；mpv 一个 `alsa/` 设备都没列（没编 ALSA 输出）时不补。用 hw: 直连时别的程序用不了这块声卡；PipeWire 正在这块声卡上放音时它是被占的（`DEVICE_BUSY`），要选 PipeWire 没在用的声卡，或把它的配置文件设为关。

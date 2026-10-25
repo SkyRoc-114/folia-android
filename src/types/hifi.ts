@@ -253,9 +253,10 @@ export type HifiSignalStageStatus = 'passthrough' | 'converted' | 'bypassed' | '
 
 /**
  * filter：PipeWire 里 mpv 和声卡之间的滤波链（均衡器、remap、loopback 这些虚拟节点）。volume：process 一级是 mpv 的软件音量，
- * system 一级是 PipeWire 在流或设备上乘的软件音量。
+ * system 一级是 PipeWire 在流或设备上乘的软件音量。float-to-int：32 位浮点转成 s32，±1.0 以内每个采样的数值不变，
+ * 只有超过 0 dBFS 的被截顶；数据格式变了，仍不算比特完美。别的采样格式变化（float 转 s24 / s16、double 转整数、缩窄位宽）是 format。
  */
-export type HifiSignalConversion = 'resample' | 'format' | 'channels' | 'dsd-to-pcm' | 'dop' | 'volume' | 'shared-mixer' | 'filter';
+export type HifiSignalConversion = 'resample' | 'format' | 'float-to-int' | 'channels' | 'dsd-to-pcm' | 'dop' | 'volume' | 'shared-mixer' | 'filter';
 
 export type HifiSignalFormat = {
     sampleRate: number | null;

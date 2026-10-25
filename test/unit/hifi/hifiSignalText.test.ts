@@ -10,6 +10,7 @@ import {
     formatHifiBadge,
     formatSampleRate,
     formatStageFormat,
+    isConversionLossless,
     stageLabel,
     stageStatusLabel,
     verdictDescription,
@@ -48,6 +49,8 @@ const EN: Record<string, string> = {
     'hifi.signal.verdict.sharedMixer': 'Through the system mixer',
     'hifi.signal.verdict.unknown': 'Not verified yet',
     'hifi.signal.verdictDesc.bitPerfect': 'Every sample reaches your DAC exactly as it is in the file.',
+    'hifi.signal.verdictDesc.converted': 'mpv changes the signal before it reaches the output.',
+    'hifi.signal.verdictDesc.convertedFloatToInt': 'mpv only converts 32-bit float to 32-bit integer. Not bit-perfect.',
     'hifi.signal.verdictDesc.sharedMixer': 'The output device is shared with other apps. Turn on exclusive mode in the HiFi settings.',
     'hifi.signal.verdictDesc.sharedMixerExclusiveOn': 'Exclusive mode is on, but this output device does not take it. Choose another output device.',
     'hifi.signal.verdictDesc.sharedMixerLinux': 'PipeWire or PulseAudio mixes this output. Choose a device marked direct.',
@@ -73,6 +76,7 @@ const EN: Record<string, string> = {
     'hifi.signal.conversion.resamplePlain': 'Resampled',
     'hifi.signal.conversion.format': 'Sample format changed from {{from}} to {{to}}',
     'hifi.signal.conversion.formatPlain': 'Sample format changed',
+    'hifi.signal.conversion.floatToInt': '32-bit float converted to 32-bit integer: values kept, only samples above 0 dBFS clipped',
     'hifi.signal.conversion.channels': 'Channels changed from {{from}} to {{to}}',
     'hifi.signal.conversion.channelsPlain': 'Channels changed',
     'hifi.signal.conversion.dsdToPcm': 'DSD converted to PCM',
@@ -354,6 +358,21 @@ describe('conversions and stage notes', () => {
         expect(describeConversion('resample', path, t, 'en')).toBe('Resampled from 44.1 kHz to 48 kHz');
         expect(describeConversion('format', path, t, 'en')).toBe('Sample format changed from 16 bit to 32 bit float');
         expect(describeConversion('dsd-to-pcm', path, t, 'en')).toBe('DSD converted to PCM');
+    });
+
+    it('marks 32-bit float sent as s32 apart: values kept, still converted, its own verdict note', () => {
+        const floatFile = { ...pcmSpec(32, 96000), codec: 'WAV', container: 'WAV' };
+        const path = buildSignalPath(floatFile, engine({ audioParams: params('float', 96000), audioOutParams: params('s32', 96000) }), settings);
+        expect(path.verdict).toBe('converted');
+        expect(stageOf(path, 'output').conversions).toEqual(['float-to-int']);
+        expect(describeConversion('float-to-int', path, t, 'en')).toBe('32-bit float converted to 32-bit integer: values kept, only samples above 0 dBFS clipped');
+        expect(isConversionLossless('float-to-int')).toBe(true);
+        expect(isConversionLossless('format')).toBe(false);
+        expect(verdictDescription(path, t, 'win32')).toBe('mpv only converts 32-bit float to 32-bit integer. Not bit-perfect.');
+        // Resampled on top of it: the generic note, the float step still listed on its own.
+        const resampled = buildSignalPath(floatFile, engine({ audioParams: params('float', 96000), audioOutParams: params('s32', 48000) }), settings);
+        expect(stageOf(resampled, 'output').conversions).toEqual(['resample', 'float-to-int']);
+        expect(verdictDescription(resampled, t, 'win32')).toBe('mpv changes the signal before it reaches the output.');
     });
 
     it('names the software volume and the channel remix', () => {

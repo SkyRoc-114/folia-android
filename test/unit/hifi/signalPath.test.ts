@@ -116,6 +116,34 @@ const cases: Case[] = [
         conversions: ['format'],
     },
     {
+        name: 'float source sent as s32 keeps its values but is still converted',
+        spec: pcmSpec(32, 44100),
+        state: engine({ audioParams: params('float', 44100), audioOutParams: params('s32', 44100) }),
+        verdict: 'converted',
+        conversions: ['float-to-int'],
+    },
+    {
+        name: 'planar float decode sent as s32',
+        spec: pcmSpec(32, 44100),
+        state: engine({ audioParams: params('floatp', 44100), audioOutParams: params('s32', 44100) }),
+        verdict: 'converted',
+        conversions: ['float-to-int'],
+    },
+    {
+        name: 'float narrowed to s24 loses precision',
+        spec: pcmSpec(32, 44100),
+        state: engine({ audioParams: params('float', 44100), audioOutParams: params('s24', 44100) }),
+        verdict: 'converted',
+        conversions: ['format'],
+    },
+    {
+        name: 'double sent as s32 loses precision',
+        spec: pcmSpec(32, 44100),
+        state: engine({ audioParams: params('double', 44100), audioOutParams: params('s32', 44100) }),
+        verdict: 'converted',
+        conversions: ['format'],
+    },
+    {
         name: '32-bit source narrowed to s16',
         spec: pcmSpec(32, 44100),
         state: engine({ audioParams: params('s32', 44100), audioOutParams: params('s16', 44100) }),
@@ -284,7 +312,7 @@ const cases: Case[] = [
         state: engine({ spdif: 'dsd', audioParams: params('floatp', 352800), audioOutParams: params('s32', 352800) }),
         settings: { dsdMode: 'dop' },
         verdict: 'converted',
-        conversions: ['dsd-to-pcm', 'format'],
+        conversions: ['dsd-to-pcm', 'float-to-int'],
     },
     {
         // A float decode proves mpv converted DSD to PCM, even though 352.8 kHz is a DoP rate for DSD128.
@@ -293,7 +321,7 @@ const cases: Case[] = [
         state: engine({ spdif: 'dsd', audioParams: params('floatp', 352800), audioOutParams: params('s32', 352800) }),
         settings: { dsdMode: 'dop' },
         verdict: 'converted',
-        conversions: ['dsd-to-pcm', 'format'],
+        conversions: ['dsd-to-pcm', 'float-to-int'],
     },
     {
         name: 'DSD decoded to floatp and resampled to s32 at a 16th of the DSD rate is not DoP',
@@ -301,7 +329,7 @@ const cases: Case[] = [
         state: engine({ spdif: 'dsd', audioParams: params('floatp', 352800), audioOutParams: params('s32', 176400) }),
         settings: { dsdMode: 'dop' },
         verdict: 'converted',
-        conversions: ['dsd-to-pcm', 'resample', 'format'],
+        conversions: ['dsd-to-pcm', 'resample', 'float-to-int'],
     },
     {
         name: 'DSD with integer output at a 16th of the DSD rate but resampled on the way is not DoP',
