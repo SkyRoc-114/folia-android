@@ -1,9 +1,11 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { BadgeCheck, BadgeInfo, CircleHelp, Merge, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { HifiSignalPath, HifiSignalStage, HifiSignalStageStatus, HifiSignalVerdict } from '../../types/hifi';
 import { useHifiTrackStore } from '../../services/hifi/hifiTrackStore';
 import { useHifiSettingsStore } from '../../stores/useHifiSettingsStore';
+import { usePlaybackStore } from '../../stores/usePlaybackStore';
+import { WebAudioSignalPath } from './WebAudioSignalPath';
 import Sheet from '../shared/Sheet';
 import { useHifiPanelStore } from './hifiPanelStore';
 import { HifiSystemFootnote, HifiSystemReport } from './HifiSystemReport';
@@ -24,7 +26,7 @@ import { readHifiPlatform, useHifiSignalPath, useHifiTrackDeferred, useIsHifiRou
 // HiFi 信号链路面板：顶上一行大字说结论（原生直通 / 经 DoP 原生输出 DSD / 采样率直通（经 PipeWire）/ 已转换 /
 // 经过系统混音器 / 尚未确认），下面从源文件到输出设备逐级列出每一级的状态、格式和改动；Linux 上经 PipeWire 时最后一级是
 // PipeWire 报的设备，逐项列出检查、没切采样率时的原因和配置，并总是注明那只是 PipeWire 报的、要看 DAC 的指示确认。
-// 底部注明 HiFi 绕过了哪些功能。在 AppOverlays 里挂一次，开关由 hifiPanelStore 管；路线离开 HiFi 时自己关上。
+// 底部注明 HiFi 绕过了哪些功能。在 AppOverlays 里挂一次，开关由 hifiPanelStore 管；Web 路线显示引擎与应用转码情况。
 // PipeWire 的探测（useHifiOutputProbe）也挂在这里：面板关着时照样在跑，徽标的结论要用它。
 
 const VERDICT_LOOK: Record<HifiSignalVerdict, { icon: LucideIcon; className: string }> = {
@@ -126,16 +128,12 @@ const HifiSignalPathPanel: React.FC = () => {
     const path = useHifiSignalPath();
     const deferred = useHifiTrackDeferred();
     const songName = useHifiTrackStore(state => state.current?.song.name ?? null);
+    const webSongName = usePlaybackStore(state => state.currentSong?.name ?? null);
     const origin = useHifiTrackStore(state => state.current?.origin ?? state.sourceSpec?.origin ?? null);
     const audioDevice = useHifiSettingsStore(state => state.audioDevice);
     const audioDeviceLabel = useHifiSettingsStore(state => state.audioDeviceLabel);
 
     useHifiOutputProbe(isOpen);
-
-    // 换成 Web 引擎的歌（或停下）之后，这扇窗说的已经不是正在放的东西了。
-    useEffect(() => {
-        if (isOpen && !isHifiRoute) close();
-    }, [isOpen, isHifiRoute, close]);
 
     const look = path ? VERDICT_LOOK[path.verdict] : null;
     const deviceLabel = path && audioDeviceLabel && path.output.device === audioDevice ? audioDeviceLabel : null;
@@ -143,13 +141,14 @@ const HifiSignalPathPanel: React.FC = () => {
     // 一直画同一个 Sheet，关上时它还能带着最后的内容退场。
     return (
         <Sheet
-            isOpen={isOpen && path !== null}
+            isOpen={isOpen}
             onClose={close}
             size="m"
-            title={t('hifi.signal.title')}
-            subtitle={songName ?? undefined}
-            footerNote={t('hifi.signal.bypassedNote')}
+            title={t(isHifiRoute ? 'hifi.signal.title' : 'hifi.web.title')}
+            subtitle={(isHifiRoute ? songName : webSongName) ?? undefined}
+            footerNote={t(isHifiRoute ? 'hifi.signal.bypassedNote' : 'hifi.web.note')}
         >
+            {!isHifiRoute && <WebAudioSignalPath />}
             {path && look && (
                 <>
                     <section className="flex items-start gap-3 rounded-xl bg-[var(--st-card)] px-4 py-3.5 shadow-[0_0_0_1px_var(--st-line)]">

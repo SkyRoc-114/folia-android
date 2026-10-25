@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 // src/components/hifi/hifiPanelStore.ts
-// HiFi 信号链路面板开没开。面板本身（HifiSignalPathPanel）读它；HiFi 徽标和命令面板的 hifi-signal-path 命令写它。
+// 信号链路面板开没开。面板本身（HifiSignalPathPanel）读它；音质页、HiFi 徽标和命令面板的 hifi-signal-path 命令写它。
 
 type HifiPanelState = {
     isSignalPathOpen: boolean;

@@ -4178,6 +4178,21 @@ export default {
       "bypassNoticeTitle": "HiFi 绕过了均衡器和音效",
       "bypassNoticeBody": "这首歌经 mpv 直接送到输出设备，这里的设置不会改变你听到的声音。设置会保留，换回原来的引擎播放时照常生效。"
     },
+    "web": {
+      "openSignalPath": "信号链路",
+      "title": "音频信号通路",
+      "engineLabel": "播放引擎",
+      "engine": "Web Audio",
+      "mpvEngine": "mpv · HiFi",
+      "engineDesc": "浏览器解码音频，经 Web Audio 处理后送到系统输出。",
+      "transcodeLabel": "应用转码",
+      "transcoded": "已转码（FFmpeg）",
+      "notTranscoded": "未使用转码副本",
+      "noSource": "尚未载入音频",
+      "outputLabel": "音频输出",
+      "outputDesc": "Web Audio → 系统音频输出。音量、均衡器及音效按当前设置生效；此通路不保证逐位直通。",
+      "note": "转码状态仅指 Folia 的兼容性转码，不代表解码或重采样。远端服务器是否转码、设备实际输出格式无法由此确认。"
+    },
     "signal": {
       "title": "HiFi 信号链路",
       "stagesLabel": "从文件到 DAC",

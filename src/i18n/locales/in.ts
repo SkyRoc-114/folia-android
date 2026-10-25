@@ -4178,6 +4178,21 @@ export default {
       "bypassNoticeTitle": "HiFi melewati equalizer dan efek suara",
       "bypassNoticeBody": "Lagu ini diputar lewat mpv langsung ke perangkat output, jadi pengaturan di sini tidak mengubah yang Anda dengar. Pengaturan tetap tersimpan dan berlaku lagi untuk lagu di mesin biasa."
     },
+    "web": {
+      "openSignalPath": "Jalur sinyal",
+      "title": "Jalur sinyal audio",
+      "engineLabel": "Mesin pemutaran",
+      "engine": "Web Audio",
+      "mpvEngine": "mpv · HiFi",
+      "engineDesc": "Browser mendekode audio dan meneruskannya melalui Web Audio ke keluaran sistem.",
+      "transcodeLabel": "Transkode aplikasi",
+      "transcoded": "Ditranskode (FFmpeg)",
+      "notTranscoded": "Tidak memakai salinan transkode",
+      "noSource": "Belum ada audio dimuat",
+      "outputLabel": "Keluaran audio",
+      "outputDesc": "Web Audio → keluaran audio sistem. Volume, equalizer, dan efek mengikuti pengaturan Anda; jalur ini tidak menjamin keluaran bit-perfect.",
+      "note": "Status ini hanya mencakup transkode kompatibilitas Folia, bukan dekode atau resampling. Transkode server dan format keluaran perangkat yang sebenarnya tidak dapat dipastikan di sini."
+    },
     "signal": {
       "title": "Jalur sinyal HiFi",
       "stagesLabel": "Dari berkas ke DAC",

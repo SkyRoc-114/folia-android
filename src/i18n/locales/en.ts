@@ -4178,6 +4178,21 @@ export default {
       "bypassNoticeTitle": "HiFi bypasses the equalizer and sound effects",
       "bypassNoticeBody": "This song plays through mpv straight to your output device, so nothing here changes what you hear. Your settings are kept and apply again to songs on the normal engine."
     },
+    "web": {
+      "openSignalPath": "Signal path",
+      "title": "Audio signal path",
+      "engineLabel": "Playback engine",
+      "engine": "Web Audio",
+      "mpvEngine": "mpv · HiFi",
+      "engineDesc": "The browser decodes audio and sends it through Web Audio to the system output.",
+      "transcodeLabel": "App transcoding",
+      "transcoded": "Transcoded (FFmpeg)",
+      "notTranscoded": "No transcoded copy in use",
+      "noSource": "No audio loaded",
+      "outputLabel": "Audio output",
+      "outputDesc": "Web Audio → system audio output. Volume, equalizer and effects follow your settings; this path does not guarantee bit-perfect output.",
+      "note": "This status covers Folia's compatibility transcoding, not decoding or resampling. It cannot confirm server-side transcoding or the device's actual output format."
+    },
     "signal": {
       "title": "HiFi signal path",
       "stagesLabel": "From the file to your DAC",

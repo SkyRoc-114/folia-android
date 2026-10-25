@@ -36,6 +36,7 @@ import type { HifiEngineState, HifiMpvAudioParams, HifiSourceSpec } from '@/type
 import type { HifiLoadState } from '@/services/hifi/hifiTrackStore';
 import HifiBadge, { HifiProgressRow } from '@/components/hifi/HifiBadge';
 import HifiSignalPathPanel from '@/components/hifi/HifiSignalPathPanel';
+import { PlaybackSignalPathButton } from '@/components/hifi/PlaybackSignalPathButton';
 import { closeHifiSignalPath, openHifiSignalPath, useHifiPanelStore } from '@/components/hifi/hifiPanelStore';
 import AudioEqualizerDialog from '@/components/panelTab/AudioEqualizerDialog';
 import ReplayGainControl from '@/components/panelTab/ReplayGainControl';
@@ -46,7 +47,7 @@ import { useHifiEngineStore } from '@/services/hifi/hifiEngineStore';
 import { useHifiTrackStore } from '@/services/hifi/hifiTrackStore';
 import { useAudioSettingsStore } from '@/stores/useAudioSettingsStore';
 import { useHifiSettingsStore } from '@/stores/useHifiSettingsStore';
-import { setPlaybackRoute } from '@/stores/usePlaybackStore';
+import { setPlaybackRoute, usePlaybackStore } from '@/stores/usePlaybackStore';
 import { cleanProbe, easyEffectsProbe, fixtureProbe } from './pipewireProbeFixture';
 
 // test/unit/hifi/hifiPlayerSurfaces.test.ts
@@ -225,7 +226,7 @@ describe('the HiFi player surfaces', () => {
     });
 
     describe('the signal path sheet', () => {
-        it('lists the five stages under the verdict, and closes itself once the route leaves HiFi', () => {
+        it('lists the five stages and switches to Web Audio when the playback route changes', () => {
             playOnHifi();
             openHifiSignalPath();
             draw(React.createElement(HifiSignalPathPanel));
@@ -236,8 +237,26 @@ describe('the HiFi player surfaces', () => {
             expect(dialog.textContent).toContain(i18n.t('hifi.signal.bypassedNote'));
 
             act(() => setPlaybackRoute('web'));
-            expect(useHifiPanelStore.getState().isSignalPathOpen).toBe(false);
-            expect(place.querySelector('[role="dialog"]')).toBeNull();
+            expect(useHifiPanelStore.getState().isSignalPathOpen).toBe(true);
+            expect(place.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe(i18n.t('hifi.web.title'));
+            expect(place.querySelector('[role="status"]')?.textContent).toBe(i18n.t('hifi.web.engine'));
+            expect(place.querySelector('ol')).toBeNull();
+        });
+
+        it('opens the same sheet from the quality entry on Web Audio and updates when the source changes', () => {
+            usePlaybackStore.setState({ playbackRoute: 'web', audioSrc: 'blob:original', currentSong: null });
+            draw(React.createElement(React.Fragment, null,
+                React.createElement(PlaybackSignalPathButton),
+                React.createElement(HifiSignalPathPanel),
+            ));
+            expect(place.textContent).not.toContain(i18n.t('hifi.web.engine'));
+            expect(place.textContent).not.toContain(i18n.t('hifi.web.transcodeLabel'));
+            act(() => place.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!.click());
+            expect(place.querySelector('[role="dialog"]')).not.toBeNull();
+            act(() => usePlaybackStore.setState({ audioSrc: 'folia-transcode://cache/test.wav' }));
+            expect(place.querySelector('[role="dialog"]')?.textContent).toContain(i18n.t('hifi.web.transcoded'));
+            act(() => usePlaybackStore.setState({ audioSrc: null }));
+            expect(place.querySelector('[role="dialog"]')?.textContent).toContain(i18n.t('hifi.web.noSource'));
         });
 
         it('does not compare against the engine state of another track', () => {
