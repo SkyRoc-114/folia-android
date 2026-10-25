@@ -5,6 +5,7 @@ import type {
 } from '../../../types';
 import { clamp01, easeTemperaEnter, easeTemperaInOut } from './temperaMotion';
 import { temperaHash01 } from './temperaRandom';
+import type { TemperaBakedBlur, TemperaBlurBaker } from './temperaDepth';
 
 // src/components/visualizer/tempera/temperaImageLayer.ts
 // The user's image pool on the canvas. Each shot picks one picture and places it itself, so an
@@ -108,6 +109,8 @@ export interface TemperaImageLayerOptions {
     seed: number;
     flowAngle: number;
     previousId: string | null;
+    /** Bakes the picture's depth blur once per placement (temperaDepth.ts); null leaves it sharp. */
+    blur: { baker: TemperaBlurBaker; back: number; front: number };
 }
 
 export const buildTemperaImageLayer = (
@@ -150,12 +153,28 @@ export const buildTemperaImageLayer = (
         baseY = placement.y * options.height;
         baseAlpha = placement.opacity;
     };
-    place(chosen);
+    // The depth blur is baked at the placed size, so a new size bakes again; the sprite then shows
+    // the baked picture at scale 1 (the flip is baked in too).
+    let baked: TemperaBakedBlur | null = null;
+    const placeAndBake = (image: TemperaLayerImage) => {
+        const baker = options.blur.baker;
+        sprite.texture = texture;
+        sprite.anchor.set(0.5);
+        place(image);
+        if (!baker) return;
+        const previous = baked;
+        baked = baker.bake(sprite, options.depth === 'front' ? options.blur.front : options.blur.back);
+        sprite.texture = baked.texture;
+        sprite.anchor.set(baked.anchorX, baked.anchorY);
+        sprite.scale.set(1, 1);
+        if (previous) baker.release(previous);
+    };
+    placeAndBake(chosen);
     sprite.position.set(baseX, baseY);
 
     const applyPool = (pool: TemperaLayerImage[]) => {
         const next = pool.find(image => image.id === chosen.id);
-        if (next) place(next);
+        if (next) placeAndBake(next);
     };
 
     const updateTime = (time: number, shotStart: number, shotEnd: number, lyricEnd?: number) => {

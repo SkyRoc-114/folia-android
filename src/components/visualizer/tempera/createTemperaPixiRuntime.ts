@@ -358,6 +358,8 @@ export class TemperaPixiRuntime {
             shot.textLayer.filters = null;
         });
         scene.postProcessFilters.forEach(filter => filter.destroy());
+        scene.bakedTextures.forEach(texture => texture.destroy(true));
+        scene.bakedTextures.clear();
         destroyTemperaGradientFills(this.pixi, scene.container);
         // 逐节点销毁：destroy({ children: true }) 会留下每个 Graphics 自建的 GraphicsContext 与它的 GPU 缓冲。
         destroyPixiDisplayTree(scene.container);
@@ -379,6 +381,7 @@ export class TemperaPixiRuntime {
             staticMode: this.options.staticMode,
             coverColors: song.coverColors,
             imageTextures: this.imageTextures.textures,
+            renderer: this.app.renderer,
         }, song.program.paragraphs[index]);
     }
 

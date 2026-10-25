@@ -103,9 +103,6 @@ export const updateTemperaShot = (
     view.container.position.set(view.baseX + cameraX, view.baseY + cameraY);
     // Parallax: the layers behind the lyric lag the shot's camera travel, the ones in front lead it.
     applyTemperaParallax(view.depth, cameraX, cameraY);
-    // The outgoing shot drops its depth blur for the hand-off: it is fading and flying out, and
-    // two shots' blurs at once double the offscreen passes exactly when the frame is busiest.
-    view.depth.filters.forEach(filter => { filter.enabled = exit === 0; });
     // Opaque on the way in: this is a push, not a dissolve. Only the exit fades.
     view.container.alpha = 1 - exit;
     view.container.scale.set((1 + (frame.scale - 1) * camera) * (1 - exit * 0.08));

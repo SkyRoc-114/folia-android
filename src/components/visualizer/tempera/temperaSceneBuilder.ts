@@ -20,7 +20,14 @@ import {
     type TemperaSceneFilterTarget,
 } from './temperaSceneFilters';
 import { buildTemperaImageLayer, type TemperaImageLayerView } from './temperaImageLayer';
-import { buildTemperaDepth, type TemperaDepthView } from './temperaDepth';
+import {
+    buildTemperaDepth,
+    createTemperaBlurBaker,
+    replaceWithBlurred,
+    TEMPERA_BACK_BLUR,
+    TEMPERA_FRONT_BLUR,
+    type TemperaDepthView,
+} from './temperaDepth';
 import {
     buildCrossRow,
     buildCrossingLines,
@@ -90,6 +97,8 @@ export interface TemperaSceneView extends TemperaSceneFilterTarget {
     palette: TemperaPalette;
     /** Everything the runtime has to destroy with the scene, blur included. */
     postProcessFilters: import('pixi.js').Filter[];
+    /** The baked depth-blur pictures (temperaDepth.ts); destroyed with the scene. */
+    bakedTextures: Set<import('pixi.js').Texture>;
     activeShotIndex: number;
 }
 
@@ -110,6 +119,8 @@ export interface TemperaSceneBuildOptions {
     coverColors: string[];
     /** Loaded textures for the user's placed images, keyed by placement id. */
     imageTextures: Map<string, import('pixi.js').Texture>;
+    /** Bakes the depth blur of the watermark and pictures once per shot; null leaves them sharp. */
+    renderer: import('pixi.js').Renderer | null;
 }
 
 export interface TemperaCreditsMetadata {
@@ -406,6 +417,13 @@ export const buildTemperaScene = (
     }
 
     const postProcessFilters: import('pixi.js').Filter[] = [];
+    const bakedTextures = new Set<import('pixi.js').Texture>();
+    const blurBaker = createTemperaBlurBaker(pixi, options.renderer, {
+        staticMode: options.staticMode,
+        width,
+        resolution: options.renderResolution,
+        textures: bakedTextures,
+    });
     // Tempera deliberately has no glow layer: a screen-blend halo washes the glyph toward
     // white and, wherever it lands, becomes backdrop the inversion filter has to read.
     //
@@ -473,6 +491,7 @@ export const buildTemperaScene = (
             seed: shotSeed,
             flowAngle: shot.flowAngle,
             previousId: lastImageId,
+            blur: { baker: blurBaker, back: TEMPERA_BACK_BLUR, front: TEMPERA_FRONT_BLUR },
         });
         lastImageId = images.chosenId ?? lastImageId;
         const watermarkLayer = new Container();
@@ -530,6 +549,8 @@ export const buildTemperaScene = (
                 height,
                 layer: watermarkLayer,
             });
+            // The watermark never changes within the shot: its blur is baked once, here.
+            if (blurBaker) [...watermarkLayer.children].forEach(node => replaceWithBlurred(pixi, blurBaker, node, TEMPERA_BACK_BLUR));
         }
         if (shot.decor.fragments.length > 0 && tuning.showDecor) {
             buildTemperaFragmentViews(pixi, {
@@ -553,13 +574,12 @@ export const buildTemperaScene = (
             textLayer.filters = [textFilter];
             postProcessFilters.push(textFilter);
         }
-        // 景深：水印和背景图片在后、略虚；前景图片在前、更虚；歌词残影在前但不模糊（每帧都在重画）。歌词层本身不动。
-        const depth = buildTemperaDepth(pixi, {
+        // 景深：水印和背景图片在后、略虚；前景图片在前、更虚（模糊都已烘焙成图）；歌词残影在前但不模糊，
+        // 只跟着前景走。歌词层本身不动。
+        const depth = buildTemperaDepth({
             back: [watermarkLayer, images.back],
-            front: [images.front],
-            frontSharp: [echoLayer],
-        }, { tuning, renderResolution: options.renderResolution, staticMode: options.staticMode, width });
-        postProcessFilters.push(...depth.filters);
+            front: [images.front, echoLayer],
+        });
         // A bridge shot has no type to reveal, so the camera breath may start immediately -
         // an instrumental gap should not hold a rigid frame.
         const revealDoneTime = glyphs.length > 0
@@ -619,6 +639,7 @@ export const buildTemperaScene = (
         shots,
         palette,
         postProcessFilters,
+        bakedTextures,
         baseFilters,
         transitionBlurFilter,
         transitionBlurAttached: false,
