@@ -96,6 +96,7 @@ const ThemePreview: React.FC<{
     subtitleContentMode?: SubtitleContentMode;
     lyricsFontScale: number;
     currentTime: PreviewClock;
+    progressTime: PreviewClock;
     currentLineIndex: number;
     audioPower: PreviewClock;
     audioBands: AudioBands;
@@ -124,6 +125,7 @@ const ThemePreview: React.FC<{
     subtitleContentMode,
     lyricsFontScale,
     currentTime,
+    progressTime,
     currentLineIndex,
     audioPower,
     audioBands,
@@ -187,7 +189,7 @@ const ThemePreview: React.FC<{
                     </div>
                     <div className="absolute inset-x-5 bottom-[18px] flex items-center gap-4">
                         <ThemeSampleCard />
-                        <ThemeSampleProgress currentTime={currentTime} duration={liveContent ? liveContent.duration : VIS_PLAYGROUND_PREVIEW_LOOP_DURATION} />
+                        <ThemeSampleProgress currentTime={progressTime} duration={liveContent ? liveContent.duration : VIS_PLAYGROUND_PREVIEW_LOOP_DURATION} />
                         <ThemeSampleButton />
                     </div>
                 </div>

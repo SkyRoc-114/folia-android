@@ -189,6 +189,7 @@ const ThemePark: React.FC<ThemeParkProps> = ({
                     subtitleContentMode={subtitleContentMode}
                     lyricsFontScale={lyricsFontScale}
                     currentTime={currentTime}
+                    progressTime={liveContent ? livePreview.playbackTime : sampleClock.currentTime}
                     currentLineIndex={currentLineIndex}
                     audioPower={audioPower}
                     audioBands={audioBands}

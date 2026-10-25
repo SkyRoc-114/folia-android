@@ -183,8 +183,8 @@ const VisPlayground: React.FC<VisPlaygroundProps> = ({
     // What the player shows now, when the sample is set aside for it; null while it has no lyrics.
     const livePreview = useLivePreviewFeed({ enabled: previewSource === 'live', paused: isPreviewPaused, stageRef: previewBoxRef });
     const live = livePreview.content;
-    // The sample's clock; the small pictures of the styles follow it too. It rests while the live picture is drawn.
-    const previewClock = usePreviewClock({ mode: visualizerMode, placeholderId: previewPlaceholderId, paused: isPreviewPaused || live !== null });
+    // The small pictures still use the sample's clock while the big preview shows the live picture.
+    const previewClock = usePreviewClock({ mode: visualizerMode, placeholderId: previewPlaceholderId, paused: isPreviewPaused });
     const previewPlaceholder = previewClock.placeholder;
     // The sample, paused, has no change of time for a style mounted anew (a switch from the live picture).
     useStillClockPulse({ time: previewClock.currentTime, still: isPreviewPaused && live === null, boxRef: previewBoxRef, restartKey: previewSource });
