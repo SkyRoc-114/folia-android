@@ -3,7 +3,7 @@ import { AudioLines } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useWebAudioSignal } from './useWebAudioSignal';
 
-// 复用信号通路 Sheet 的 Web Audio 内容：应用转码、浏览器解码与系统输出，未测量的环节不作直通保证。
+// 复用信号通路 Sheet 的 Web Audio 内容：顶上写转码播放还是 Web 引擎，下面是应用转码与系统输出，未测量的环节不作直通保证。
 
 export const WebAudioSignalPath: React.FC = () => {
     const { t } = useTranslation();
@@ -13,7 +13,9 @@ export const WebAudioSignalPath: React.FC = () => {
             <section className="flex items-start gap-3 rounded-xl bg-[var(--st-card)] px-4 py-3.5 shadow-[0_0_0_1px_var(--st-line)]">
                 <AudioLines size={22} aria-hidden className="mt-0.5 shrink-0 text-[color:var(--st-accent)]" />
                 <div>
-                    <p role="status" className="text-lg font-semibold leading-7">{t('hifi.web.engine')}</p>
+                    <p role="status" className="text-lg font-semibold leading-7">
+                        {t(signal.transcode === 'transcoded' ? 'hifi.route.transcoded' : 'hifi.route.webEngine')}
+                    </p>
                     <p className="mt-0.5 text-[13px] leading-5 text-[color:var(--st-t2)]">{t(signal.active ? 'hifi.web.engineDesc' : 'hifi.web.noSource')}</p>
                 </div>
             </section>

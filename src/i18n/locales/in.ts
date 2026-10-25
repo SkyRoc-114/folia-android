@@ -4178,25 +4178,29 @@ export default {
       "bypassNoticeTitle": "HiFi melewati equalizer dan efek suara",
       "bypassNoticeBody": "Lagu ini diputar lewat mpv langsung ke perangkat output, jadi pengaturan di sini tidak mengubah yang Anda dengar. Pengaturan tetap tersimpan dan berlaku lagi untuk lagu di mesin biasa."
     },
+    "route": {
+      "nativePassthrough": "Native langsung",
+      "nativeProcessed": "Native, diproses",
+      "nativeUnconfirmed": "Native, memeriksa",
+      "transcoded": "Ditranskode",
+      "webEngine": "Mesin web"
+    },
     "web": {
       "openSignalPath": "Jalur sinyal",
-      "title": "Jalur sinyal audio",
-      "engineLabel": "Mesin pemutaran",
-      "engine": "Web Audio",
-      "mpvEngine": "mpv · HiFi",
-      "engineDesc": "Browser mendekode audio dan meneruskannya melalui Web Audio ke keluaran sistem.",
+      "title": "Jalur sinyal",
+      "engineDesc": "Browser mendekode audio dan Web Audio mengirimnya ke keluaran sistem.",
       "transcodeLabel": "Transkode aplikasi",
-      "transcoded": "Ditranskode (FFmpeg)",
-      "notTranscoded": "Tidak memakai salinan transkode",
+      "transcoded": "Ditranskode dengan FFmpeg",
+      "notTranscoded": "Tidak ada",
       "noSource": "Belum ada audio dimuat",
-      "outputLabel": "Keluaran audio",
-      "outputDesc": "Web Audio → keluaran audio sistem. Volume, equalizer, dan efek mengikuti pengaturan Anda; jalur ini tidak menjamin keluaran bit-perfect.",
-      "note": "Status ini hanya mencakup transkode kompatibilitas Folia, bukan dekode atau resampling. Transkode server dan format keluaran perangkat yang sebenarnya tidak dapat dipastikan di sini."
+      "outputLabel": "Keluaran",
+      "outputDesc": "Volume, equalizer, dan efek berlaku seperti biasa; tidak bit-perfect.",
+      "note": "Hanya mencakup transkode Folia sendiri; transkode server dan format perangkat yang sebenarnya tidak terlihat di sini."
     },
     "signal": {
       "title": "Jalur sinyal HiFi",
       "stagesLabel": "Dari berkas ke DAC",
-      "bypassedNote": "Di HiFi, equalizer, efek suara, ReplayGain, fade, transisi pintar (automix), dan spektrum dilewati.",
+      "bypassedNote": "HiFi melewati equalizer, efek, ReplayGain, fade, transisi pintar, dan spektrum.",
       "verdictShort": {
         "bitPerfect": "Bit-perfect",
         "dop": "DSD asli",
@@ -4214,19 +4218,19 @@ export default {
         "unknown": "Belum dipastikan"
       },
       "verdictDesc": {
-        "bitPerfect": "Setiap sampel sampai ke DAC persis seperti di dalam berkas.",
-        "dop": "Aliran DSD dikemas ke dalam frame PCM (DoP) dan sampai ke DAC tanpa diubah.",
+        "bitPerfect": "Setiap sampel sampai ke DAC tanpa diubah.",
+        "dop": "DSD dikemas ke frame DoP dan sampai ke DAC tanpa diubah.",
         "ratePassthrough": "Menurut PipeWire, perangkat berjalan pada laju sampel yang dikirim mpv, jadi PipeWire tidak melakukan resampling pada lagu ini. Suara tetap lewat PipeWire, jadi ini bukan pemeriksaan bit-perfect.",
-        "converted": "mpv mengubah sinyal sebelum sampai ke output. Tahap bertanda Dikonversi di bawah menjelaskan caranya.",
-        "convertedFloatToInt": "mpv hanya mengubah float 32-bit ke integer 32-bit (banyak DAC hanya menerima sampel integer dalam mode eksklusif). Nilai setiap sampel tetap, hanya sampel di atas 0 dBFS yang terpotong. Data yang sampai ke DAC formatnya berbeda dari berkas, jadi ini bukan bit-perfect.",
-        "sharedMixer": "Perangkat output dipakai bersama aplikasi lain, jadi mixer sistem bisa melakukan resampling atau mengubah sinyal. Nyalakan mode eksklusif di pengaturan HiFi.",
-        "sharedMixerExclusiveOn": "Mode eksklusif sudah menyala, tetapi perangkat output ini tidak mendukungnya, jadi suara tetap lewat mixer sistem dan bisa di-resampling. Pilih perangkat output lain di pengaturan HiFi.",
-        "sharedMixerLinux": "Output ini lewat PipeWire, PulseAudio, atau perangkat plugin ALSA, yang mencampurnya dengan aplikasi lain dan bisa melakukan resampling. Untuk output bit-perfect, pilih perangkat bertanda Langsung (ALSA hw:) di pengaturan HiFi.",
-        "sharedMixerPipewire": "PipeWire menjalankan perangkat pada laju sampel lain dan melakukan resampling pada lagu ini. Tahap PipeWire di bawah menjelaskan sebabnya. Untuk output bit-perfect, pilih perangkat bertanda Langsung (ALSA hw:) di pengaturan HiFi.",
-        "sharedMixerVirtual": "Suara masuk ke perangkat virtual atau aplikasi efek di PipeWire (seperti EasyEffects). Laporan PipeWire berhenti di situ, jadi tidak terlihat kartu suara mana yang akhirnya dituju dan pada laju sampel berapa. Untuk output bit-perfect, pilih perangkat bertanda Langsung (ALSA hw:) di pengaturan HiFi.",
-        "sharedMixerUnknownRate": "PipeWire tidak melaporkan laju sampel perangkat, jadi Folia tidak bisa tahu apakah PipeWire me-resample lagu ini. Periksa indikator laju sampel DAC Anda.",
-        "unknown": "mpv belum melaporkan format output.",
-        "notLoaded": "Lagu ini belum dimuat ke mpv. Jalur sinyal diperiksa setelah lagu mulai diputar."
+        "converted": "mpv mengubah sinyal sebelum keluaran; lihat tahap bertanda Dikonversi di bawah.",
+        "convertedFloatToInt": "mpv hanya mengubah float 32-bit ke integer 32-bit (banyak DAC hanya menerima integer dalam mode eksklusif): nilai tetap, hanya sampel di atas 0 dBFS yang terpotong. Formatnya berbeda dari berkas, jadi bukan bit-perfect.",
+        "sharedMixer": "Perangkat dipakai bersama aplikasi lain, jadi mixer sistem bisa melakukan resampling. Nyalakan mode eksklusif di pengaturan HiFi.",
+        "sharedMixerExclusiveOn": "Mode eksklusif menyala, tetapi perangkat ini tidak mendukungnya, jadi suara tetap lewat mixer sistem. Pilih perangkat keluaran lain di pengaturan HiFi.",
+        "sharedMixerLinux": "Keluaran lewat PipeWire, PulseAudio, atau plugin ALSA, yang mencampurnya dan bisa melakukan resampling. Untuk bit-perfect, pilih perangkat bertanda Langsung (ALSA hw:) di pengaturan HiFi.",
+        "sharedMixerPipewire": "PipeWire menjalankan perangkat pada laju sampel lain dan me-resample lagu ini; tahap PipeWire di bawah menjelaskan sebabnya. Untuk bit-perfect, pilih perangkat bertanda Langsung (ALSA hw:).",
+        "sharedMixerVirtual": "Suara masuk ke perangkat virtual atau aplikasi efek di PipeWire (seperti EasyEffects), jadi kartu suara akhir dan laju sampelnya tidak diketahui. Untuk bit-perfect, pilih perangkat bertanda Langsung (ALSA hw:).",
+        "sharedMixerUnknownRate": "PipeWire tidak melaporkan laju sampel perangkat, jadi resampling tidak bisa dipastikan. Periksa indikator laju sampel DAC Anda.",
+        "unknown": "mpv belum melaporkan format keluaran.",
+        "notLoaded": "Lagu ini belum dimuat; diperiksa setelah pemutaran dimulai."
       },
       "stage": {
         "source": "Berkas sumber",

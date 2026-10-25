@@ -4178,25 +4178,29 @@ export default {
       "bypassNoticeTitle": "HiFi bypasses the equalizer and sound effects",
       "bypassNoticeBody": "This song plays through mpv straight to your output device, so nothing here changes what you hear. Your settings are kept and apply again to songs on the normal engine."
     },
+    "route": {
+      "nativePassthrough": "Native passthrough",
+      "nativeProcessed": "Native, processed",
+      "nativeUnconfirmed": "Native, checking",
+      "transcoded": "Transcoded",
+      "webEngine": "Web engine"
+    },
     "web": {
       "openSignalPath": "Signal path",
-      "title": "Audio signal path",
-      "engineLabel": "Playback engine",
-      "engine": "Web Audio",
-      "mpvEngine": "mpv · HiFi",
-      "engineDesc": "The browser decodes audio and sends it through Web Audio to the system output.",
+      "title": "Signal path",
+      "engineDesc": "The browser decodes the audio and Web Audio sends it to the system output.",
       "transcodeLabel": "App transcoding",
-      "transcoded": "Transcoded (FFmpeg)",
-      "notTranscoded": "No transcoded copy in use",
+      "transcoded": "Transcoded with FFmpeg",
+      "notTranscoded": "None",
       "noSource": "No audio loaded",
-      "outputLabel": "Audio output",
-      "outputDesc": "Web Audio → system audio output. Volume, equalizer and effects follow your settings; this path does not guarantee bit-perfect output.",
-      "note": "This status covers Folia's compatibility transcoding, not decoding or resampling. It cannot confirm server-side transcoding or the device's actual output format."
+      "outputLabel": "Output",
+      "outputDesc": "Volume, equalizer and effects apply as usual; not bit-perfect.",
+      "note": "Covers only Folia's own transcoding; server-side transcoding and the device's actual format are not visible here."
     },
     "signal": {
       "title": "HiFi signal path",
       "stagesLabel": "From the file to your DAC",
-      "bypassedNote": "On HiFi, the equalizer, sound effects, ReplayGain, fades, smart transitions (automix) and the spectrum are bypassed.",
+      "bypassedNote": "HiFi bypasses the equalizer, effects, ReplayGain, fades, smart transitions and the spectrum.",
       "verdictShort": {
         "bitPerfect": "Bit-perfect",
         "dop": "Native DSD",
@@ -4214,19 +4218,19 @@ export default {
         "unknown": "Not verified yet"
       },
       "verdictDesc": {
-        "bitPerfect": "Every sample reaches your DAC exactly as it is in the file.",
-        "dop": "The DSD stream is packed into PCM frames (DoP) and reaches your DAC unchanged.",
+        "bitPerfect": "Every sample reaches your DAC unchanged.",
+        "dop": "DSD is packed into DoP frames and reaches your DAC unchanged.",
         "ratePassthrough": "According to PipeWire, your device runs at the sample rate mpv sends, so PipeWire does not resample this song. The sound still goes through PipeWire, so this is not a bit-perfect check.",
-        "converted": "mpv changes the signal before it reaches the output. The steps marked Converted below say how.",
-        "convertedFloatToInt": "mpv only converts 32-bit float to 32-bit integer (many DACs take only integer samples in exclusive mode). Every sample keeps its value, and only samples above 0 dBFS are clipped. The data reaching your DAC is in a different format from the file, so this is not bit-perfect.",
-        "sharedMixer": "The output device is shared with other apps, so the system mixer may resample or change the signal. Turn on exclusive mode in the HiFi settings.",
-        "sharedMixerExclusiveOn": "Exclusive mode is on, but this output device does not support it, so the system mixer still handles the sound and may resample it. Choose another output device in the HiFi settings.",
-        "sharedMixerLinux": "PipeWire, PulseAudio or an ALSA plugin device mixes this output with other apps and may resample it. For bit-perfect output, choose a device marked Direct (ALSA hw:) in the HiFi settings.",
-        "sharedMixerPipewire": "PipeWire runs the device at another sample rate and resamples this song. The PipeWire step below says why. For bit-perfect output, choose a device marked Direct (ALSA hw:) in the HiFi settings.",
-        "sharedMixerVirtual": "The sound goes into a virtual device or an effects app in PipeWire (such as EasyEffects). PipeWire's report ends there, so it does not show which sound card the sound finally reaches or at what sample rate. For bit-perfect output, choose a device marked Direct (ALSA hw:) in the HiFi settings.",
-        "sharedMixerUnknownRate": "PipeWire does not report the sample rate the device runs at, so Folia cannot tell whether PipeWire resamples this song. Check your DAC's sample-rate indicator.",
+        "converted": "mpv changes the signal before output; see the steps marked Converted below.",
+        "convertedFloatToInt": "mpv only converts 32-bit float to 32-bit integer (many DACs take only integers in exclusive mode): values stay the same, only samples above 0 dBFS are clipped. The format differs from the file, so this is not bit-perfect.",
+        "sharedMixer": "The device is shared with other apps, so the system mixer may resample. Turn on exclusive mode in the HiFi settings.",
+        "sharedMixerExclusiveOn": "Exclusive mode is on, but this device does not support it, so the system mixer still handles the sound. Choose another output device in the HiFi settings.",
+        "sharedMixerLinux": "The output goes through PipeWire, PulseAudio or an ALSA plugin, which mixes it and may resample. For bit-perfect output, choose a device marked Direct (ALSA hw:) in the HiFi settings.",
+        "sharedMixerPipewire": "PipeWire runs the device at another sample rate and resamples this song; the PipeWire step below says why. For bit-perfect output, choose a device marked Direct (ALSA hw:).",
+        "sharedMixerVirtual": "The sound goes into a virtual device or effects app in PipeWire (such as EasyEffects), so the final sound card and sample rate are unknown. For bit-perfect output, choose a device marked Direct (ALSA hw:).",
+        "sharedMixerUnknownRate": "PipeWire does not report the device's sample rate, so resampling cannot be ruled out. Check your DAC's sample-rate indicator.",
         "unknown": "mpv has not reported the output format yet.",
-        "notLoaded": "This song has not been loaded into mpv yet. The signal path is checked once it starts playing."
+        "notLoaded": "This song is not loaded yet; it is checked once playback starts."
       },
       "stage": {
         "source": "Source file",

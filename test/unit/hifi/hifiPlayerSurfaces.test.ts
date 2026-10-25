@@ -239,7 +239,7 @@ describe('the HiFi player surfaces', () => {
             act(() => setPlaybackRoute('web'));
             expect(useHifiPanelStore.getState().isSignalPathOpen).toBe(true);
             expect(place.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe(i18n.t('hifi.web.title'));
-            expect(place.querySelector('[role="status"]')?.textContent).toBe(i18n.t('hifi.web.engine'));
+            expect(place.querySelector('[role="status"]')?.textContent).toBe(i18n.t('hifi.route.webEngine'));
             expect(place.querySelector('ol')).toBeNull();
         });
 
@@ -249,14 +249,25 @@ describe('the HiFi player surfaces', () => {
                 React.createElement(PlaybackSignalPathButton),
                 React.createElement(HifiSignalPathPanel),
             ));
-            expect(place.textContent).not.toContain(i18n.t('hifi.web.engine'));
+            const button = () => place.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!;
+            expect(button().textContent).toBe(i18n.t('hifi.player.signalPathTile', { verdict: i18n.t('hifi.route.webEngine') }));
             expect(place.textContent).not.toContain(i18n.t('hifi.web.transcodeLabel'));
-            act(() => place.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!.click());
+            act(() => button().click());
             expect(place.querySelector('[role="dialog"]')).not.toBeNull();
             act(() => usePlaybackStore.setState({ audioSrc: 'folia-transcode://cache/test.wav' }));
             expect(place.querySelector('[role="dialog"]')?.textContent).toContain(i18n.t('hifi.web.transcoded'));
+            expect(button().textContent).toBe(i18n.t('hifi.player.signalPathTile', { verdict: i18n.t('hifi.route.transcoded') }));
             act(() => usePlaybackStore.setState({ audioSrc: null }));
             expect(place.querySelector('[role="dialog"]')?.textContent).toContain(i18n.t('hifi.web.noSource'));
+            expect(button().textContent).toBe(i18n.t('hifi.web.openSignalPath'));
+        });
+
+        it('names the native route on the quality entry', () => {
+            playOnHifi();
+            draw(React.createElement(PlaybackSignalPathButton));
+            const button = place.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!;
+            expect(button.textContent).toBe(i18n.t('hifi.player.signalPathTile', { verdict: i18n.t('hifi.route.nativePassthrough') }));
+            expect(button.getAttribute('class')).toContain('bg-[var(--st-raise)]');
         });
 
         it('does not compare against the engine state of another track', () => {

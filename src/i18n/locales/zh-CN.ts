@@ -4178,25 +4178,29 @@ export default {
       "bypassNoticeTitle": "HiFi 绕过了均衡器和音效",
       "bypassNoticeBody": "这首歌经 mpv 直接送到输出设备，这里的设置不会改变你听到的声音。设置会保留，换回原来的引擎播放时照常生效。"
     },
+    "route": {
+      "nativePassthrough": "原生直通",
+      "nativeProcessed": "原生处理",
+      "nativeUnconfirmed": "原生 · 待确认",
+      "transcoded": "转码播放",
+      "webEngine": "Web 引擎"
+    },
     "web": {
       "openSignalPath": "信号链路",
-      "title": "音频信号通路",
-      "engineLabel": "播放引擎",
-      "engine": "Web Audio",
-      "mpvEngine": "mpv · HiFi",
-      "engineDesc": "浏览器解码音频，经 Web Audio 处理后送到系统输出。",
+      "title": "信号链路",
+      "engineDesc": "浏览器解码，经 Web Audio 送到系统输出。",
       "transcodeLabel": "应用转码",
-      "transcoded": "已转码（FFmpeg）",
-      "notTranscoded": "未使用转码副本",
-      "noSource": "尚未载入音频",
-      "outputLabel": "音频输出",
-      "outputDesc": "Web Audio → 系统音频输出。音量、均衡器及音效按当前设置生效；此通路不保证逐位直通。",
-      "note": "转码状态仅指 Folia 的兼容性转码，不代表解码或重采样。远端服务器是否转码、设备实际输出格式无法由此确认。"
+      "transcoded": "已用 FFmpeg 转码",
+      "notTranscoded": "无",
+      "noSource": "还没有载入音频",
+      "outputLabel": "输出",
+      "outputDesc": "音量、均衡器和音效照常生效；不保证逐位直通。",
+      "note": "只反映 Folia 自己的转码，看不到服务器端转码和设备实际格式。"
     },
     "signal": {
       "title": "HiFi 信号链路",
       "stagesLabel": "从文件到 DAC",
-      "bypassedNote": "HiFi 下均衡器、音效、ReplayGain、淡入淡出、智能过渡（automix）和频谱都被绕过。",
+      "bypassedNote": "HiFi 下绕过均衡器、音效、ReplayGain、淡入淡出、智能过渡和频谱。",
       "verdictShort": {
         "bitPerfect": "原生直通",
         "dop": "原生 DSD",
@@ -4214,19 +4218,19 @@ export default {
         "unknown": "尚未确认"
       },
       "verdictDesc": {
-        "bitPerfect": "每个采样都和文件里一模一样地送到 DAC。",
-        "dop": "DSD 码流打包进 PCM 帧（DoP），原样送到 DAC。",
+        "bitPerfect": "每个采样原样送到 DAC。",
+        "dop": "DSD 打包成 DoP 帧，原样送到 DAC。",
         "ratePassthrough": "按 PipeWire 的报告，设备正以 mpv 送出的采样率运行，这首歌没有被 PipeWire 重采样。声音仍经过 PipeWire，这不是对原生直通的确认。",
-        "converted": "信号送到输出设备之前被 mpv 改动过，下面标着「已转换」的环节写明了改动。",
-        "convertedFloatToInt": "mpv 只把 32 位浮点转成了 32 位整数（很多 DAC 独占时只收整数）：每个采样的数值不变，只有超过 0 dBFS 的样本会被截顶。送到 DAC 的数据格式和文件不同，所以不算比特完美。",
-        "sharedMixer": "输出设备与其他程序共用，系统混音器可能会重采样或改动信号。可在 HiFi 设置里开启独占模式。",
-        "sharedMixerExclusiveOn": "独占模式已经开着，但这个输出设备不支持独占，声音仍经过系统混音器，可能被重采样。请在 HiFi 设置里换一个输出设备。",
-        "sharedMixerLinux": "这个输出经过 PipeWire、PulseAudio 或 ALSA 插件设备，会和其他程序混音，也可能被重采样。要原生直通，请在 HiFi 设置里选一个标着「直连」的设备（ALSA hw:）。",
-        "sharedMixerPipewire": "PipeWire 让设备以另一个采样率运行，把这首歌重采样了，原因写在下面 PipeWire 那一级。要原生直通，请在 HiFi 设置里选一个标着「直连」的设备（ALSA hw:）。",
-        "sharedMixerVirtual": "声音进了 PipeWire 里的虚拟设备或音效程序（如 EasyEffects），PipeWire 的报告到那里为止，看不出它最后接到哪块声卡、以什么采样率运行。要原生直通，请在 HiFi 设置里选一个标着「直连」的设备（ALSA hw:）。",
-        "sharedMixerUnknownRate": "PipeWire 没报设备以什么采样率运行，Folia 看不出它有没有重采样这首歌。请看 DAC 的采样率指示。",
-        "unknown": "mpv 还没有报告输出格式。",
-        "notLoaded": "这首歌还没交给 mpv 载入，开始播放后才会确认信号链路。"
+        "converted": "mpv 在输出前改动了信号，见下方标「已转换」的环节。",
+        "convertedFloatToInt": "mpv 只把 32 位浮点转成 32 位整数（多数 DAC 独占时只收整数）：数值不变，只截掉超过 0 dBFS 的样本。格式与文件不同，所以不算比特完美。",
+        "sharedMixer": "设备与其他程序共用，系统混音器可能重采样。可在 HiFi 设置里开启独占模式。",
+        "sharedMixerExclusiveOn": "已开独占模式，但这个设备不支持独占，声音仍经过系统混音器。请在 HiFi 设置里换个输出设备。",
+        "sharedMixerLinux": "输出经 PipeWire、PulseAudio 或 ALSA 插件，会被混音，也可能重采样。要原生直通，请在 HiFi 设置里选标着「直连」的设备（ALSA hw:）。",
+        "sharedMixerPipewire": "PipeWire 让设备以另一个采样率运行，重采样了这首歌，原因见下方 PipeWire 一级。要原生直通，请选标着「直连」的设备（ALSA hw:）。",
+        "sharedMixerVirtual": "声音进了 PipeWire 里的虚拟设备或音效程序（如 EasyEffects），看不出最终接到哪块声卡、什么采样率。要原生直通，请选标着「直连」的设备（ALSA hw:）。",
+        "sharedMixerUnknownRate": "PipeWire 没报设备采样率，无法判断有没有重采样。请看 DAC 的采样率指示。",
+        "unknown": "mpv 还没报告输出格式。",
+        "notLoaded": "这首歌还没载入，开始播放后再确认。"
       },
       "stage": {
         "source": "源文件",
