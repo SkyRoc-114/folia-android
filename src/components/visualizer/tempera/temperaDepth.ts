@@ -7,7 +7,7 @@ import { resolveTemperaTransitionBlurResolution } from './temperaSceneFilters';
 
 // src/components/visualizer/tempera/temperaDepth.ts
 // 凝彩的景深与视差：每个 shot 的图层分前后三层——背景（水印、背景图片）略虚、走得慢；中景（色块、歌词、
-// 关键词）清晰、照常走；前景（歌词残影、前景图片）虚、走得快。镜头推进推出和呼吸时，各层按自己的系数
+// 关键词）清晰、照常走；前景（前景图片虚；歌词残影不加模糊，只跟着走）走得快。镜头推进推出和呼吸时，各层按自己的系数
 // 相对 shot 平移，读作镜头前后有纵深。
 // 模糊只挂在背景、前景两层上，不碰歌词层：歌词的反色滤镜要读它下面已经画好的像素（temperaSceneBuilder.ts）。
 type PixiModule = typeof import('pixi.js');
@@ -29,15 +29,19 @@ export interface TemperaDepthView {
 /** Puts the shot's layers at their depths and gives the out-of-focus ones a blur. */
 export const buildTemperaDepth = (
     pixi: PixiModule,
-    layers: { back: import('pixi.js').Container[]; front: import('pixi.js').Container[] },
+    // `frontSharp` rides the foreground's parallax without its blur: layers redrawn every frame
+    // (the glyph echoes) would make the blur an offscreen render per shot per frame.
+    layers: { back: import('pixi.js').Container[]; front: import('pixi.js').Container[]; frontSharp: import('pixi.js').Container[] },
     options: { tuning: TemperaTuning; renderResolution: number; staticMode: boolean; width: number },
 ): TemperaDepthView => {
     const filters: import('pixi.js').Filter[] = [];
     if (!options.staticMode) {
         const resolution = resolveTemperaTransitionBlurResolution(options.tuning, options.renderResolution);
         const scale = options.width / 1280;
+        // One blur pass per axis: the layers are out of focus, not smeared, and every pass here is
+        // an offscreen render per shot per frame.
         const blur = (strength: number) => {
-            const filter = new pixi.BlurFilter({ strength: strength * scale, quality: 2, kernelSize: 5, resolution });
+            const filter = new pixi.BlurFilter({ strength: strength * scale, quality: 1, kernelSize: 5, resolution });
             filters.push(filter);
             return filter;
         };
@@ -46,7 +50,7 @@ export const buildTemperaDepth = (
         layers.back.forEach(layer => { layer.filters = [backBlur]; });
         layers.front.forEach(layer => { layer.filters = [frontBlur]; });
     }
-    return { back: layers.back, front: layers.front, filters };
+    return { back: layers.back, front: [...layers.front, ...layers.frontSharp], filters };
 };
 
 /** Offsets the depths for the shot's camera displacement (dx, dy) this frame, in shot-local px. */

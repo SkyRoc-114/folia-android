@@ -23,6 +23,22 @@ import {
 // 单个 shot 的逐帧姿态：镜头位移与呼吸、shot 之间的推入推出交接、图形与图片层时间、逐字运动。
 // 只按绝对播放时间写 view，不持有状态。
 
+/** How light the furthest glyphs get: their opacity at depth 0. */
+const FAR_GLYPH_ALPHA = 0.5;
+/** Glyph parallax: share of the camera travel the nearest glyphs add on top, and the furthest give back. */
+const GLYPH_LEAD_NEAR = 0.5;
+const GLYPH_LAG_FAR = 0.4;
+/** The most a glyph's parallax may move it off its laid-out spot, as a share of the short side. */
+const GLYPH_PARALLAX_CAP = 0.07;
+
+/** 移镜头: the four directions a shot's content can slide in; each shot picks one by its id. */
+const PAN_DIRECTIONS = [[0, -1], [0, 1], [-1, 0], [1, 0]] as const;
+/** How far back along its direction each shot starts (share of the height) and how long it takes to arrive. */
+const RISE_ENTER = 0.2;
+const RISE_ENTER_SECONDS = 0.9;
+/** The slow climb that follows, across the whole shot, as a share of the height. */
+const RISE_DRIFT = 0.18;
+
 const resolveAnimationScale = (theme: Theme) => (
     theme.animationIntensity === 'calm' ? 0.65 : theme.animationIntensity === 'chaotic' ? 1.35 : 1
 );
@@ -76,11 +92,20 @@ export const updateTemperaShot = (
     const enter = easeTemperaEnter(clamp01((time - view.shot.startTime) / (handoff * 0.8)));
     const exit = easeTemperaInOut(resolveTemperaShotExit(view, time));
     const travel = exit * span * 0.55 - (1 - enter) * span * 0.32;
-    const cameraX = frame.x * width * camera + Math.cos(view.shot.flowAngle) * travel;
-    const cameraY = frame.y * height * camera + Math.sin(view.shot.flowAngle) * travel;
+    // 移镜头: every shot slides in along one of four directions (up, down, left, right, picked
+    // per shot), then keeps drifting the same way until it hands off, so the depth layers and
+    // the big and small glyphs part along that direction.
+    const [panX, panY] = PAN_DIRECTIONS[(hashTemperaSeed(view.shot.id) >>> 5) % PAN_DIRECTIONS.length]!;
+    const panEnter = 1 - easeTemperaEnter(clamp01((time - view.shot.startTime) / RISE_ENTER_SECONDS));
+    const pan = (panEnter * RISE_ENTER + (0.5 - clamp01(rawProgress)) * RISE_DRIFT) * height * camera;
+    const cameraX = frame.x * width * camera + Math.cos(view.shot.flowAngle) * travel - panX * pan;
+    const cameraY = frame.y * height * camera + Math.sin(view.shot.flowAngle) * travel - panY * pan;
     view.container.position.set(view.baseX + cameraX, view.baseY + cameraY);
     // Parallax: the layers behind the lyric lag the shot's camera travel, the ones in front lead it.
     applyTemperaParallax(view.depth, cameraX, cameraY);
+    // The outgoing shot drops its depth blur for the hand-off: it is fading and flying out, and
+    // two shots' blurs at once double the offscreen passes exactly when the frame is busiest.
+    view.depth.filters.forEach(filter => { filter.enabled = exit === 0; });
     // Opaque on the way in: this is a push, not a dissolve. Only the exit fades.
     view.container.alpha = 1 - exit;
     view.container.scale.set((1 + (frame.scale - 1) * camera) * (1 - exit * 0.08));
@@ -92,17 +117,26 @@ export const updateTemperaShot = (
     view.blocks.updateTime(time, view.shot.startTime, view.shot.endTime, view.shot.lyricEndTime);
     view.images.updateTime(time, view.shot.startTime, view.shot.endTime, view.shot.lyricEndTime);
 
+    const glyphParallaxCap = Math.min(width, height) * GLYPH_PARALLAX_CAP;
     view.glyphs.forEach(glyph => {
         const frame = resolveTemperaGlyphMotion(glyph.motion, time, motion);
-        const x = glyph.baseX + frame.x;
-        const y = glyph.baseY + frame.y;
-        glyph.display.alpha = frame.alpha;
+        // 字号即远近: big glyphs sit in front and lead the camera, small ones sit back, lag it
+        // and fade toward the paper.
+        const lead = glyph.depth * (GLYPH_LEAD_NEAR + GLYPH_LAG_FAR) - GLYPH_LAG_FAR;
+        // Capped: the layout never budgeted for this, so a big camera offset must not carry a
+        // glyph off the frame.
+        const depthX = Math.max(-glyphParallaxCap, Math.min(glyphParallaxCap, cameraX * lead));
+        const depthY = Math.max(-glyphParallaxCap, Math.min(glyphParallaxCap, cameraY * lead));
+        const shade = FAR_GLYPH_ALPHA + (1 - FAR_GLYPH_ALPHA) * glyph.depth;
+        const x = glyph.baseX + frame.x + depthX;
+        const y = glyph.baseY + frame.y + depthY;
+        glyph.display.alpha = frame.alpha * shade;
         glyph.display.visible = frame.visible;
         glyph.display.position.set(x, y);
         glyph.display.scale.set(frame.scaleX, frame.scaleY);
         glyph.display.rotation = frame.rotation;
         if (glyph.shadow) {
-            glyph.shadow.alpha = frame.alpha * 0.34;
+            glyph.shadow.alpha = frame.alpha * shade * 0.34;
             glyph.shadow.visible = frame.visible;
             glyph.shadow.position.set(x + glyph.shadowDX, y + glyph.shadowDY);
             glyph.shadow.scale.set(frame.scaleX, frame.scaleY);
@@ -114,10 +148,10 @@ export const updateTemperaShot = (
             echo.visible = echoVisible;
             if (!echoVisible) return;
             const depth = 1 + index * 0.85;
-            echo.alpha = frame.echoAlpha / (index + 1.4);
+            echo.alpha = frame.echoAlpha * shade / (index + 1.4);
             echo.position.set(
-                glyph.baseX + frame.echoX * depth,
-                glyph.baseY + frame.echoY * depth,
+                glyph.baseX + depthX + frame.echoX * depth,
+                glyph.baseY + depthY + frame.echoY * depth,
             );
             echo.scale.set(frame.scaleX, frame.scaleY);
             echo.rotation = frame.rotation;

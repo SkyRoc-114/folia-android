@@ -131,6 +131,7 @@ export class TemperaPixiRuntime {
     private overlay!: TemperaOverlay;
     /** 智能动感模式「墨渍晕开」: the stain and the ink flash, between the scenes and the overlay. */
     private inkFlash!: TemperaInkFlash;
+    private inkFlashSupported: boolean | undefined;
     /**
      * An in-flight song handover, spread over exactly two frames. A track change is a plain cut
      * here - no wipe, no dissolve - but a cut must not also be a stall, so the incoming scene is
@@ -526,7 +527,10 @@ export class TemperaPixiRuntime {
      * playing track's hits are in, and nothing past where a track still separating has them.
      */
     private updateInkFlash(time: number, width: number, height: number, paragraphIndex: number) {
-        const strength = this.options.staticMode ? 0 : getBeatEffectStrength(BEAT_EFFECT_IDS.temperaInkFlash);
+        // The ink shader is GLSL ES 3.0; on a WebGL1 or WebGPU fallback the effect stays off.
+        this.inkFlashSupported ??= typeof WebGL2RenderingContext !== 'undefined'
+            && (this.app.renderer as { gl?: unknown }).gl instanceof WebGL2RenderingContext;
+        const strength = this.options.staticMode || !this.inkFlashSupported ? 0 : getBeatEffectStrength(BEAT_EFFECT_IDS.temperaInkFlash);
         const heard = getBeatFxHeard();
         const known = strength > 0 ? getDrumHits(heard.key) : null;
         const hitTime = heard.time ?? time;

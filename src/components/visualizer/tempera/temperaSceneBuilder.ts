@@ -553,10 +553,11 @@ export const buildTemperaScene = (
             textLayer.filters = [textFilter];
             postProcessFilters.push(textFilter);
         }
-        // 景深：水印和背景图片在后、略虚；歌词残影和前景图片在前、更虚。歌词层本身不动。
+        // 景深：水印和背景图片在后、略虚；前景图片在前、更虚；歌词残影在前但不模糊（每帧都在重画）。歌词层本身不动。
         const depth = buildTemperaDepth(pixi, {
             back: [watermarkLayer, images.back],
-            front: [echoLayer, images.front],
+            front: [images.front],
+            frontSharp: [echoLayer],
         }, { tuning, renderResolution: options.renderResolution, staticMode: options.staticMode, width });
         postProcessFilters.push(...depth.filters);
         // A bridge shot has no type to reveal, so the camera breath may start immediately -
