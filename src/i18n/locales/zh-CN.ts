@@ -4164,7 +4164,6 @@ export default {
       "limitVideoExportDesc": "歌词视频导出依赖原来的音频引擎，歌曲走 HiFi 时无法导出。",
       "limitMediaControls": "系统媒体控制只在共享输出时有",
       "limitMediaControlsDesc": "歌曲在独占模式下走 HiFi 播放时，系统媒体控制（Windows 的 SMTC、macOS 的「正在播放」）不显示也控制不了 Folia。独占模式关着时照常可用。",
-      "limitMediaControlsLinuxDesc": "歌曲经标着「直连」的设备（ALSA hw:）走 HiFi 播放时，系统媒体控制（MPRIS）不显示也控制不了 Folia。用其他设备时照常可用。",
       "limitPipewireRateFoot": "经 PipeWire 输出时，只有采样率列在 default.clock.allowed-rates 里、设备上也没有别的声音在放，设备的采样率才会跟着每首歌切换。信号链路面板显示的是 PipeWire 报告的状态，DAC 实际收到的采样率请以 DAC 的指示为准。"
     },
     "player": {
@@ -4300,7 +4299,7 @@ export default {
         "hintForced": "PipeWire 的 clock.force-rate 把采样率固定在 {{forced}}，设备不会切到 {{rate}}。要取消固定，在终端运行下面这条命令：",
         "hintNotAllowed": "PipeWire 不允许切到 {{rate}}：要把它加进 default.clock.allowed-rates。把下面这行存成 ~/.config/pipewire/pipewire.conf.d/ 里的一个 .conf 文件，再重启 PipeWire。",
         "hintBusy": "PipeWire 只在设备空闲时切换采样率，现在设备上还有别的流在放：{{names}}。",
-        "hintBusyOwn": "其中有来自 Folia 自己的流，多半是让系统媒体控制（MPRIS）一直可用的那段静音。",
+        "hintBusyOwn": "其中有来自 Folia 自己的流：Folia 的 Web 引擎还开着一路声音。",
         "hintJoin": "{{first}}{{second}}",
         "hintNoSwitch": "PipeWire 没有把设备切到 {{rate}}。它只切到 default.clock.allowed-rates 里列出、设备也支持的采样率，而且只在设备上没有别的声音时切。",
         "snippetLabel": "PipeWire 配置",

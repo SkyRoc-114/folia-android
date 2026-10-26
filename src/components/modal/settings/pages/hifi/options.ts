@@ -30,5 +30,7 @@ export const O = {
     dopWindowsOnly: option(LIMITS, 'hifiLimitDop', 'hifi.settings.limitDop'),
     bypassed: option(LIMITS, 'hifiLimitBypassed', 'hifi.settings.limitBypassed'),
     videoExport: option(LIMITS, 'hifiLimitVideoExport', 'hifi.settings.limitVideoExport'),
-    mediaControls: option(LIMITS, 'hifiLimitMediaControls', 'hifi.settings.limitMediaControls'),
+    // Only Windows and macOS lose the system media controls (in exclusive mode): on Linux main
+    // registers MPRIS itself, so the page does not draw this row there.
+    mediaControls: option(LIMITS, 'hifiLimitMediaControls', 'hifi.settings.limitMediaControls', { available: () => HIFI_PLATFORM !== 'linux' }),
 };

@@ -4,11 +4,13 @@ import { useHifiSettingsStore } from '../../stores/useHifiSettingsStore';
 import { usePlaybackStore } from '../../stores/usePlaybackStore';
 import { hifiMediaShim } from '../../services/hifi/hifiMediaShim';
 import { useHifiTrackStore } from '../../services/hifi/hifiTrackStore';
+import { hasMainProcessMediaControls } from './useHifiMpris';
 
 // src/components/hifi/useHifiMediaSessionKeepAlive.ts
 // mpv 发声时页面里没有在放的媒体元素，Chromium 就不向系统登记媒体会话（Linux 的 MPRIS、Windows 的 SMTC、macOS 的正在播放）。
 // HiFi 在放时这里循环放一段音量为 0 的静音 WAV，让会话一直在；元数据和按键动作照旧由 useMediaSessionBridge 给。
 // 独占输出时不放：Chromium 在同一台设备上开一路流会挡住 mpv 的独占，那时系统媒体控制是已知的限制。
+// Linux 上不放：系统媒体控制由主进程登记的 MPRIS 给（useHifiMpris），保活那路流会挡住 PipeWire 切换采样率（#835）。
 
 /** 写在保活元素上的属性，和 deck 的 data-playback-deck 区分开。 */
 export const KEEP_ALIVE_ATTRIBUTE = 'data-hifi-media-session-keep-alive';
@@ -56,13 +58,16 @@ export const isExclusiveHifiOutput = ({ platform, exclusive, audioDevice }: {
 
 export type KeepAliveAction = 'play' | 'pause' | 'remove';
 
-/** 保活元素该做什么：不在 HiFi 路线上或输出独占时拿掉，HiFi 在放时放，暂停、放完、载入中时停着。 */
-export const keepAliveAction = ({ route, enginePlaying, exclusiveOutput }: {
+/**
+ * 保活元素该做什么：不在 HiFi 路线上、输出独占或系统媒体控制由主进程给时拿掉，HiFi 在放时放，暂停、放完、载入中时停着。
+ */
+export const keepAliveAction = ({ route, enginePlaying, exclusiveOutput, mainProcessMediaControls = false }: {
     route: PlaybackRoute;
     enginePlaying: boolean;
     exclusiveOutput: boolean;
+    mainProcessMediaControls?: boolean;
 }): KeepAliveAction => {
-    if (route !== 'hifi' || exclusiveOutput) return 'remove';
+    if (route !== 'hifi' || exclusiveOutput || mainProcessMediaControls) return 'remove';
     return enginePlaying ? 'play' : 'pause';
 };
 
@@ -156,15 +161,16 @@ export function useHifiMediaSessionKeepAlive() {
     }, [route, trackKey]);
 
     const exclusiveOutput = isExclusiveHifiOutput({ platform: currentPlatform(), exclusive, audioDevice });
-    const action = keepAliveAction({ route, enginePlaying, exclusiveOutput });
+    const mainProcessMediaControls = hasMainProcessMediaControls();
+    const action = keepAliveAction({ route, enginePlaying, exclusiveOutput, mainProcessMediaControls });
 
     useEffect(() => {
-        if (route !== 'hifi' || !exclusiveOutput) return;
+        if (route !== 'hifi' || !exclusiveOutput || mainProcessMediaControls) return;
         console.info('[HiFi] no media session keep-alive on an exclusive output: system media controls are unavailable', {
             platform: currentPlatform(),
             audioDevice,
         });
-    }, [audioDevice, exclusiveOutput, route]);
+    }, [audioDevice, exclusiveOutput, mainProcessMediaControls, route]);
 
     const keepAliveRef = useRef<MediaSessionKeepAlive | null>(null);
     useEffect(() => {

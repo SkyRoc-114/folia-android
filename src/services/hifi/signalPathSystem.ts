@@ -45,7 +45,7 @@ export const isSystemDeviceUnknown = (report: HifiSystemReport | null | undefine
 /** 别的流里来自 Folia 自己进程的那几路，在说明里这样标出来（名字后面）。 */
 export const OWN_STREAM_MARK = ' (Folia)';
 
-/** 一条「同设备上别的流」的说明里有没有 Folia 自己的流（系统媒体控制的静音保活等）。 */
+/** 一条「同设备上别的流」的说明里有没有 Folia 自己的流（Web 引擎的；Linux 上系统媒体控制不再放静音保活）。 */
 export const listsOwnStream = (detail: string | null) => Boolean(detail?.split(', ').some(name => name.endsWith(OWN_STREAM_MARK)));
 
 /** PipeWire 的格式名 → 有效位宽：S16LE → 16、S24_32LE → 24、S32LE → 32、F32P → 32；认不出时为 null。 */

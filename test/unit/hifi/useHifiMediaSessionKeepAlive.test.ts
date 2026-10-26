@@ -124,6 +124,11 @@ describe('keepAliveAction', () => {
     ] as const)('route %s, playing %s, exclusive %s → %s', (route, enginePlaying, exclusiveOutput, expected) => {
         expect(keepAliveAction({ route, enginePlaying, exclusiveOutput })).toBe(expected);
     });
+
+    it('removes it whenever main gives the system media controls (Linux MPRIS), playing or not', () => {
+        expect(keepAliveAction({ route: 'hifi', enginePlaying: true, exclusiveOutput: false, mainProcessMediaControls: true })).toBe('remove');
+        expect(keepAliveAction({ route: 'hifi', enginePlaying: false, exclusiveOutput: false, mainProcessMediaControls: true })).toBe('remove');
+    });
 });
 
 describe('createMediaSessionKeepAlive', () => {
@@ -261,6 +266,19 @@ describe('useHifiMediaSessionKeepAlive', () => {
         (window as unknown as { electron?: unknown }).electron = { platform: 'linux' };
         act(() => useHifiSettingsStore.setState({ audioDevice: 'alsa/hw:CARD=D10,DEV=0' }));
         expect(keepAliveElement()).toBeNull();
+    });
+
+    it('never opens a Chromium stream on Linux once main registers MPRIS: it would hold the PipeWire rate (#835)', () => {
+        (window as unknown as { electron?: unknown }).electron = {
+            platform: 'linux',
+            hifi: { setMprisState: vi.fn(), setMprisArtwork: vi.fn(), onMprisCommand: vi.fn(() => () => {}) },
+        };
+        useHifiSettingsStore.setState({ exclusive: false, audioDevice: 'auto' });
+        mount();
+        showHifiTrack('t1');
+        act(() => hifiMediaShim.markPlaying());
+        expect(keepAliveElement()).toBeNull();
+        expect(playSpy).not.toHaveBeenCalled();
     });
 
     it('removes the element when App unmounts', () => {

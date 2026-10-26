@@ -107,6 +107,7 @@ const { createMpvSession } = require('./hifi/mpvSession.cjs');
 const { registerHifiIpc } = require('./hifi/hifiIpc.cjs');
 const { createPipewireProbe, collectOwnPids } = require('./hifi/pipewireProbe.cjs');
 const { createApprovedMpvPathStore, isReservedHifiSettingKey } = require('./hifi/approvedMpvPath.cjs');
+const { registerMprisIpc } = require('./hifi/mpris/mprisIpc.cjs');
 const { sanitizeDualTheme: sanitizeGeneratedDualTheme } = require('../shared/themeSanitizer.cjs');
 const {
   aiProviderLabel,
@@ -314,8 +315,8 @@ const hifiSession = createMpvSession({
 const hifiApprovedMpvPath = createApprovedMpvPathStore({ getUserDataPath: getHifiUserDataPath });
 // Linux: what PipeWire reports (pw-dump) about mpv's stream on its way to the device. Only what
 // PipeWire says; whether the DAC really gets that rate is for a person to confirm on the hardware.
-// Folia's own processes (main plus every Electron child) mark its own streams, such as the silent
-// keep-alive for the system media controls.
+// Folia's own processes (main plus every Electron child) mark its own streams, such as the web
+// engine's.
 const hifiOutputProbe = createPipewireProbe({
   getOwnPids: () => collectOwnPids(process.pid, app.getAppMetrics()),
 });
@@ -332,6 +333,18 @@ hifiIpc = registerHifiIpc({
   getApprovedMpvPath: () => hifiApprovedMpvPath.get(),
   setApprovedMpvPath: value => hifiApprovedMpvPath.set(value),
 });
+// Linux: while HiFi plays, main registers MPRIS on the session bus itself. A silent keep-alive in
+// the page would be a Chromium stream on the same PipeWire device, and PipeWire switches the
+// device's sample rate only while nothing else plays on it (#835). Windows and macOS keep the
+// keep-alive: their shared outputs never switch rates.
+const hifiMpris = process.platform === 'linux'
+  ? registerMprisIpc({
+    ipcMain,
+    isTrustedSender: event => isTrustedMainWindowContents(event.sender),
+    getMainWindow: () => mainWindow,
+    getArtworkDirectory: () => path.join(app.getPath('userData'), 'mpris-artwork'),
+  })
+  : null;
 // Last resort for every way out, app.exit() included: an mpv left behind would keep playing.
 process.on('exit', () => hifiSession.killSync());
 // KuGou credentials stay inside the main process and are encrypted lazily after Electron is ready.
@@ -7370,6 +7383,7 @@ ipcMain.handle('global-shortcuts-set', (event, accelerators) => {
 app.on('will-quit', () => {
   globalShortcutController?.dispose();
   hifiSession.killSync();
+  hifiMpris?.dispose();
   hifiInstaller.cancel();
 });
 

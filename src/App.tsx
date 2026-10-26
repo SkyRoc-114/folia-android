@@ -94,6 +94,7 @@ import { seekHifiRoute } from './components/hifi/hifiRouteTransport';
 import { useHifiAutomixGate } from './components/hifi/useHifiAutomixGate';
 import { useWebEngineYield } from './components/hifi/useWebEngineYield';
 import { useHifiMediaSessionKeepAlive } from './components/hifi/useHifiMediaSessionKeepAlive';
+import { useHifiMpris } from './components/hifi/useHifiMpris';
 import { useHifiWebRouteNotice } from './components/hifi/useHifiWebRouteNotice';
 import { isHifiRoute, useHifiTrackStore } from './services/hifi/hifiPlayback';
 import { hifiEngine } from './services/hifi/hifiEngine';
@@ -1437,7 +1438,7 @@ export default function App() {
         taskbarPlayerStateRef,
     } = useTransportCommandRefs({ resumePlayback, pausePlayback, handlePrevTrack, handleNextTrack });
 
-    useMediaSessionBridge({
+    const mediaSessionOptions = {
         audioRef,
         // All three describe the DISPLAYED track, and that is the whole of the fix: the metadata,
         // the clock the position is read off, and the source the readiness guard compares against.
@@ -1457,7 +1458,10 @@ export default function App() {
         mediaSessionPrevRef,
         mediaSessionNextRef,
         isNowPlayingControlDisabledRef,
-    });
+    };
+    useMediaSessionBridge(mediaSessionOptions);
+    // Linux: on the HiFi route the system media controls come from main's MPRIS, fed the same.
+    useHifiMpris(mediaSessionOptions);
     useHifiMediaSessionKeepAlive();
     useHifiWebRouteNotice();
 

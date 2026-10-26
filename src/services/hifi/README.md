@@ -29,8 +29,9 @@ mpv ──HTTP（Range）──> electron/hifi/sourceBridge.cjs（127.0.0.1，�
 - `mpvSession.cjs`：会话状态机：按需拉起 mpv、载入、走带、无缝预载、时钟节流（约 4 Hz）、空闲 5 分钟退出、崩溃熔断；Linux 上从 `/proc/asound` 补 hw: 直连设备。
 - `hifiIpc.cjs`：只认主窗口的调用、校验每个载荷，把状态推回主窗口，替来源桥向持有 File 的渲染进程要字节，开文件框批准手动路径。
 - `pipewireProbe.cjs`：Linux 上用 `pw-dump` 读 mpv 那路流（`--audio-client-name="Folia HiFi"`）在 PipeWire 里的去向，结果是 `HifiOutputProbe`（`hifi:probe-output`，渲染端 `window.electron.hifi.probeOutput()`）。见下面“Linux：PipeWire 报的采样率”。
+- `mpris/`：Linux 上 HiFi 的系统媒体控制，见下面“Linux：主进程登记 MPRIS”。`dbusWire.cjs` 是 D-Bus 线上格式（按签名编解码、拼拆消息、总线地址、EXTERNAL 认证行，纯函数）；`dbusConnection.cjs` 是会话总线客户端（unix 套接字、认证、Hello、方法调用和信号）；`mprisService.cjs` 是 `/org/mpris/MediaPlayer2` 那个对象；`mprisIpc.cjs` 校验渲染端推来的状态和封面（`hifi:mpris-state`、`hifi:mpris-artwork`），按键经 `hifi:mpris-command` 推回主窗口。没有引入 D-Bus 的库。
 
-下载用的清单在 `shared/mpvRuntimeManifest.json`。主进程的接线只在三处：`electron/main.cjs`（建 runtime、installer、bridge、session，`registerHifiIpc`；退出的每条路都 `killSync()`；主页面一去不回时 `stop()`）、`electron/preload.cjs`（`window.electron.hifi`，类型在 `src/vite-env.d.ts`）、`electron/debug/crashLog.cjs`（`installCrashHandlers` 的 `beforeExit`，崩溃退出前杀掉 mpv）。
+下载用的清单在 `shared/mpvRuntimeManifest.json`。主进程的接线只在三处：`electron/main.cjs`（建 runtime、installer、bridge、session，`registerHifiIpc`；Linux 上 `registerMprisIpc`，`will-quit` 时 `dispose()`；退出的每条路都 `killSync()`；主页面一去不回时 `stop()`）、`electron/preload.cjs`（`window.electron.hifi`，类型在 `src/vite-env.d.ts`）、`electron/debug/crashLog.cjs`（`installCrashHandlers` 的 `beforeExit`，崩溃退出前杀掉 mpv）。
 
 ### 契约和设置
 
@@ -65,7 +66,8 @@ mpv ──HTTP（Range）──> electron/hifi/sourceBridge.cjs（127.0.0.1，�
 - `useHifiGaplessPreload.ts`：按队列、循环和私人 FM 算出下一首，当前这首就绪满 2 秒后交给 `hifiGapless` 预载。
 - `useHifiAutomixGate.ts`：当前或下一首走 HiFi 时关掉智能过渡。
 - `useWebEngineYield.ts`：切到 HiFi 的那一下停掉过渡、卸下两个 deck、挂起 AudioContext；切回 Web 时恢复它。
-- `useHifiMediaSessionKeepAlive.ts`：共享输出时循环放一段静音，让系统媒体控制一直在。
+- `useHifiMediaSessionKeepAlive.ts`：Windows、macOS 共享输出时循环放一段静音，让系统媒体控制一直在；Linux 上不放。
+- `useHifiMpris.ts`：Linux 上把当前曲目、播放状态、位置和封面推给主进程的 MPRIS，收它转来的按键（和 `useMediaSessionBridge` 用同一组选项）。
 - `useHifiSignalPath.ts`：播放界面读信号链路的 hook，另有 `useIsHifiRoute`。
 - `useHifiOutputProbe.ts`：什么时候问 PipeWire 探测（见下面“Linux：PipeWire 报的采样率”），挂在 `HifiSignalPathPanel` 里，面板关着也在跑。
 - `hifiSignalText.ts`：徽标和面板上的文字。
@@ -87,7 +89,7 @@ mpv ──HTTP（Range）──> electron/hifi/sourceBridge.cjs（127.0.0.1，�
 
 | 位置 | 做什么 |
 | --- | --- |
-| `src/App.tsx` | 挂 `useHifiPlaybackBridge`、`useWebEngineYield`、`useHifiMediaSessionKeepAlive`；`useHifiAutomixGate` 进 automix 的 `isEnabled`；跳转拦截先走 `seekHifiRoute`；HiFi 路线上 deck 不给 src，deck 的事件处理直接返回 |
+| `src/App.tsx` | 挂 `useHifiPlaybackBridge`、`useWebEngineYield`、`useHifiMediaSessionKeepAlive`、`useHifiMpris`（和 `useMediaSessionBridge` 共用 `mediaSessionOptions`）；`useHifiAutomixGate` 进 automix 的 `isEnabled`；跳转拦截先走 `seekHifiRoute`；HiFi 路线上 deck 不给 src，deck 的事件处理直接返回 |
 | `src/components/app/playback/start/useLibraryPlaybackController.ts` | 本地 / Navidrome 起播：读文件前先 `hifiRouteFor`，HiFi 不做 blob URL，改调 `beginHifiTrack` |
 | `src/components/app/playback/source/songAudioSource.ts` | `loadLocalSongHifiSource`；Navidrome 用 `getStreamUrl(config, id, 'raw')` |
 | `src/components/app/playback/restore/*` | 恢复和窗口交接的 HiFi 分支（`adoptRunning`、延后载入、`releaseUnclaimedHifiTrack`、交接时的位置取 `getHifiPosition()`） |
@@ -188,14 +190,14 @@ Linux 上默认输出（`pipewire`，或经 pipewire-pulse 的 `pulse`）时，m
   - `filters`：mpv 和设备之间没有虚拟节点（滤波链、虚拟设备）；有就列名字，这一级加一处 `filter` 改动。
   - `streamVolume`：mpv 那路流的总音量、每声道音量、软件音量都在 100% ± 1e-4 内，也没静音；不是就写百分比，这一级加一处 `volume` 改动。流没报音量时不出这一项。
   - `deviceVolume`：设备的软件音量（`softVolumes`，硬件音量调不到的部分由 PipeWire 在软件里乘上去）≈ 100%、没有 `softMute`；不是就写百分比，这一级加一处 `volume` 改动。硬件音量（`channelVolumes`）是声卡自己的事，不算。没报软件音量时不出这一项。
-  - `otherStreams`：同一设备上没有别的正在放的流；有就列名字，Folia 自己进程的流（系统媒体控制的静音保活、Web 引擎）标出来。
+  - `otherStreams`：同一设备上没有别的正在放的流；有就列名字，Folia 自己进程的流（Web 引擎的）标出来。
   - `channels`：设备声道数等于 mpv 交出的；不等时这一级加一处 `channels` 改动。
   - 面板里这一级只列这些检查，不再把 `resample`、`filter`、`volume` 这些改动另列一遍。
 - **停在虚拟设备上**（`device` 为 null、`filters` 不空：进了 EasyEffects 这类虚拟设备，或滤波链的输出那一半没接上）：`system` 一级照出，没有格式，说明是最后那个虚拟节点的名字；`rate` 一项记 `unknown`（不通过），面板写“声音进了虚拟设备……PipeWire 的报告到这里为止，不知道最后接到哪块声卡、以什么采样率运行”；`filters` 照列，流的音量照报；不出 `deviceVolume`、`otherStreams`、`channels`（看不见设备）。结论是经过系统混音器，大字下面说声音进了虚拟设备或音效程序。PipeWire 没报的不推：不给 allowed-rates、设备被占这几条原因。
 - **过时的探测**：探测里 mpv 那路流的采样率或声道（PipeWire 报了的那项）和 mpv 现在的 `audio-out-params` 不一样时，那是 mpv 换格式之前的探测，不用它：`system` 为 null，和没有探测一样，不把旧的设备采样率说成重采样。
 - **结论**：mpv 自己改过数据（DSD 转 PCM、重采样、转格式、改声道、软件音量）→ 途中经过转换，和以前一样；否则 `rate` 通过 → **采样率直通（经 PipeWire）**（`rate-passthrough`），别的检查只作提醒，不改结论；`rate` 不通过 → 经过系统混音器，`system` 一级记一处 `resample`（停在虚拟设备上时不记：不知道设备的采样率）。没有探测（非 Linux、没有 pw-dump、找不到流、流哪里都没连上）或探测过时，和以前完全一样，`system` 为 null。有 `system` 一级时，输出级不再挂“可能被系统混音器改动”，那件事由 `system` 一级照 PipeWire 报的实情写。
 - **为什么不叫原生直通**：PipeWire 在图里按浮点处理采样再转回设备格式，这一段是不是逐位不变，`pw-dump` 看不出来；设备节点报的格式也只是 PipeWire 打开 ALSA 设备时用的，DAC 实际收到什么它不知道。所以这个结论只说“PipeWire 没换采样率”，大字下面那句以“按 PipeWire 的报告”开头。颜色和图标：徽标上（`HifiBadge`，`signalPathTone`）采样率直通的图标是 `BadgeInfo`，不是原生直通的 `BadgeCheck`；PipeWire 那一级每项都过时和原生直通同为强调色（`--text-accent`），有一项没过（滤波器、音量、别的流、声道）就用次要色（`--text-secondary`）。面板顶上（`HifiSignalPathPanel` 的 `VERDICT_LOOK`）原生直通是绿色（`--st-ok`）的 `BadgeCheck`，采样率直通是强调色（`--st-accent`）的 `BadgeInfo`，不随检查变。面板里只要有 PipeWire 那一级，底下总有一句“以上是 PipeWire 报告的状态。Folia 只读得到 PipeWire 报的内容，确认不了 DAC 实际收到的采样率：请看 DAC 的采样率指示，或者用耳朵听”。
-- **没切采样率时面板给的原因**（`hifiSystemText.ts` 的 `systemRateHints`，按数据推，只给一条）：`clock.force-rate` 设成了别的采样率（`HifiSystemReport.forceRate`）→ “clock.force-rate 把采样率固定在……”，附可复制的取消命令 `pw-metadata -n settings 0 clock.force-rate 0`；链路停在虚拟设备上时只看这一条；`clock.allowed-rates` 里没有 mpv 的采样率 → “PipeWire 不允许切到这个采样率”，附可复制的配置；允许、但设备上还有别的流在放 → “PipeWire 只在设备空闲时切换采样率”，点名那些流，其中有 Folia 自己的流时说明多半是系统媒体控制的静音保活；都不是 → 说它没切，也许设备不支持（读不到 allowed-rates 时也附上配置）。
+- **没切采样率时面板给的原因**（`hifiSystemText.ts` 的 `systemRateHints`，按数据推，只给一条）：`clock.force-rate` 设成了别的采样率（`HifiSystemReport.forceRate`）→ “clock.force-rate 把采样率固定在……”，附可复制的取消命令 `pw-metadata -n settings 0 clock.force-rate 0`；链路停在虚拟设备上时只看这一条；`clock.allowed-rates` 里没有 mpv 的采样率 → “PipeWire 不允许切到这个采样率”，附可复制的配置；允许、但设备上还有别的流在放 → “PipeWire 只在设备空闲时切换采样率”，点名那些流，其中有 Folia 自己的流时说明是 Folia 的 Web 引擎还开着一路声音；都不是 → 说它没切，也许设备不支持（读不到 allowed-rates 时也附上配置）。
 
 #835 的配置，存成 `~/.config/pipewire/pipewire.conf.d/` 里的一个 `.conf` 文件，再重启 PipeWire（`systemctl --user restart pipewire`，或注销重登）：
 
@@ -205,7 +207,17 @@ context.properties = { default.clock.allowed-rates = [ 44100 48000 88200 96000 1
 
 mpv 的采样率不在这张表里时（DSD 转出的 352.8 kHz 这类），面板给的那一行会把它补上。
 
-**静音保活和采样率切换**：共享输出时 `useHifiMediaSessionKeepAlive.ts` 在同一设备上放一路 Chromium 的静音流（44.1 kHz 的 WAV，经 Chromium 的输出采样率送出），好让 MPRIS 一直在。PipeWire 只在设备空闲时切采样率，这路流可能让 PipeWire 一直停在原来的采样率，也可能因为谁先开始而时灵时不灵。这件事单元测试看不出来，只能在实机上看 DAC 的采样率指示确认（见测试矩阵）；如果确认它挡住了切换，要在保活这边另想办法，不在这里绕。
+**静音保活和采样率切换**：以前共享输出时 `useHifiMediaSessionKeepAlive.ts` 在同一设备上放一路 Chromium 的静音流，好让 MPRIS 一直在。#835 实测（2026-10-26，本机 PipeWire 1.6.8，放开 allowed-rates 的虚拟 sink，`paplay` 代替 Chromium 那一路）：设备上有这样一路流在放时，mpv 换到别的采样率 PipeWire 不切，第二首起一直停在第一首的采样率；第一首也要看谁先连上设备。所以 Linux 上不再放保活，系统媒体控制改由主进程登记（见下一节）。
+
+### Linux：主进程登记 MPRIS
+
+HiFi 在放时（HiFi 路线、有曲目），主进程自己在会话总线上要 `org.mpris.MediaPlayer2.folia`（被另一个 Folia 占了就加 `.instance<pid>`），离开 HiFi 路线时交还，Web 路线上照旧由 Chromium 自己登记，面板里不会同时有两个 Folia。
+
+- **状态从渲染端来**：`useHifiMpris.ts` 在曲目、播放状态、时长变了，以及 shim 的 `playing`、`pause`、`seeked` 时推一次（带着取位置的时刻）；主进程在放时按这个时刻往后外推 `Position`。属性变了只为变的那几个发 `PropertiesChanged`，不为 `Position` 发；跳转发 `Seeked`。
+- **按键回渲染端**：Play、Pause、PlayPause、Stop（当暂停）、Next、Previous 经 `hifi:mpris-command` 交给和页面 Media Session 一样的处理（`mediaSessionPlayRef` 等），被禁用（Stage 接管）时不动。Raise 把主窗口拿到前面。`CanSeek` 为假，Seek、SetPosition 按规范什么也不做：页面的 Media Session 也没登记跳转。Rate、Volume 可写但不生效，HiFi 的音量在 Folia 里调。
+- **封面**：页面先把封面读成字节（`blob:` 和本地封面的自定义协议在主进程外打不开），主进程写进 `userData/mpris-artwork/`（文件名是内容的 sha1，权限 0600，只留当前这首，离开 HiFi 时删掉），`mpris:artUrl` 给 `file://`。读不到时 http(s) 的封面交原址（Navidrome 的 `getCoverArt` 带着凭据，只进 MPRIS 属性，不进日志）。
+- **连不上总线**：记一行日志，30 秒内不再试；总线断开后下一次推送重连。Chromium 自己的 MPRIS 也走同一条会话总线，连不上时 Web 路线一样没有系统媒体控制。
+- **为什么不用库**：用得到的只有一小块（unix 套接字、EXTERNAL 认证、几种类型的编组），现成的 `dbus-next` 多年没有发布。`dbusWire.cjs` 的字节和 GLib（`Gio.DBusMessage`）编出来的对照过，`busctl --user introspect`、`gdbus monitor` 对着真的会话总线验过属性、方法和信号。
 
 ## mpv 从哪来
 
@@ -217,14 +229,14 @@ mpv 的采样率不在这张表里时（DSD 转出的 352.8 kHz 这类），面�
 
 ## 已知限制
 
-- **系统媒体控制只在共享输出时有**：mpv 发声时页面里没有在放的媒体元素，Chromium 就不登记媒体会话。`useHifiMediaSessionKeepAlive.ts` 在 HiFi 放着时循环一段音量为 0 的 6 秒静音，让 Linux 的 MPRIS、Windows 的 SMTC、macOS 的「正在播放」一直在。独占输出（Windows / macOS 开着独占，或 Linux 选了 hw: 设备）时不放：页面里多开一路流会和 mpv 抢设备，系统媒体控制和媒体键这时没有。只在 Linux 的 MPRIS 上实测过。
+- **Windows、macOS 上系统媒体控制只在共享输出时有**：mpv 发声时页面里没有在放的媒体元素，Chromium 就不登记媒体会话。`useHifiMediaSessionKeepAlive.ts` 在 HiFi 放着时循环一段音量为 0 的 6 秒静音，让 Windows 的 SMTC、macOS 的「正在播放」一直在。开着独占时不放：页面里多开一路流会和 mpv 抢设备，系统媒体控制和媒体键这时没有。Linux 上不靠保活，由主进程登记 MPRIS，任何输出设备（包括 hw: 直连）都有系统媒体控制。
 - 不能导出歌词视频，没有频谱（见上表）。
 - **设备被占**：别的程序占着输出设备（独占时尤其）时载入报 `DEVICE_BUSY`；Windows、macOS 上这首停着等按播放重试，Linux 上回落 Web 引擎。不会自己在设备放开时重试：Folia 看不到别的程序什么时候放开。Linux 上 PipeWire 正在用的声卡的 hw: 设备也算被占；放着放着输出断流也报 `DEVICE_BUSY`。
 - **设备名只认设备表里的**：设置里的设备要在这个 mpv 列出的设备表里（Linux 再加主进程补的 hw:）才交给 mpv，不在就留在 `auto` 并记日志；之后每次载入（至少隔 5 秒）再核对一次，DAC 插上了就换过去。
 - 没有 ASIO；DoP 只在 Windows，要比 0.41.0 新的 mpv。
 - 格式变化处的无缝接播会有一下输出重开（`--gapless-audio=weak`）；同格式的两首才严丝合缝。
 - 只有本地曲库和 Navidrome；在线歌曲不走 HiFi。
-- **Linux 经 PipeWire 时只能说 PipeWire 报了什么**：采样率直通（经 PipeWire）只说 PipeWire 报的设备采样率和 mpv 的一致，不是原生直通，DAC 实际收到的要看 DAC 的指示；PipeWire 只在 `default.clock.allowed-rates` 允许、设备空闲时才切采样率，Folia 自己的静音保活可能让设备不空闲。流接到 EasyEffects 这类虚拟设备时，连声音最后到了哪块声卡都看不出。
+- **Linux 经 PipeWire 时只能说 PipeWire 报了什么**：采样率直通（经 PipeWire）只说 PipeWire 报的设备采样率和 mpv 的一致，不是原生直通，DAC 实际收到的要看 DAC 的指示；PipeWire 只在 `default.clock.allowed-rates` 允许、设备空闲时才切采样率（别的程序在同一设备上出声就不切）。流接到 EasyEffects 这类虚拟设备时，连声音最后到了哪块声卡都看不出。
 - **恢复出来的那首的起播凭据**：会话恢复、窗口重建接过来的那首拿的是 `startRestore()` 的答案，它在任何一次点播（包括被顶替的点播撤回时那一下）之后就一直是 false。很窄的连点竞态下，这首随后会丢掉无缝跟进、失败回落和关掉 HiFi 时的换引擎；换一首歌就恢复。
 
 ## 测试
@@ -237,8 +249,8 @@ npx vitest run -c vitest.config.ts test/unit/hifi test/unit/electron/hifi test/u
 
 Node 25 上前面要加 `NODE_OPTIONS=--no-experimental-webstorage`，不然 localStorage 相关的测试报错一片。
 
-- `test/unit/electron/hifi*.test.ts`：主进程每个模块一份，用 `createRequire` 载入、注入假的 spawn / net / fs / 定时器，不起 Electron、不要真 mpv。`hifiMainWiring.test.ts` 从 `main.cjs` 源码里核对接线；`ipcSecurity.test.ts` 核对手动 mpv 路径只能经文件框批准。
-- `test/unit/hifi/*.test.ts`：渲染端服务和 React 一侧：路线判定、时钟、shim、载入与回落、无缝接播、信号链路判定和文字、徽标和面板、保活、Web 引擎让位、设置 store。PipeWire 那一级：`hifiPipewireProbe.test.ts` 读 `fixtures/pipewireDump.json`（一台真机的 pw-dump 删减版），EasyEffects 那种虚拟设备用按它常见属性手造的对象（没在装着 EasyEffects 的真机上取过 pw-dump）；`signalPath.test.ts` 和 `hifiSignalText.test.ts` 用 `pipewireProbeFixture.ts` 里照那份 pw-dump（mpv 交出 96 kHz，扬声器停在 48 kHz，途中有均衡器和 remap）手写的 `HifiOutputProbe` 表驱动；`useHifiOutputProbe.test.ts` 管什么时候探，`hifiEngine.test.ts` 管收哪次结果，`hifiPlayerSurfaces.test.ts` 管面板、徽标和脚注。这些测试只证明拿到这样的数据会怎么判、怎么写，**证明不了 DAC 收到了什么采样率：PipeWire 那一级必须在实机上由人确认（看 DAC 采样率指示），不能用自动化测试代替**。
+- `test/unit/electron/hifi*.test.ts`：主进程每个模块一份，用 `createRequire` 载入、注入假的 spawn / net / fs / 定时器，不起 Electron、不要真 mpv。`hifiMainWiring.test.ts` 从 `main.cjs` 源码里核对接线；`hifiMprisDbusWire.test.ts` 拿 GLib 编出的字节对照编组，`hifiMprisDbusConnection.test.ts` 对着一个本机 unix 套接字上的假总线走认证和收发；`ipcSecurity.test.ts` 核对手动 mpv 路径只能经文件框批准。
+- `test/unit/hifi/*.test.ts`：渲染端服务和 React 一侧：路线判定、时钟、shim、载入与回落、无缝接播、信号链路判定和文字、徽标和面板、保活和 MPRIS 推送（`useHifiMpris.test.ts`）、Web 引擎让位、设置 store。PipeWire 那一级：`hifiPipewireProbe.test.ts` 读 `fixtures/pipewireDump.json`（一台真机的 pw-dump 删减版），EasyEffects 那种虚拟设备用按它常见属性手造的对象（没在装着 EasyEffects 的真机上取过 pw-dump）；`signalPath.test.ts` 和 `hifiSignalText.test.ts` 用 `pipewireProbeFixture.ts` 里照那份 pw-dump（mpv 交出 96 kHz，扬声器停在 48 kHz，途中有均衡器和 remap）手写的 `HifiOutputProbe` 表驱动；`useHifiOutputProbe.test.ts` 管什么时候探，`hifiEngine.test.ts` 管收哪次结果，`hifiPlayerSurfaces.test.ts` 管面板、徽标和脚注。这些测试只证明拿到这样的数据会怎么判、怎么写，**证明不了 DAC 收到了什么采样率：PipeWire 那一级必须在实机上由人确认（看 DAC 采样率指示），不能用自动化测试代替**。
 - 播放链路里的 HiFi 分支在 `test/unit/playback/`（如 `currentSongRestoreRoutes.test.ts`、`playbackTransportController.test.ts`、`playbackInteractionHifi.test.ts`、`stageHifiSnapshot.test.ts`）；`test/unit/stores/storeContract.test.ts` 钉着 `folia_hifi_*` 键。
 
 `test/manual/hifiMpvSmoke.mjs` 用真的 mpv 跑主进程那几块（`mpvSession.cjs`、`sourceBridge.cjs`、`mpvIpcClient.cjs`），不起 Electron：渲染端换成从磁盘读字节的假实现，输出用 `--ao=null`，不出声也不占设备。它走一遍载入、时钟节流、跳转、暂停继续、stop、无缝换曲、预载项的撤和顶替、放到底、源读不出、源中途断掉和 `killSync`，每步打 PASS / FAIL，全部通过时退出码 0。两首采样率不同才看得出换曲时输出按新格式重开：
@@ -268,7 +280,7 @@ node test/manual/hifiMpvSmoke.mjs a44.flac b96.flac --mpv /usr/bin/mpv
 | Linux | PipeWire 占着声卡 | 选 PipeWire 正在放音的那块声卡的 hw: 设备 | 提示设备被占，这首回落 Web 引擎；换回默认设备（pipewire）判经过系统混音器 |
 | Linux | PipeWire 没配 allowed-rates | 默认设备（pipewire），PipeWire 用默认配置（`pw-metadata -n settings` 里 `clock.allowed-rates` 只有 48000），放 96 kHz / 24 bit，打开信号链路面板 | 判经过系统混音器；输出之后多一级 PipeWire，采样率一项写 96 kHz → 48 kHz，下面提示 PipeWire 不允许切到 96 kHz，附 #835 的配置行（可复制）；底下有“以上是 PipeWire 报告的状态…”那句；DAC 显示 48 kHz。**必须在实机上由人确认（看 DAC 采样率指示），不能用自动化测试代替** |
 | Linux | PipeWire 跟着歌切采样率 | 按 #835 把配置存进 `~/.config/pipewire/pipewire.conf.d/`，重启 PipeWire；别的程序都不出声；依次放 44.1 kHz、96 kHz、192 kHz 的歌 | 每首开始放约 1.5 秒后徽标换成「采样率直通」（图标和原生直通不同），面板里设备采样率跟着变；**DAC 的采样率指示依次显示 44.1 / 96 / 192 kHz，这一条才说明功能成立**。**必须在实机上由人确认（看 DAC 采样率指示），不能用自动化测试代替** |
-| Linux | 系统媒体控制的保活挡不挡切换 | 同上配好 allowed-rates，HiFi 走默认设备（共享输出，静音保活在放）；先放 48 kHz 的歌，再换 96 kHz 的歌（点播一次、无缝换曲一次）；再停掉、直接从 96 kHz 的歌起播 | 记下每种情况下 DAC 显示的采样率和面板写的；面板的“同设备上别的流”里有 Folia 自己的流时，没切的原因写的是设备不空闲、点名 Folia 的静音流。DAC 没跟着切就说明保活挡住了切换，要回报。**必须在实机上由人确认（看 DAC 采样率指示），不能用自动化测试代替** |
+| Linux | 系统媒体控制不挡切换 | 同上配好 allowed-rates，HiFi 走默认设备；先放 48 kHz 的歌，再换 96 kHz 的歌（点播一次、无缝换曲一次）；再停掉、直接从 96 kHz 的歌起播 | 每种情况下 DAC 都跟着切；面板的“同设备上别的流”里没有 Folia 自己的流。同时看系统媒体面板（GNOME / KDE 的媒体控件，或 `playerctl -p folia metadata`）：曲名、歌手、封面对，播放 / 暂停、上一首、下一首能用，离开 HiFi（放一首在线歌）后 `org.mpris.MediaPlayer2.folia` 消失、换成 Chromium 的。**必须在实机上由人确认（看 DAC 采样率指示），不能用自动化测试代替** |
 | Linux | 别的程序占着设备 | 配好 allowed-rates，浏览器里放着声音，再在 Folia 里放 96 kHz 的歌 | 判经过系统混音器；原因写 PipeWire 只在设备空闲时切换，点名浏览器的流；DAC 停在原来的采样率；关掉浏览器的声音、换一首歌后再看 DAC。**必须在实机上由人确认（看 DAC 采样率指示），不能用自动化测试代替** |
 | Linux | 途中有 filter-chain 均衡器 | PipeWire 的 filter-chain 均衡器（带 `node.link-group` 的虚拟 sink）设为默认输出，采样率对得上（48 kHz 的歌，或配好 allowed-rates） | 面板 PipeWire 那一级照设备报的写采样率，滤波器一项列出滤波节点名（如 Equalizer Sink）、说它改了声音，结论仍是采样率直通；徽标图标是 `BadgeInfo`、颜色是次要色（不是强调色）；设备软件音量不到 100% 时也有一条提醒。DAC 显示的采样率要和面板一致。**必须在实机上由人确认（看 DAC 采样率指示），不能用自动化测试代替** |
 | Linux | 开着 EasyEffects | EasyEffects 在跑，Folia 的流接到 `easyeffects_sink`（EasyEffects 的默认做法） | 面板 PipeWire 那一级不写设备的格式，采样率一项说声音进了虚拟设备 Easy Effects Sink、不知道最后接到哪块声卡和采样率，滤波器一项列出它；结论是经过系统混音器，大字下面说声音进了虚拟设备或音效程序；徽标是次要色；不给 allowed-rates、设备被占那几条原因。面板说不出 DAC 实际的采样率，只能看 DAC 自己的指示；面板写的和上面不一样（比如列出了一块声卡），回报那份 `pw-dump`。**必须在实机上由人确认（看 DAC 采样率指示），不能用自动化测试代替** |

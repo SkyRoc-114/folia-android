@@ -372,3 +372,27 @@ export type HifiSystemReport = {
     /** pw-metadata 里的 clock.force-rate：强制的采样率；没强制（0 或没设）时为 null。 */
     forceRate: number | null;
 };
+
+/** Linux：推给主进程 MPRIS 的 HiFi 播放状态（electron/hifi/mpris/mprisIpc.cjs 校验）。active 为假时主进程交还总线名。 */
+export type HifiMprisState =
+    | { active: false }
+    | {
+        active: true;
+        trackKey: string;
+        title: string;
+        artists: string[];
+        album: string;
+        durationSec: number | null;
+        status: 'Playing' | 'Paused' | 'Stopped';
+        /** atMs（Date.now()）那一刻的位置；在放时主进程从这里往后外推。 */
+        positionSec: number;
+        atMs: number;
+        /** 这次推送是因为跳转：主进程补发 Seeked。 */
+        seeked: boolean;
+    };
+
+/** MPRIS 的封面：页面读到的图片字节，读不到时退回 http(s) 原址。 */
+export type HifiMprisArtwork = { bytes: Uint8Array; mimeType: string } | { url: string };
+
+/** 系统媒体面板经 MPRIS 发来的按键。 */
+export type HifiMprisCommand = 'play' | 'pause' | 'playpause' | 'stop' | 'next' | 'previous';

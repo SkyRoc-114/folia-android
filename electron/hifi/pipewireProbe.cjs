@@ -314,7 +314,7 @@ const buildOutputProbe = (dump, { streamName = AUDIO_CLIENT_NAME, ownPids = [], 
     };
 };
 
-/** Folia 自己的进程号：主进程加上 app.getAppMetrics() 列出的（渲染、GPU、放静音保活的音频服务进程）。 */
+/** Folia 自己的进程号：主进程加上 app.getAppMetrics() 列出的（渲染、GPU、Web 引擎出声的音频服务进程）。 */
 const collectOwnPids = (mainPid, appMetrics) => {
     const pids = new Set();
     const add = value => {

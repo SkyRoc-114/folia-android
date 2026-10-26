@@ -1105,6 +1105,10 @@ declare global {
         /** Linux：用 pw-dump 读 mpv 那路流在 PipeWire 里的去向；不是 PipeWire、没有 pw-dump、找不到流时为 null。 */
         probeOutput: () => Promise<import('./types/hifi').HifiOutputProbe | null>;
         respondRead: (readId: string, response: import('./types/hifi').HifiReadResponse) => Promise<void>;
+        /** Linux：HiFi 在放时主进程登记的 MPRIS 的状态；active 为假时交还总线名。别的平台没有处理方。 */
+        setMprisState?: (state: import('./types/hifi').HifiMprisState) => Promise<void>;
+        setMprisArtwork?: (trackKey: string, artwork: import('./types/hifi').HifiMprisArtwork | null) => Promise<void>;
+        onMprisCommand?: (callback: (command: import('./types/hifi').HifiMprisCommand) => void) => () => void;
         onState: (callback: (state: import('./types/hifi').HifiEngineState) => void) => () => void;
         onClock: (callback: (update: import('./types/hifi').HifiClockUpdate) => void) => () => void;
         onError: (callback: (event: import('./types/hifi').HifiErrorEvent) => void) => () => void;

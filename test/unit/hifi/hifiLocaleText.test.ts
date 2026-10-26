@@ -32,7 +32,6 @@ const KEYS = [
     'hifi.settings.exclusiveLinuxNote',
     'hifi.settings.limitMediaControls',
     'hifi.settings.limitMediaControlsDesc',
-    'hifi.settings.limitMediaControlsLinuxDesc',
     'hifi.settings.limitPipewireRateFoot',
     'hifi.signal.verdictShort.ratePassthrough',
     'hifi.signal.verdict.ratePassthrough',
@@ -103,8 +102,8 @@ describe('HiFi locale texts', () => {
         expect(read(en, 'hifi.settings.exclusiveLinuxDesc')).toBeUndefined();
     });
 
-    it('ties the loss of system media controls to exclusive mode on Windows and macOS, and to a direct device on Linux', () => {
-        // useHifiMediaSessionKeepAlive.isExclusiveHifiOutput: the exclusive switch off Linux, an ALSA hw: device on it.
+    it('ties the loss of system media controls to exclusive mode on Windows and macOS', () => {
+        // useHifiMediaSessionKeepAlive.isExclusiveHifiOutput off Linux; on Linux main registers MPRIS (useHifiMpris), so no limit.
         const title = textsOf('hifi.settings.limitMediaControls');
         expect(title.en).not.toMatch(/exclusive/i);
         expect(title['zh-CN']).not.toMatch(/独占/);
@@ -117,15 +116,6 @@ describe('HiFi locale texts', () => {
         expect(exclusive['zh-CN']).not.toMatch(/Linux|MPRIS/);
         expect(exclusive.in).toMatch(/mode eksklusif/);
         expect(exclusive.in).not.toMatch(/linux|mpris/i);
-
-        const linux = textsOf('hifi.settings.limitMediaControlsLinuxDesc');
-        for (const text of Object.values(linux)) {
-            expect(text).toMatch(/ALSA hw:/);
-            expect(text).toMatch(/MPRIS/);
-        }
-        expect(linux.en).not.toMatch(/exclusive/i);
-        expect(linux['zh-CN']).not.toMatch(/独占/);
-        expect(linux.in).not.toMatch(/eksklusif/i);
     });
 
     it('names the direct mark as the device list shows it, at the front of a device name', () => {
@@ -195,7 +185,11 @@ describe('HiFi PipeWire texts', () => {
         const busy = textsOf('hifi.signal.system.hintBusy');
         expect(busy.en).toMatch(/^PipeWire only switches rates while the device is idle; other streams are playing on it/);
         for (const text of Object.values(busy)) expect(text).toContain('{{names}}');
-        for (const text of Object.values(textsOf('hifi.signal.system.hintBusyOwn'))) expect(text).toMatch(/MPRIS/);
+        // Linux has no media-controls keep-alive any more (main registers MPRIS): Folia's own stream is its web engine.
+        for (const text of Object.values(textsOf('hifi.signal.system.hintBusyOwn'))) {
+            expect(text).toMatch(/web/i);
+            expect(text).not.toMatch(/MPRIS/);
+        }
         // Two sentences in a row: a space between them, none in Chinese.
         const join = textsOf('hifi.signal.system.hintJoin');
         expect(join).toEqual({ en: '{{first}} {{second}}', 'zh-CN': '{{first}}{{second}}', in: '{{first}} {{second}}' });

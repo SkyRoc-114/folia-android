@@ -405,6 +405,14 @@ contextBridge.exposeInMainWorld('electron', {
         getSnapshot: () => ipcRenderer.invoke('hifi:get-snapshot'),
         probeOutput: () => ipcRenderer.invoke('hifi:probe-output'),
         respondRead: (readId, response) => ipcRenderer.invoke('hifi:read-result', readId, response),
+        // Linux：HiFi 在放时主进程登记的 MPRIS（electron/hifi/mpris/）。
+        setMprisState: (state) => ipcRenderer.invoke('hifi:mpris-state', state),
+        setMprisArtwork: (trackKey, artwork) => ipcRenderer.invoke('hifi:mpris-artwork', trackKey, artwork),
+        onMprisCommand: (callback) => {
+            const listener = (_event, command) => callback(command);
+            ipcRenderer.on('hifi:mpris-command', listener);
+            return () => ipcRenderer.removeListener('hifi:mpris-command', listener);
+        },
         onState: (callback) => {
             const listener = (_event, state) => callback(state);
             ipcRenderer.on('hifi:state', listener);

@@ -4164,7 +4164,6 @@ export default {
       "limitVideoExportDesc": "Ekspor video lirik memerlukan mesin audio biasa, jadi tidak tersedia selama lagu diputar lewat HiFi.",
       "limitMediaControls": "Kontrol media sistem hanya pada output bersama",
       "limitMediaControlsDesc": "Selama lagu diputar lewat HiFi dalam mode eksklusif, kontrol media sistem (SMTC di Windows, Now Playing di macOS) tidak menampilkan atau mengendalikan Folia. Saat mode eksklusif mati, kontrol itu tetap berfungsi.",
-      "limitMediaControlsLinuxDesc": "Selama lagu diputar lewat HiFi di perangkat bertanda Langsung (ALSA hw:), kontrol media sistem (MPRIS) tidak menampilkan atau mengendalikan Folia. Di perangkat lain, kontrol itu tetap berfungsi.",
       "limitPipewireRateFoot": "Dengan PipeWire, laju sampel perangkat mengikuti setiap lagu hanya jika default.clock.allowed-rates mencantumkan laju itu dan tidak ada suara lain yang diputar di perangkat. Jalur sinyal menampilkan yang dilaporkan PipeWire; periksa indikator laju sampel DAC Anda untuk memastikannya."
     },
     "player": {
@@ -4300,7 +4299,7 @@ export default {
         "hintForced": "clock.force-rate di PipeWire menahan laju sampel di {{forced}}, jadi perangkat tidak beralih ke {{rate}}. Untuk membatalkannya, jalankan perintah ini di terminal:",
         "hintNotAllowed": "PipeWire tidak diizinkan beralih ke {{rate}}: tambahkan ke default.clock.allowed-rates. Simpan baris di bawah sebagai berkas .conf di ~/.config/pipewire/pipewire.conf.d/, lalu mulai ulang PipeWire.",
         "hintBusy": "PipeWire hanya mengganti laju sampel saat perangkat menganggur; aliran lain sedang diputar di perangkat itu: {{names}}.",
-        "hintBusyOwn": "Salah satunya berasal dari Folia sendiri, kemungkinan besar putaran senyap yang menjaga kontrol media sistem (MPRIS) tetap berfungsi.",
+        "hintBusyOwn": "Salah satunya berasal dari Folia sendiri: mesin web Folia masih membuka suara.",
         "hintJoin": "{{first}} {{second}}",
         "hintNoSwitch": "PipeWire tidak mengalihkan perangkat ke {{rate}}. PipeWire hanya beralih ke laju yang tercantum di default.clock.allowed-rates dan didukung perangkat, dan hanya saat tidak ada suara lain di perangkat.",
         "snippetLabel": "Konfigurasi PipeWire",

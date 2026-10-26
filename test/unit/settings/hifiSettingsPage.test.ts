@@ -270,14 +270,12 @@ describe('HiFi settings page', () => {
         const row = rowOf('hifiLimitMediaControls');
         expect(row.textContent).toContain('hifi.settings.limitMediaControls');
         expect(row.textContent).toContain('hifi.settings.limitMediaControlsDesc');
-        expect(row.textContent).not.toContain('hifi.settings.limitMediaControlsLinuxDesc');
     });
 
-    it('ties the media-controls limit to a direct device on Linux, where there is no exclusive mode', async () => {
+    it('lists no media-controls limit on Linux, where main registers MPRIS for every output device', async () => {
         await renderPage('linux', runtimeStatus({ platform: 'linux' }));
-        const row = rowOf('hifiLimitMediaControls');
-        expect(row.textContent).toContain('hifi.settings.limitMediaControlsLinuxDesc');
-        expect(row.textContent).not.toContain('hifi.settings.limitMediaControlsDesc');
+        expect(rowOf('hifiLimitMediaControls')).toBeNull();
+        expect(host.textContent).not.toContain('hifi.settings.limitMediaControls');
     });
 
     it('says under the known limits on Linux how PipeWire lets the device rate follow each song, and nowhere else', async () => {

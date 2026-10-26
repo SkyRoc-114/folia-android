@@ -4164,7 +4164,6 @@ export default {
       "limitVideoExportDesc": "Lyric video export needs the normal audio engine, so it is unavailable while a song plays through HiFi.",
       "limitMediaControls": "System media controls only on a shared output",
       "limitMediaControlsDesc": "While a song plays through HiFi in exclusive mode, the system media controls (SMTC on Windows, Now Playing on macOS) do not show or control Folia. With exclusive mode off they keep working.",
-      "limitMediaControlsLinuxDesc": "While a song plays through HiFi on a device marked Direct (ALSA hw:), the system media controls (MPRIS) do not show or control Folia. On any other device they keep working.",
       "limitPipewireRateFoot": "With PipeWire, the device's sample rate follows each song only when default.clock.allowed-rates lists the rate and nothing else is playing on the device. The signal path shows what PipeWire reports; check your DAC's sample-rate indicator to confirm."
     },
     "player": {
@@ -4300,7 +4299,7 @@ export default {
         "hintForced": "PipeWire's clock.force-rate holds the sample rate at {{forced}}, so the device does not switch to {{rate}}. To undo it, run this command in a terminal:",
         "hintNotAllowed": "PipeWire is not allowed to switch to {{rate}}: add it to default.clock.allowed-rates. Save the line below as a .conf file in ~/.config/pipewire/pipewire.conf.d/, then restart PipeWire.",
         "hintBusy": "PipeWire only switches rates while the device is idle; other streams are playing on it: {{names}}.",
-        "hintBusyOwn": "A stream from Folia itself is among them, most likely the silent loop that keeps the system media controls (MPRIS) working.",
+        "hintBusyOwn": "A stream from Folia itself is among them: Folia's web engine still has a sound open.",
         "hintJoin": "{{first}} {{second}}",
         "hintNoSwitch": "PipeWire did not switch the device to {{rate}}. It switches only to a rate that default.clock.allowed-rates lists and the device supports, and only while nothing else plays on the device.",
         "snippetLabel": "PipeWire configuration",

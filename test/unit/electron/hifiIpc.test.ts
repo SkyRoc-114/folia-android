@@ -36,6 +36,12 @@ const {
     isAllowedRuntimePath: (value: unknown, platform: string) => boolean;
 };
 
+// Linux 的 MPRIS 另在 electron/hifi/mpris/mprisIpc.cjs 登记，preload 也挂在 window.electron.hifi 下。
+const { STATE_CHANNEL: MPRIS_STATE_CHANNEL, ARTWORK_CHANNEL: MPRIS_ARTWORK_CHANNEL } = require('../../../electron/hifi/mpris/mprisIpc.cjs') as {
+    STATE_CHANNEL: string;
+    ARTWORK_CHANNEL: string;
+};
+
 class FakeContents extends EventEmitter {
     sent: Array<[string, unknown]> = [];
     destroyed = false;
@@ -702,6 +708,6 @@ describe('hifi ipc: the preload bridge', () => {
         const { hifi, ipcRenderer } = loadPreloadHifi();
         for (const method of Object.values(hifi)) await method(() => {}, () => {});
         const invoked = new Set((ipcRenderer.invoke.mock.calls as unknown as unknown[][]).map(call => call[0]));
-        expect([...invoked].sort()).toEqual([...INVOKE_CHANNELS, READ_RESULT_CHANNEL].sort());
+        expect([...invoked].sort()).toEqual([...INVOKE_CHANNELS, READ_RESULT_CHANNEL, MPRIS_STATE_CHANNEL, MPRIS_ARTWORK_CHANNEL].sort());
     });
 });

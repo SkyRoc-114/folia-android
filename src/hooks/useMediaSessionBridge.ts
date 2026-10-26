@@ -13,7 +13,7 @@ import { useHifiTrackStore } from '../services/hifi/hifiPlayback';
 import { getObservedMedia, hifiMediaShim } from '../services/hifi/hifiMediaShim';
 
 // Bridges Folia playback state to the browser Media Session API.
-type UseMediaSessionBridgeOptions = {
+export type UseMediaSessionBridgeOptions = {
     audioRef: RefObject<HTMLAudioElement | null>;
     /**
      * The deck the displayed track is playing on, or null when the picture is live.
