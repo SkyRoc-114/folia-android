@@ -1,6 +1,5 @@
 import i18n from 'i18next';
 import { initReactI18next } from 'react-i18next';
-import LanguageDetector from 'i18next-browser-languagedetector';
 import en from './locales/en.ts';
 import zhCN from './locales/zh-CN.ts';
 import zhTW from 'virtual:folia-locale-zh-TW';
@@ -93,6 +92,20 @@ export const readStoredAppLanguagePreference = (): AppLanguagePreference => {
 
 const initialLanguagePreference = readStoredAppLanguagePreference();
 
+/*
+ * The language detector used to cache whatever it resolved under `i18nextLng`, and that
+ * cache outranked the system language on every later start, so "follow system" stuck on
+ * the first language it ever saw. The preference has lived in folia_app_language since
+ * 0af872ca and nothing reads the old key any more; drop the leftover.
+ */
+if (typeof window !== 'undefined') {
+  try {
+    localStorage.removeItem('i18nextLng');
+  } catch {
+    // Storage can be unavailable (privacy mode); the stale key is harmless when ignored.
+  }
+}
+
 const syncDocumentLanguage = (value: string | null | undefined) => {
   if (typeof document === 'undefined') {
     return;
@@ -101,17 +114,17 @@ const syncDocumentLanguage = (value: string | null | undefined) => {
   document.documentElement.lang = normalizeSupportedLanguage(value);
 };
 
-const detectSystemLanguage = (): Exclude<AppLanguagePreference, 'system'> => {
-  const detected = i18n.services.languageDetector?.detect();
-  if (Array.isArray(detected)) {
-    return normalizeSupportedLanguage(detected[0]);
-  }
-
-  return normalizeSupportedLanguage(detected ?? (typeof navigator !== 'undefined' ? navigator.language : 'en'));
-};
+/*
+ * Startup and the Settings "follow system" switch both go through this, so a system
+ * language maps to the same bundle either way (zh-HK -> zh-TW, id-ID -> in). Letting
+ * i18next pick at startup used its own best match instead, which sent zh-HK to zh-CN
+ * and id to en.
+ */
+const detectSystemLanguage = (): Exclude<AppLanguagePreference, 'system'> => (
+  normalizeSupportedLanguage(typeof navigator !== 'undefined' ? (navigator.languages?.[0] ?? navigator.language) : 'en')
+);
 
 i18n
-  .use(LanguageDetector)
   .use(initReactI18next)
   .init({
     resources: {
@@ -136,12 +149,7 @@ i18n
       resolveMissingTranslation(ZH_FALLBACKS, key, defaultValue)
     ),
     supportedLngs: ['en', 'zh-CN', 'zh-TW', 'in', 'vi'],
-    ...(initialLanguagePreference !== 'system' ? { lng: initialLanguagePreference } : {}),
-    detection: {
-      order: ['localStorage', 'navigator', 'htmlTag'],
-      caches: ['localStorage'],
-      lookupLocalStorage: 'i18nextLng'
-    },
+    lng: initialLanguagePreference === 'system' ? detectSystemLanguage() : initialLanguagePreference,
     interpolation: {
       escapeValue: false
     }
@@ -173,12 +181,7 @@ export const applyAppLanguagePreference = async (
   preference: AppLanguagePreference
 ): Promise<Exclude<AppLanguagePreference, 'system'>> => {
   if (typeof window !== 'undefined') {
-    if (preference === 'system') {
-      localStorage.setItem(APP_LANGUAGE_STORAGE_KEY, preference);
-      localStorage.removeItem('i18nextLng');
-    } else {
-      localStorage.setItem(APP_LANGUAGE_STORAGE_KEY, preference);
-    }
+    localStorage.setItem(APP_LANGUAGE_STORAGE_KEY, preference);
   }
 
   const nextLanguage = preference === 'system' ? detectSystemLanguage() : preference;
