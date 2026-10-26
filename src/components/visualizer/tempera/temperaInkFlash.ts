@@ -212,7 +212,7 @@ const resolveFlashIndices = (hits: DrumHits): Int32Array => {
 };
 
 /** The last flashing hit at or before `time`, as a position in `indices`; -1 for none. */
-const findLastFlash = (hits: DrumHits, indices: Int32Array, time: number) => {
+export const findLastFlash = (hits: DrumHits, indices: Int32Array, time: number) => {
     let low = 0;
     let high = indices.length;
     while (low < high) {
@@ -224,7 +224,7 @@ const findLastFlash = (hits: DrumHits, indices: Int32Array, time: number) => {
 };
 
 /** Strength of a flash `age` seconds after its hit: a 15 ms rise, a hold, then a fall. */
-const flashEnvelope = (age: number) => {
+export const flashEnvelope = (age: number) => {
     if (age < 0) return 0;
     if (age < FLASH_ATTACK) return age / FLASH_ATTACK;
     if (age < FLASH_ATTACK + FLASH_HOLD) return 1;
