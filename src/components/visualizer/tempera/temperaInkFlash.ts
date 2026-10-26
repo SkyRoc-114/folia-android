@@ -391,7 +391,11 @@ export class TemperaInkFlash {
         const sin = Math.sin(rotation);
         const spanX = TEX_W * scaleX;
         const spanY = TEX_H * scaleY;
-        this.rows.set([cos / spanX, sin / spanX, -sin / spanY, cos / spanY], layer * 4);
+        const row = layer * 4;
+        this.rows[row] = cos / spanX;
+        this.rows[row + 1] = sin / spanX;
+        this.rows[row + 2] = -sin / spanY;
+        this.rows[row + 3] = cos / spanY;
         this.offsets[layer * 2] = offsetX / spanX;
         this.offsets[layer * 2 + 1] = offsetY / spanY;
         // Only rebinds when the texture actually changes.
