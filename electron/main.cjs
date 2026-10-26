@@ -26,6 +26,7 @@ const {
   REMOTE_CONTROL_HIDE_TITLEBAR_SETTING_KEY,
   REMOTE_CONTROL_CLICK_THROUGH_SETTING_KEY,
   REMOTE_CONTROL_EXPAND_COVER_SETTING_KEY,
+  REMOTE_CONTROL_WINDOW_POSITION_SETTING_KEY,
   readRemoteControlWindowSettings,
   shouldShowRemoteUnlockTrayItem,
   applyRemoteControlMouseIgnore,
@@ -2590,7 +2591,6 @@ const CLOSE_TO_TRAY_SETTING_KEY = 'CLOSE_TO_TRAY';
 const HIDE_TASKBAR_ICON_SETTING_KEY = 'HIDE_TASKBAR_ICON';
 const REMOTE_CONTROL_ALWAYS_ON_TOP_SETTING_KEY = 'REMOTE_CONTROL_ALWAYS_ON_TOP';
 const REMOTE_CONTROL_SKIP_TASKBAR_SETTING_KEY = 'REMOTE_CONTROL_SKIP_TASKBAR';
-const REMOTE_CONTROL_WINDOW_BOUNDS_SETTING_KEY = 'REMOTE_CONTROL_WINDOW_BOUNDS';
 const MAIN_WINDOW_ALWAYS_ON_TOP_SETTING_KEY = 'MAIN_WINDOW_ALWAYS_ON_TOP';
 const TRANSPARENT_PLAYER_BACKGROUND_SETTING_KEY = 'TRANSPARENT_PLAYER_BACKGROUND';
 const VOICE_INPUT_PAUSE_ENABLED_SETTING_KEY = 'VOICE_INPUT_PAUSE_ENABLED';
@@ -5408,7 +5408,7 @@ function ensureWallpaperLayerHeldByMainWindow() {
 // drawn (the whole window, or only the card in use with the cover collapsed) has to fit inside one
 // display's work area, so it never opens off-screen or under the taskbar.
 function getRestoredRemoteControlWindowPosition() {
-  const saved = store.get(REMOTE_CONTROL_WINDOW_BOUNDS_SETTING_KEY);
+  const saved = store.get(REMOTE_CONTROL_WINDOW_POSITION_SETTING_KEY);
   return resolveRemoteControlWindowPosition(
     saved,
     screen.getAllDisplays().map(display => display.workArea),
@@ -5496,7 +5496,7 @@ function createRemoteControlWindow() {
     clearRemoteControlPositionSaveTimer();
     if (!win.isDestroyed()) {
       const { x, y } = win.getBounds();
-      store.set(REMOTE_CONTROL_WINDOW_BOUNDS_SETTING_KEY, { x, y });
+      store.set(REMOTE_CONTROL_WINDOW_POSITION_SETTING_KEY, { x, y });
     }
   };
   win.on('moved', () => {
