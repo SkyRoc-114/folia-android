@@ -20,6 +20,11 @@ const FRONT_PARALLAX = 1.6;
 /** Blur radius (px at a 1280 px wide viewport) of the background and the foreground. */
 export const TEMPERA_BACK_BLUR = 1.6;
 export const TEMPERA_FRONT_BLUR = 6;
+/**
+ * The baked pictures' share of the render resolution. Every shot keeps its own baked textures, and a
+ * blurred picture holds no detail a full-resolution texture would show, so half is a quarter the VRAM.
+ */
+const BAKE_RESOLUTION_SHARE = 0.5;
 
 export interface TemperaDepthView {
     back: Container[];
@@ -94,9 +99,11 @@ export const createTemperaBlurBaker = (
 ): TemperaBlurBaker => {
     if (options.staticMode || !renderer) return null;
     const scale = options.width / 1280;
+    // Blur strength is in logical px (Pixi scales it by the input size), so the radius holds.
+    const resolution = options.resolution * BAKE_RESOLUTION_SHARE;
     return {
         bake: (node, strength) => {
-            const baked = renderBlurred(pixi, renderer, node, strength * scale, options.resolution);
+            const baked = renderBlurred(pixi, renderer, node, strength * scale, resolution);
             options.textures.add(baked.texture);
             return baked;
         },
