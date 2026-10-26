@@ -281,9 +281,12 @@ const PlayerPage: React.FC = () => {
             </Group>
 
             <Group def={CARD}>
-                <Row option={O.cardPosition}>
-                    <Button onClick={requestCardPosition} disabled={!canPositionCard}>{t('options.stageTrackPillReposition')}</Button>
-                </Row>
+                <Row
+                    option={O.cardPosition}
+                    hint={canPositionCard ? undefined : t('options.stageTrackPillRepositionUnavailable')}
+                    onClick={requestCardPosition}
+                    disabled={!canPositionCard}
+                />
                 <Row option={O.cardMode} note={t('options.stageTrackPillDesc')}>
                     <Segmented
                         value={card.mode}

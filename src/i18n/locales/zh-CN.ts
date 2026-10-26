@@ -1911,6 +1911,7 @@ export default {
     "daylightModeDark": "深色",
     "daylightModeSystem": "跟随系统",
     "stageTrackPillReposition": "调整卡片位置",
+    "stageTrackPillRepositionUnavailable": "先播放一首歌 —— 卡片要在屏幕上才能拖动",
     "stageTrackPillPosition": "歌曲卡片位置",
     "stageTrackPillResetPosition": "恢复默认位置",
     "stageTrackPillPositioningHint": "拖动卡片调整位置，方向键可微调。",

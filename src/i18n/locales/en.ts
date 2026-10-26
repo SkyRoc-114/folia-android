@@ -1911,6 +1911,7 @@ export default {
     "daylightModeDark": "Dark",
     "daylightModeSystem": "System",
     "stageTrackPillReposition": "Reposition song card",
+    "stageTrackPillRepositionUnavailable": "Play something first — the song card has to be on screen to move it",
     "stageTrackPillPosition": "Song card position",
     "stageTrackPillResetPosition": "Reset position",
     "stageTrackPillPositioningHint": "Drag the card to move it. Arrow keys fine-tune.",
