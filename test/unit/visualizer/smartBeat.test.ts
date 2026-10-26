@@ -235,7 +235,7 @@ describe('when the beat clock runs', () => {
         expect(visualizerWantsBeats(settings({ visualizerMode: 'pendolo' }))).toBe(false);
         expect(visualizerWantsBeats(settings({ visualizerMode: 'sonnet' }))).toBe(true);
         expect(visualizerWantsDrumHits(settings({ visualizerMode: 'sonnet' }))).toBe(false);
-        // 凝彩: 墨渍晕开 reads drums only.
+        // 凝彩: 墨染奥行 reads drums only.
         expect(visualizerWantsDrumHits(settings({ visualizerMode: 'tempera' }))).toBe(true);
         expect(visualizerWantsBeats(settings({ visualizerMode: 'tempera' }))).toBe(false);
     });

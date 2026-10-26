@@ -38,8 +38,9 @@ export default defineVisualizer({
         keywords: ['tempera', '凝彩', 'dancai', 'dc', '色块 pv', 'block pv'],
     },
     usesWordSegmentation: true,
-    // 智能动感模式: the paper rests under a faint grey stain and an ink blot in its palette's accent spreads over it on
-    // each kick and snare of the track's drum hits (htdemucs_gpu; temperaInkFlash.ts).
+    // 智能动感模式「墨染奥行」: the paper rests under a faint grey stain and an ink blot in its palette's accent spreads
+    // over it on each kick and snare of the track's drum hits (htdemucs_gpu; temperaInkFlash.ts). The same switch
+    // brings in the depth: blurred layers with parallax, a per-shot camera pan and size-as-depth glyphs (temperaDepth.ts).
     beatEffects: [{
         id: BEAT_EFFECT_IDS.temperaInkFlash,
         nameKey: 'options.beatEffect_temperaInkFlash',

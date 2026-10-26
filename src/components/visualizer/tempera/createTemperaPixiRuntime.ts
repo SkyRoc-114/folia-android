@@ -45,6 +45,9 @@ import {
 // 段落场景缓存、换歌交接和每帧调度。
 type PixiModule = typeof import('pixi.js');
 
+/** How long 墨染奥行's camera and glyph depth take to ease in or out when the effect is switched. */
+const DEPTH_EASE_SECONDS = 0.6;
+
 export interface TemperaSongMetadata {
     title?: string | null;
     artist?: string | null;
@@ -129,9 +132,17 @@ export class TemperaPixiRuntime {
     private creditsLayer!: TemperaCreditsLayer;
     private imageTextures!: TemperaImageTextures;
     private overlay!: TemperaOverlay;
-    /** 智能动感模式「墨渍晕开」: the stain and the ink flash, between the scenes and the overlay. */
+    /** 智能动感模式「墨染奥行」's ink: the stain and the ink flash, between the scenes and the overlay. */
     private inkFlash!: TemperaInkFlash;
     private inkFlashSupported: boolean | undefined;
+    /**
+     * 墨染奥行 also owns the depth: the baked depth blur, the parallax, the per-shot camera pan and the
+     * size-as-depth glyphs. Off, Tempera looks as it did before the effect.
+     */
+    private depthOn = false;
+    /** Eases toward `depthOn` (0..1) so switching the effect never jumps the camera or the glyphs. */
+    private depthMix = 0;
+    private depthMixAt: number | null = null;
     /**
      * An in-flight song handover, spread over exactly two frames. A track change is a plain cut
      * here - no wipe, no dissolve - but a cut must not also be a stall, so the incoming scene is
@@ -183,6 +194,8 @@ export class TemperaPixiRuntime {
         });
         const runtime = new TemperaPixiRuntime(pixi, options, app);
         runtime.renderResolution = resolution;
+        runtime.depthOn = getBeatEffectStrength(BEAT_EFFECT_IDS.temperaInkFlash) > 0;
+        runtime.depthMix = runtime.depthOn ? 1 : 0;
         runtime.sceneContainer = new pixi.Container();
         // Paragraph scenes overlap during a boundary, so they must stack by paragraph order.
         runtime.sceneContainer.sortableChildren = true;
@@ -381,7 +394,8 @@ export class TemperaPixiRuntime {
             staticMode: this.options.staticMode,
             coverColors: song.coverColors,
             imageTextures: this.imageTextures.textures,
-            renderer: this.app.renderer,
+            // The depth blur is baked when the scene is built, and only while 墨染奥行 is on.
+            renderer: this.depthOn ? this.app.renderer : null,
         }, song.program.paragraphs[index]);
     }
 
@@ -401,6 +415,7 @@ export class TemperaPixiRuntime {
         // Advanced before the paragraph lookup so a cut lands on this frame's scene selection
         // instead of leaving one frame of the outgoing program on the incoming one.
         this.songSwap.advance();
+        this.updateDepthSwitch();
         if (this.options.program.paragraphs.length === 0) return;
         const paragraphIndex = findTemperaParagraphIndexAtTime(this.options.program, time);
         if (paragraphIndex !== this.activeParagraphIndex) {
@@ -491,7 +506,7 @@ export class TemperaPixiRuntime {
                     && resolveTemperaShotExit(shot, time) < 1;
                 setPixiDisplayTreeVisibility(shot.container, isShotActive || isHandingOff);
                 if (!shot.container.visible) return;
-                updateTemperaShot(shot, time, width, height, this.options.tuning, this.options.theme);
+                updateTemperaShot(shot, time, width, height, this.options.tuning, this.options.theme, this.depthMix);
             });
             scene.activeShotIndex = activeShotIndex;
 
@@ -526,7 +541,25 @@ export class TemperaPixiRuntime {
     };
 
     /**
-     * 墨渍晕开 reads the drum hits off the beat clock's heard track, as 时计 does: nothing until the
+     * Follows the 墨染奥行 switch. The scenes on hand were built with or without the depth blur, so a
+     * change rebuilds them (once, on the frame it lands; not mid song handover); the camera and glyph
+     * depth ease in and out over DEPTH_EASE_SECONDS instead of jumping.
+     */
+    private updateDepthSwitch() {
+        const on = getBeatEffectStrength(BEAT_EFFECT_IDS.temperaInkFlash) > 0;
+        if (on !== this.depthOn && !this.songSwap.active) {
+            this.depthOn = on;
+            this.clearScenes();
+        }
+        const now = performance.now();
+        const dt = this.depthMixAt === null ? 0 : Math.min(0.1, (now - this.depthMixAt) / 1000);
+        this.depthMixAt = now;
+        const step = dt / DEPTH_EASE_SECONDS;
+        this.depthMix = this.depthOn ? Math.min(1, this.depthMix + step) : Math.max(0, this.depthMix - step);
+    }
+
+    /**
+     * 墨染奥行's ink reads the drum hits off the beat clock's heard track, as 时计 does: nothing until the
      * playing track's hits are in, and nothing past where a track still separating has them.
      */
     private updateInkFlash(time: number, width: number, height: number, paragraphIndex: number) {

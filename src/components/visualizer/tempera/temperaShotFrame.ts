@@ -63,6 +63,8 @@ export const updateTemperaShot = (
     height: number,
     tuning: TemperaTuning,
     theme: Theme,
+    /** 墨染奥行's share, 0..1: the camera pan, the parallax and the glyph depth scale with it. */
+    depthMix: number,
 ) => {
     const duration = Math.max(view.shot.endTime - view.shot.startTime, 0.001);
     const rawProgress = (time - view.shot.startTime) / duration;
@@ -97,12 +99,12 @@ export const updateTemperaShot = (
     // the big and small glyphs part along that direction.
     const [panX, panY] = PAN_DIRECTIONS[(hashTemperaSeed(view.shot.id) >>> 5) % PAN_DIRECTIONS.length]!;
     const panEnter = 1 - easeTemperaEnter(clamp01((time - view.shot.startTime) / RISE_ENTER_SECONDS));
-    const pan = (panEnter * RISE_ENTER + (0.5 - clamp01(rawProgress)) * RISE_DRIFT) * height * camera;
+    const pan = (panEnter * RISE_ENTER + (0.5 - clamp01(rawProgress)) * RISE_DRIFT) * height * camera * depthMix;
     const cameraX = frame.x * width * camera + Math.cos(view.shot.flowAngle) * travel - panX * pan;
     const cameraY = frame.y * height * camera + Math.sin(view.shot.flowAngle) * travel - panY * pan;
     view.container.position.set(view.baseX + cameraX, view.baseY + cameraY);
     // Parallax: the layers behind the lyric lag the shot's camera travel, the ones in front lead it.
-    applyTemperaParallax(view.depth, cameraX, cameraY);
+    applyTemperaParallax(view.depth, cameraX * depthMix, cameraY * depthMix);
     // Opaque on the way in: this is a push, not a dissolve. Only the exit fades.
     view.container.alpha = 1 - exit;
     view.container.scale.set((1 + (frame.scale - 1) * camera) * (1 - exit * 0.08));
@@ -119,12 +121,12 @@ export const updateTemperaShot = (
         const frame = resolveTemperaGlyphMotion(glyph.motion, time, motion);
         // 字号即远近: big glyphs sit in front and lead the camera, small ones sit back, lag it
         // and fade toward the paper.
-        const lead = glyph.depth * (GLYPH_LEAD_NEAR + GLYPH_LAG_FAR) - GLYPH_LAG_FAR;
+        const lead = (glyph.depth * (GLYPH_LEAD_NEAR + GLYPH_LAG_FAR) - GLYPH_LAG_FAR) * depthMix;
         // Capped: the layout never budgeted for this, so a big camera offset must not carry a
         // glyph off the frame.
         const depthX = Math.max(-glyphParallaxCap, Math.min(glyphParallaxCap, cameraX * lead));
         const depthY = Math.max(-glyphParallaxCap, Math.min(glyphParallaxCap, cameraY * lead));
-        const shade = FAR_GLYPH_ALPHA + (1 - FAR_GLYPH_ALPHA) * glyph.depth;
+        const shade = 1 - (1 - FAR_GLYPH_ALPHA) * (1 - glyph.depth) * depthMix;
         const x = glyph.baseX + frame.x + depthX;
         const y = glyph.baseY + frame.y + depthY;
         glyph.display.alpha = frame.alpha * shade;
