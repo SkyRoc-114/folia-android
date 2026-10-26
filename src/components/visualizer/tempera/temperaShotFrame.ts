@@ -1,5 +1,4 @@
 import type { TemperaTuning, Theme } from '../../../types';
-import { hashTemperaSeed } from './temperaRandom';
 import {
     resolveTemperaBreathWeight,
     resolveTemperaCameraBreath,
@@ -77,7 +76,7 @@ export const updateTemperaShot = (
 
     const breathWeight = resolveTemperaBreathWeight(time, view.revealDoneTime);
     if (breathWeight > 0) {
-        const breathPhase = (hashTemperaSeed(view.shot.id) % 1024) / 1024 * Math.PI * 2;
+        const breathPhase = (view.idHash % 1024) / 1024 * Math.PI * 2;
         const breath = resolveTemperaCameraBreath(time, breathPhase);
         frame.x += breath.x * breathWeight;
         frame.y += breath.y * breathWeight;
@@ -99,7 +98,7 @@ export const updateTemperaShot = (
     // 移镜头: every shot slides in along one of four directions (up, down, left, right, picked
     // per shot), then keeps drifting the same way until it hands off, so the depth layers and
     // the big and small glyphs part along that direction.
-    const [panX, panY] = PAN_DIRECTIONS[(hashTemperaSeed(view.shot.id) >>> 5) % PAN_DIRECTIONS.length]!;
+    const [panX, panY] = PAN_DIRECTIONS[(view.idHash >>> 5) % PAN_DIRECTIONS.length]!;
     const panEnter = 1 - easeTemperaEnter(clamp01((time - view.shot.startTime) / RISE_ENTER_SECONDS));
     const pan = (panEnter * RISE_ENTER + (0.5 - clamp01(rawProgress)) * RISE_DRIFT) * height * camera * depthMix * tuning.depthPan;
     const cameraX = frame.x * width * camera + Math.cos(view.shot.flowAngle) * travel - panX * pan;

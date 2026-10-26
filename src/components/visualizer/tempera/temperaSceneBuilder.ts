@@ -88,6 +88,8 @@ export interface TemperaShotView {
     /** The layers in front of and behind the lyric, offset per frame for parallax (temperaDepth.ts). */
     depth: TemperaDepthView;
     revealDoneTime: number;
+    /** `hashTemperaSeed(shot.id)`, hashed once here: the frame picks the breath phase and pan direction off it. */
+    idHash: number;
 }
 
 export interface TemperaSceneView extends TemperaSceneFilterTarget {
@@ -604,6 +606,7 @@ export const buildTemperaScene = (
             textLayer,
             depth,
             revealDoneTime,
+            idHash: hashTemperaSeed(shot.id),
         };
     });
 
