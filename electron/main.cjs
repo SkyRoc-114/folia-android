@@ -5404,11 +5404,16 @@ function ensureWallpaperLayerHeldByMainWindow() {
 }
 
 // Where the remote control window last sat, read back safely. A position saved on a display that is
-// no longer there (monitor unplugged, resolution changed) falls back to the centred default; the x is
-// clamped the same way a drag is, so the large-cover edge never lands off-screen.
+// no longer there (monitor unplugged, resolution changed) falls back to the centred default: what is
+// drawn (the whole window, or only the card in use with the cover collapsed) has to fit inside one
+// display's work area, so it never opens off-screen or under the taskbar.
 function getRestoredRemoteControlWindowPosition() {
   const saved = store.get(REMOTE_CONTROL_WINDOW_BOUNDS_SETTING_KEY);
-  return resolveRemoteControlWindowPosition(saved, screen.getAllDisplays().map(display => display.bounds));
+  return resolveRemoteControlWindowPosition(
+    saved,
+    screen.getAllDisplays().map(display => display.workArea),
+    remoteControlExpandCoverEnabled,
+  );
 }
 
 function createRemoteControlWindow() {
