@@ -659,7 +659,7 @@ export default {
       "gpu-preference-low-power": { "title": "渲染显卡：省电", "description": "用核显渲染，重启后生效" },
       "settings-mods": { "title": "模组设置", "description": "打开模组系统开关和已安装的模组" },
       "settings-lab": { "title": "播放页界面", "description": "跳到隐藏或常驻显示播放页部件的开关" },
-      "settings-player-bottom-bar-position": { "title": "调整底部控制条位置", "description": "拖动底部控制条、歌曲卡片和面板按钮到新的高度" },
+      "settings-player-bottom-bar-position": { "title": "调整底部控制条位置", "description": "拖动底部控制条和面板按钮到新的高度（歌曲卡片没单独调过位置时也跟着动）" },
       "settings-player-control-slots": { "title": "进度条按钮槽位", "description": "选择进度条右侧两个按钮对应的功能" },
       "video-layer-toggle": { "title": "歌词后方视频层", "description": "显示或隐藏歌词后方的静音视频层" },
       "video-layer-pick": { "title": "视频层：选择本地视频", "description": "选择在歌词后方播放的本地视频" },

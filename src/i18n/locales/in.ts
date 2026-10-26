@@ -659,7 +659,7 @@ export default {
       "gpu-preference-low-power": { "title": "GPU render: Hemat daya", "description": "Render dengan GPU terintegrasi; berlaku setelah dimulai ulang" },
       "settings-mods": { "title": "Pengaturan mod", "description": "Buka sakelar sistem mod dan mod yang terpasang" },
       "settings-lab": { "title": "Antarmuka halaman pemutar", "description": "Lompat ke sakelar yang menyembunyikan atau menetapkan bagian halaman pemutar" },
-      "settings-player-bottom-bar-position": { "title": "Atur ulang posisi bilah bawah", "description": "Seret bilah bawah pemutar, kartu lagu dan tombol panel ke ketinggian baru" },
+      "settings-player-bottom-bar-position": { "title": "Atur ulang posisi bilah bawah", "description": "Seret bilah bawah pemutar dan tombol panel ke ketinggian baru (kartu lagu ikut, kecuali posisinya sudah diatur sendiri)" },
       "settings-player-control-slots": { "title": "Slot tombol pemutar", "description": "Pilih aksi untuk dua tombol di samping bilah progres" },
       "video-layer-toggle": { "title": "Lapisan video di belakang lirik", "description": "Tampilkan atau sembunyikan lapisan video tanpa suara di belakang lirik" },
       "video-layer-pick": { "title": "Lapisan video: pilih video lokal", "description": "Pilih video lokal untuk diputar di belakang lirik" },

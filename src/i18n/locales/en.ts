@@ -659,7 +659,7 @@ export default {
       "gpu-preference-low-power": { "title": "Render GPU: Power saving", "description": "Render on the integrated GPU; applies after a restart" },
       "settings-mods": { "title": "Mod settings", "description": "Open the mod system switch and the installed mods" },
       "settings-lab": { "title": "Player page interface", "description": "Jump to the switches that hide or pin parts of the player page" },
-      "settings-player-bottom-bar-position": { "title": "Reposition bottom bar", "description": "Drag the player bottom bar, song card and panel button to a new height" },
+      "settings-player-bottom-bar-position": { "title": "Reposition bottom bar", "description": "Drag the player bottom bar and panel button to a new height (the song card follows unless it has its own position)" },
       "settings-player-control-slots": { "title": "Player button slots", "description": "Choose which actions the two buttons beside the progress bar run" },
       "video-layer-toggle": { "title": "Video layer behind lyrics", "description": "Show or hide the muted video layer behind the lyrics" },
       "video-layer-pick": { "title": "Video layer: pick a local video", "description": "Choose a local video to play behind the lyrics" },
