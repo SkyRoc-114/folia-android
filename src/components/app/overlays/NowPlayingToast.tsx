@@ -11,7 +11,8 @@ import { useNowPlayingCardPosition } from './now-playing-toast/useNowPlayingCard
 import { NowPlayingCardPositioner } from './now-playing-toast/NowPlayingCardPositioner';
 
 // src/components/app/overlays/NowPlayingToast.tsx
-// 播放器与 Lattice 左下角的 now playing 卡片（playing-toast 样式：圆角 2xl、44px 封面、底部滑入）。
+// 播放器与 Lattice 上的 now playing 卡片（playing-toast 样式：圆角 2xl、44px 封面、底部滑入），默认在左下角，
+// 位置可在设置或命令面板里拖动调整（见 now-playing-toast/useNowPlayingCardPosition.ts）。
 // 歌名上方带 "正在播放 / 接下来播放" 标签。
 // 显示模式：auto=显示 timeoutSec 秒后淡出（换歌重新计时），always=常驻，never=不渲染。
 // isNextUp=自动切歌预览（automix 混合或普通曲目结束倒计时）：强制显示下一首并挂
