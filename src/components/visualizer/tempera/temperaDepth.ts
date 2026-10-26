@@ -9,6 +9,7 @@
 // 模糊只做在水印和图片上，不碰歌词层：歌词的反色滤镜要读它下面已经画好的像素（temperaSceneBuilder.ts）。
 // 这些节点的内容在一个 shot 里不变，只是整体平移、淡入，所以模糊在建 shot 时烘焙成一张图，之后只移动这张图，
 // 不再每帧离屏重算（temperaImageLayer.ts 换图或改大小时重新烘焙）。
+// 模糊半径和视差幅度都乘 tuning 的 depthOfField（景深，0..2）；0 时不烘焙模糊。
 type PixiModule = typeof import('pixi.js');
 type Container = import('pixi.js').Container;
 type Texture = import('pixi.js').Texture;

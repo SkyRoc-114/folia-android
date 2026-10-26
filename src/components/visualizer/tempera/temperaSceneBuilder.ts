@@ -418,7 +418,9 @@ export const buildTemperaScene = (
 
     const postProcessFilters: import('pixi.js').Filter[] = [];
     const bakedTextures = new Set<import('pixi.js').Texture>();
-    const blurBaker = createTemperaBlurBaker(pixi, options.renderer, {
+    // 景深 at 0 bakes nothing: the pictures and watermark stay sharp.
+    const depthBlur = tuning.depthOfField;
+    const blurBaker = createTemperaBlurBaker(pixi, depthBlur > 0 ? options.renderer : null, {
         staticMode: options.staticMode,
         width,
         resolution: options.renderResolution,
@@ -491,7 +493,7 @@ export const buildTemperaScene = (
             seed: shotSeed,
             flowAngle: shot.flowAngle,
             previousId: lastImageId,
-            blur: { baker: blurBaker, back: TEMPERA_BACK_BLUR, front: TEMPERA_FRONT_BLUR },
+            blur: { baker: blurBaker, back: TEMPERA_BACK_BLUR * depthBlur, front: TEMPERA_FRONT_BLUR * depthBlur },
         });
         lastImageId = images.chosenId ?? lastImageId;
         const watermarkLayer = new Container();
@@ -550,7 +552,7 @@ export const buildTemperaScene = (
                 layer: watermarkLayer,
             });
             // The watermark never changes within the shot: its blur is baked once, here.
-            if (blurBaker) [...watermarkLayer.children].forEach(node => replaceWithBlurred(pixi, blurBaker, node, TEMPERA_BACK_BLUR));
+            if (blurBaker) [...watermarkLayer.children].forEach(node => replaceWithBlurred(pixi, blurBaker, node, TEMPERA_BACK_BLUR * depthBlur));
         }
         if (shot.decor.fragments.length > 0 && tuning.showDecor) {
             buildTemperaFragmentViews(pixi, {

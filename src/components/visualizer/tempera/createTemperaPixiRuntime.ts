@@ -47,6 +47,8 @@ type PixiModule = typeof import('pixi.js');
 
 /** How long 墨染奥行's camera and glyph depth take to ease in or out when the effect is switched. */
 const DEPTH_EASE_SECONDS = 0.6;
+/** How long the 景深 slider must rest before the scenes are rebuilt with the new baked blur. */
+const DEPTH_BLUR_REBAKE_MS = 250;
 
 export interface TemperaSongMetadata {
     title?: string | null;
@@ -143,6 +145,8 @@ export class TemperaPixiRuntime {
     /** Eases toward `depthOn` (0..1) so switching the effect never jumps the camera or the glyphs. */
     private depthMix = 0;
     private depthMixAt: number | null = null;
+    /** Pending rebuild for a 景深 change: the parallax follows the slider live, the baked blur once it rests. */
+    private depthBlurTimer: ReturnType<typeof setTimeout> | null = null;
     /**
      * An in-flight song handover, spread over exactly two frames. A track change is a plain cut
      * here - no wipe, no dissolve - but a cut must not also be a stall, so the incoming scene is
@@ -692,6 +696,7 @@ export class TemperaPixiRuntime {
             this.app.renderer.resolution = resolution;
         }
         if (requiresTemperaSceneRebuild(previous, tuning)) {
+            this.cancelDepthBlurRebake();
             // Staged against the old tuning, so it can no longer be adopted.
             this.songSwap.dropStaged();
             this.clearScenes();
@@ -705,12 +710,39 @@ export class TemperaPixiRuntime {
             this.sceneCache.forEach(scene => {
                 scene.shots.forEach(shot => shot.images.applyPool(tuning.layerImages));
             });
+            if (previous.depthOfField !== tuning.depthOfField && this.depthOn) this.scheduleDepthBlurRebake();
             // The corner marks live only in the overlay, so toggling them needs no scene rebuild.
             if (previous.showCornerMarks !== tuning.showCornerMarks && this.lastWidth > 0 && this.lastHeight > 0) {
                 this.drawOverlay(this.lastWidth, this.lastHeight);
             }
         }
         if (this.options.paused) this.renderOnce();
+    }
+
+    /**
+     * The depth blur is baked when a scene is built, so a 景深 change needs a rebuild; it waits until
+     * the slider has rested, since rebuilding on every pointermove re-lays every line.
+     */
+    private scheduleDepthBlurRebake() {
+        this.cancelDepthBlurRebake();
+        this.depthBlurTimer = setTimeout(() => {
+            this.depthBlurTimer = null;
+            if (this.destroyed) return;
+            // Not under a song handover, as with the 墨染奥行 switch: wait for it to land.
+            if (this.songSwap.active) {
+                this.scheduleDepthBlurRebake();
+                return;
+            }
+            this.songSwap.dropStaged();
+            this.clearScenes();
+            if (this.options.paused) this.renderOnce();
+        }, DEPTH_BLUR_REBAKE_MS);
+    }
+
+    private cancelDepthBlurRebake() {
+        if (this.depthBlurTimer === null) return;
+        clearTimeout(this.depthBlurTimer);
+        this.depthBlurTimer = null;
     }
 
     setPaused(paused: boolean) {
@@ -727,6 +759,7 @@ export class TemperaPixiRuntime {
     destroy() {
         if (this.destroyed) return;
         this.destroyed = true;
+        this.cancelDepthBlurRebake();
         // Release whoever is awaiting the handover before tearing the app down, otherwise that
         // promise never settles and the caller's drain loop stays parked on it.
         this.songSwap.settle(false);
