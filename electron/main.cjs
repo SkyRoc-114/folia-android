@@ -5484,13 +5484,25 @@ function createRemoteControlWindow() {
   }
   // Remember where the window last sat: after a drag, and again when it closes so an undragged
   // window keeps the spot it opened on.
+  // macOS fires 'moved' on every frame of a drag and electron-store rewrites config.json
+  // synchronously on each set, so the save after a move waits until the window has settled, the
+  // same way the main window's state is saved; 'close' saves at once and drops the pending one.
+  let remoteControlPositionSaveTimer = null;
+  const clearRemoteControlPositionSaveTimer = () => {
+    clearTimeout(remoteControlPositionSaveTimer);
+    remoteControlPositionSaveTimer = null;
+  };
   const persistRemoteControlPosition = () => {
+    clearRemoteControlPositionSaveTimer();
     if (!win.isDestroyed()) {
       const { x, y } = win.getBounds();
       store.set(REMOTE_CONTROL_WINDOW_BOUNDS_SETTING_KEY, { x, y });
     }
   };
-  win.on('moved', persistRemoteControlPosition);
+  win.on('moved', () => {
+    clearRemoteControlPositionSaveTimer();
+    remoteControlPositionSaveTimer = setTimeout(persistRemoteControlPosition, WINDOW_STATE_SAVE_DEBOUNCE_MS);
+  });
   win.on('close', persistRemoteControlPosition);
   applyRemoteControlAlwaysOnTop(win);
   syncRemoteControlMouseIgnore();
@@ -5506,6 +5518,7 @@ function createRemoteControlWindow() {
   });
 
   win.on('closed', () => {
+    clearRemoteControlPositionSaveTimer();
     if (remoteControlWindow === win) {
       remoteControlWindow = null;
       clearInterval(remoteControlPointerTimer);
