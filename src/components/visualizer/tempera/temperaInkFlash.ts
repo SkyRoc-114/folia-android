@@ -15,7 +15,7 @@ import { DRUM_HAT, type DrumHits } from '../../../services/analysis/drumHits';
 // 纹理很小、要放大十几倍铺满屏幕，所以纹理里只存平滑的噪声场（两个通道拼成 16 位），
 // 「是不是墨」在着色器里按屏幕像素判断：墨渍边缘在任何分辨率下都是一两个像素宽，不会被放大糊掉。
 // 每一帧只由「当前时间之前最近的一次鼓点」决定，不累积状态：拖进度条、暂停后画面一致。
-// 效果关着或这首歌还没有鼓点时整层隐藏，不做任何计算。
+// 效果关着或这首歌还没有鼓点时整层隐藏，不做任何计算；只有噪声纹理在效果打开后就开始在空闲时段里分批生成。
 type PixiModule = typeof import('pixi.js');
 
 /** Noise field size; stretched over the screen, and cheap to generate because only the field is stored. */
@@ -28,6 +28,10 @@ const TEX_H = 320;
 const CELLS_X = 8;
 const CELLS_Y = 5;
 const TEXTURE_COUNT = 4;
+/** Noise rows built per idle slot at the least (about a millisecond), and the slots' pacing. */
+const INK_ROWS_PER_SLOT = 6;
+const INK_SLOT_TIMEOUT_MS = 200;
+const INK_FALLBACK_SLOT_MS = 6;
 /** Hits weaker than this (rise share, 0.15..0.99) and hats never flash. */
 const HIT_FLOOR = 0.4;
 /** Two flashes at least this far apart (s). */
@@ -86,19 +90,31 @@ const tileableFbm = (noise: ReturnType<typeof tileableNoise>, u: number, v: numb
     return sum / norm;
 };
 
-/**
- * One noise field texture: the ink field in R (high byte) and G (low byte), so linear filtering of
- * the two bytes reconstructs a 16-bit field that stays smooth however far it is stretched, and the
- * mottle in B. The shader turns it into ink. Built on a canvas once per process; every runtime
- * makes its Pixi texture from the same canvas.
- */
-const buildInkCanvas = (index: number): HTMLCanvasElement => {
-    const cloud = tileableNoise(101 + index * 17);
-    const warp = tileableNoise(907 + index * 31);
-    const shade = tileableNoise(4409 + index * 13);
-    const field = new Float32Array(TEX_W * TEX_H);
-    const mottle = new Float32Array(TEX_W * TEX_H);
-    for (let y = 0; y < TEX_H; y += 1) {
+/** One noise field being built a few rows at a time (see prepareInkCanvases). */
+interface InkCanvasJob {
+    cloud: ReturnType<typeof tileableNoise>;
+    warp: ReturnType<typeof tileableNoise>;
+    shade: ReturnType<typeof tileableNoise>;
+    field: Float32Array;
+    mottle: Float32Array;
+    row: number;
+}
+
+const startInkCanvas = (index: number): InkCanvasJob => ({
+    cloud: tileableNoise(101 + index * 17),
+    warp: tileableNoise(907 + index * 31),
+    shade: tileableNoise(4409 + index * 13),
+    field: new Float32Array(TEX_W * TEX_H),
+    mottle: new Float32Array(TEX_W * TEX_H),
+    row: 0,
+});
+
+/** Fills the field one row at a time while `hasTime` allows, at least INK_ROWS_PER_SLOT rows. */
+const fillInkRows = (job: InkCanvasJob, hasTime: () => boolean) => {
+    const { cloud, warp, shade, field, mottle } = job;
+    const minimum = Math.min(TEX_H, job.row + INK_ROWS_PER_SLOT);
+    while (job.row < TEX_H && (job.row < minimum || hasTime())) {
+        const y = job.row;
         for (let x = 0; x < TEX_W; x += 1) {
             const u = x / TEX_W;
             const v = y / TEX_H;
@@ -107,7 +123,17 @@ const buildInkCanvas = (index: number): HTMLCanvasElement => {
             field[y * TEX_W + x] = tileableFbm(cloud, u + wx * 0.04, v + wy * 0.06, CELLS_X, CELLS_Y, 5);
             mottle[y * TEX_W + x] = tileableFbm(shade, u + 0.5, v + 0.5, CELLS_X * 3, CELLS_Y * 3, 3);
         }
+        job.row += 1;
     }
+};
+
+/**
+ * One noise field texture: the ink field in R (high byte) and G (low byte), so linear filtering of
+ * the two bytes reconstructs a 16-bit field that stays smooth however far it is stretched, and the
+ * mottle in B. The shader turns it into ink. Built on a canvas once per process; every runtime
+ * makes its Pixi texture from the same canvas.
+ */
+const finishInkCanvas = ({ field, mottle }: InkCanvasJob): HTMLCanvasElement => {
     // Spread the field to 0..1 by its percentiles so the threshold below means "share of the screen".
     const sorted = Float32Array.from(field).sort();
     const low = sorted[Math.floor(sorted.length * 0.02)];
@@ -130,11 +156,41 @@ const buildInkCanvas = (index: number): HTMLCanvasElement => {
     return canvas;
 };
 
-/** Built one per frame (each takes tens of ms), the first on the first frame the effect is live. */
+/** Runs `work` in the next idle slot (a short timer where there is no requestIdleCallback). */
+const requestInkSlot = (work: (hasTime: () => boolean) => void) => {
+    if (typeof requestIdleCallback === 'function') {
+        // The timeout keeps a page that is never idle building, a minimum of rows per slot.
+        requestIdleCallback(deadline => work(() => deadline.timeRemaining() > 1), { timeout: INK_SLOT_TIMEOUT_MS });
+        return;
+    }
+    setTimeout(() => {
+        const until = performance.now() + INK_FALLBACK_SLOT_MS;
+        work(() => performance.now() < until);
+    }, 0);
+};
+
+/**
+ * Built once per process, off the frame loop: each one takes tens of ms, so the rows go a few at a
+ * time into idle slots and the percentile spread gets a slot of its own. The ink stays hidden until
+ * all of them are in.
+ */
 const inkCanvases: HTMLCanvasElement[] = [];
-const growInkCanvases = () => {
-    if (inkCanvases.length < TEXTURE_COUNT) inkCanvases.push(buildInkCanvas(inkCanvases.length));
-    return inkCanvases;
+let inkCanvasJob: InkCanvasJob | null = null;
+let inkCanvasesStarted = false;
+const prepareInkCanvases = () => {
+    if (inkCanvasesStarted) return;
+    inkCanvasesStarted = true;
+    const step = (hasTime: () => boolean) => {
+        inkCanvasJob ??= startInkCanvas(inkCanvases.length);
+        if (inkCanvasJob.row < TEX_H) {
+            fillInkRows(inkCanvasJob, hasTime);
+        } else {
+            inkCanvases.push(finishInkCanvas(inkCanvasJob));
+            inkCanvasJob = null;
+        }
+        if (inkCanvases.length < TEXTURE_COUNT) requestInkSlot(step);
+    };
+    requestInkSlot(step);
 };
 
 /** The kick and snare hits that flash, as indices into `hits`, cached per hit list. */
@@ -180,7 +236,7 @@ export interface TemperaInkFlashFrame {
     time: number;
     width: number;
     height: number;
-    /** The effect's strength (0..2); 0 hides the layer. */
+    /** The effect's strength (0..2); 0 hides the layer, as do no hits. */
     strength: number;
     hits: DrumHits | null;
     /** Picks the resting stain's texture and drift, so it changes with the paragraph. */
@@ -274,12 +330,14 @@ export class TemperaInkFlash {
     }
 
     /**
-     * Builds the mesh on the first frame the effect is live, not at startup, and the noise textures
-     * one per frame after that.
+     * Builds the mesh on the first frame the effect is live and its noise canvases are in (they are
+     * built in idle slots from the first frame it is switched on), not at startup. False until then.
      */
     private ensureMesh() {
         if (this.textures.length < TEXTURE_COUNT) {
-            const canvases = growInkCanvases();
+            prepareInkCanvases();
+            if (inkCanvases.length < TEXTURE_COUNT) return false;
+            const canvases = inkCanvases;
             while (this.textures.length < canvases.length) {
                 // Skip Pixi's global cache: the canvases are shared, the textures are this runtime's own.
                 const texture = this.pixi.Texture.from(canvases[this.textures.length], true);
@@ -289,7 +347,7 @@ export class TemperaInkFlash {
                 this.textures.push(texture);
             }
         }
-        if (this.mesh) return;
+        if (this.mesh) return true;
         const pixi = this.pixi;
         const group = new pixi.UniformGroup({
             uRows: { value: this.rows, type: 'vec4<f32>', size: 3 },
@@ -315,6 +373,7 @@ export class TemperaInkFlash {
         });
         this.mesh = new pixi.Mesh({ geometry: this.geometry, shader: this.shader, texture });
         this.container.addChild(this.mesh);
+        return true;
     }
 
     private resize(width: number, height: number) {
@@ -341,11 +400,11 @@ export class TemperaInkFlash {
 
     update(frame: TemperaInkFlashFrame) {
         const { hits, strength } = frame;
-        if (!hits || strength <= 0) {
+        // The noise canvases start building as soon as the effect is on, before the track's hits are in.
+        if (strength <= 0 || !this.ensureMesh() || !hits) {
             this.container.visible = false;
             return;
         }
-        this.ensureMesh();
         this.resize(frame.width, frame.height);
         const indices = resolveFlashIndices(hits);
         const last = findLastFlash(hits, indices, frame.time);

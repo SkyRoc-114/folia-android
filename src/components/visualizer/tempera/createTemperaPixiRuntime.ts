@@ -576,7 +576,8 @@ export class TemperaPixiRuntime {
         const hitTime = heard.time ?? time;
         const hits = known && (known.until === undefined || hitTime < known.until) ? known : null;
         if (!hits) {
-            this.inkFlash.update({ time: hitTime, width, height, strength: 0, hits: null, paragraphIndex, inkColor: '' });
+            // The strength still goes in: with the effect on, the ink's noise starts building before the hits are in.
+            this.inkFlash.update({ time: hitTime, width, height, strength, hits: null, paragraphIndex, inkColor: '' });
             return;
         }
         const inkColor = this.sceneCache.get(paragraphIndex)?.palette.accent ?? this.options.theme.accentColor;
