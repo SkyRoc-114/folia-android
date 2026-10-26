@@ -368,6 +368,8 @@ export type CommandPaletteSettingsContext = {
     toggleHideRemoteControlTitlebar: () => void;
     /** Remote control window: when idle, expand the cover into the large sleeve. */
     toggleRemoteControlExpandCover: () => void;
+    /** Remote control window, transparent background: a soft dark shade under the idle type. */
+    toggleRemoteControlTextShade: () => void;
     /** Turns remote control click-through off (the way back into a click-through window). */
     unlockRemoteControl: () => void;
     /** OBS browser source: keep the main window's heavy animation while an OBS client is connected. */

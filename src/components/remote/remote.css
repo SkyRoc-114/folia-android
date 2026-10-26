@@ -162,6 +162,18 @@
 
 /* Transparent: no card. The idle type (in the sleeve or not) stands on what is behind the window
    with only its own thin shadow, and a dark base comes up for the card in use. */
+
+/* The settings switch "text shade" (off by default). A page in a transparent window cannot blur
+   what is behind the window, so with it on the idle type sits on a soft dark shade. */
+.remote-cloud {
+  position: absolute;
+  border-radius: 26px;
+  background: rgba(0, 0, 0, 0.6);
+  filter: blur(12px);
+  pointer-events: none;
+  transition: opacity 320ms ease, left 200ms ease, top 200ms ease, width 200ms ease, height 200ms ease;
+}
+
 .remote-glass {
   position: absolute;
   inset: 0;
@@ -175,6 +187,15 @@
 
 .remote-window[data-idle='false'] .remote-glass {
   opacity: 1;
+  transition: opacity 140ms ease-out;
+}
+
+.remote-cloud[data-empty='true'] {
+  opacity: 0;
+}
+
+.remote-window[data-idle='false'] .remote-cloud {
+  opacity: 0;
   transition: opacity 140ms ease-out;
 }
 

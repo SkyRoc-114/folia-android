@@ -423,6 +423,15 @@ export const settingsCommands: CommandPaletteCommand[] = [
         context => context.settings.toggleRemoteControlExpandCover(),
         { platform: ['electron'] },
     ),
+    createToggleCommand(
+        'desktop-toggle-remote-control-text-shade',
+        'settings',
+        'Remote control: text shade',
+        'Toggle the soft dark shade under idle text on the transparent background of the remote control window',
+        ['remote control text shade', 'remote window shade', 'text backdrop', 'transparent background readability', '遥控窗口文字黑底', '文字黑底', '透明背景黑底'],
+        context => context.settings.toggleRemoteControlTextShade(),
+        { platform: ['electron'] },
+    ),
     {
         // Pairs with the remote control click-through switch: while the window ignores the mouse this is the way back in.
         id: 'desktop-unlock-remote-control',

@@ -146,6 +146,7 @@ exports[`command palette registry contract > keeps the registered command order 
   "desktop-toggle-close-to-tray",
   "desktop-toggle-remote-control-hide-titlebar",
   "desktop-toggle-remote-control-expand-cover",
+  "desktop-toggle-remote-control-text-shade",
   "desktop-unlock-remote-control",
   "settings-graphics",
   "settings-gpu-preference",
