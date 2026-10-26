@@ -17,7 +17,7 @@ vi.hoisted(() => {
 });
 
 const { PlayerState } = await import('@/types');
-const { useHifiMpris, readMprisArtwork, mprisStatusOf, hasMainProcessMediaControls } = await import('@/components/hifi/useHifiMpris');
+const { useHifiMpris, readMprisArtwork, mprisStatusOf, hasMainProcessMediaControls, useHifiMprisStatusStore } = await import('@/components/hifi/useHifiMpris');
 const { hifiMediaShim } = await import('@/services/hifi/hifiMediaShim');
 const { useHifiTrackStore } = await import('@/services/hifi/hifiTrackStore');
 const { usePlaybackStore } = await import('@/stores/usePlaybackStore');
@@ -29,6 +29,7 @@ let root: Root | null = null;
 let setMprisState: ReturnType<typeof vi.fn>;
 let setMprisArtwork: ReturnType<typeof vi.fn>;
 let commandListener: ((command: Command) => void) | null;
+let statusListener: ((status: { registered: boolean }) => void) | null;
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const song = {
@@ -90,6 +91,8 @@ beforeEach(() => {
     setMprisState = vi.fn(async () => {});
     setMprisArtwork = vi.fn(async () => {});
     commandListener = null;
+    statusListener = null;
+    useHifiMprisStatusStore.setState({ registered: null });
     (window as unknown as { electron?: unknown }).electron = {
         platform: 'linux',
         hifi: {
@@ -98,6 +101,10 @@ beforeEach(() => {
             onMprisCommand: (callback: (command: Command) => void) => {
                 commandListener = callback;
                 return () => { commandListener = null; };
+            },
+            onMprisStatus: (callback: (status: { registered: boolean }) => void) => {
+                statusListener = callback;
+                return () => { statusListener = null; };
             },
         },
     };
@@ -142,9 +149,10 @@ describe('helpers', () => {
 });
 
 describe('useHifiMpris', () => {
-    it('stays inactive off the HiFi route and pushes the track once HiFi has it', () => {
+    it('stays quiet off the HiFi route and pushes the track once HiFi has it', () => {
         render(options());
-        expect(setMprisState).toHaveBeenCalledWith({ active: false });
+        // Nothing was pushed active yet, so there is nothing to clear.
+        expect(setMprisState).not.toHaveBeenCalled();
 
         showHifiTrack('t1');
         expect(lastState()).toMatchObject({
@@ -156,6 +164,23 @@ describe('useHifiMpris', () => {
             status: 'Playing',
             seeked: false,
         });
+    });
+
+    it('pushes nothing on the web route however the song or the state changes', () => {
+        render(options());
+        render(options({ playerState: PlayerState.PAUSED }));
+        render(options({ playerState: PlayerState.PLAYING }));
+        expect(setMprisState).not.toHaveBeenCalled();
+    });
+
+    it('keeps what main reports about registering MPRIS, so the keep-alive can come back when it could not', () => {
+        render(options());
+        expect(hasMainProcessMediaControls()).toBe(true);
+        act(() => statusListener!({ registered: false }));
+        expect(useHifiMprisStatusStore.getState().registered).toBe(false);
+        expect(hasMainProcessMediaControls()).toBe(false);
+        act(() => statusListener!({ registered: true }));
+        expect(hasMainProcessMediaControls()).toBe(true);
     });
 
     it('re-pushes on pause and duration, flags a seek, and goes inactive when the route leaves HiFi', () => {

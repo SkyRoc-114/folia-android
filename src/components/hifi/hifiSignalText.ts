@@ -54,17 +54,20 @@ const PIPEWIRE_FLOAT_FORMAT = /^F(32|64)(LE|BE|P)?$/i;
 /** 只换了采样格式、每个采样的数值不变的改动。 */
 const VALUE_PRESERVING_CONVERSIONS: ReadonlySet<HifiSignalConversion> = new Set<HifiSignalConversion>(['float-to-int', 'to-float']);
 
+/** mpv 一路（PipeWire 那一级之外）有改动，而且每一项都合 test。 */
+const onlyMpvConversions = (path: HifiSignalPath, test: (conversion: HifiSignalConversion) => boolean) => {
+    const conversions = path.stages.filter(stage => stage.id !== 'system').flatMap(stage => stage.conversions);
+    return conversions.length > 0 && conversions.every(test);
+};
+
 /**
  * 「途中经过转换」里只有数值不变的格式转换：mpv 一路的改动都是 float 转 s32 或转成浮点，PipeWire 那一级（有的话）也没改动。
  * 结论仍是已转换（格式和文件不同，不算比特完美），但徽标和面板顶上用提示图标，不用警告图标。
  */
 export const isValuePreservingPath = (path: HifiSignalPath) => {
     if (path.verdict !== 'converted') return false;
-    const mpvConversions = path.stages.filter(stage => stage.id !== 'system').flatMap(stage => stage.conversions);
     const systemConversions = path.stages.find(stage => stage.id === 'system')?.conversions ?? [];
-    return mpvConversions.length > 0
-        && mpvConversions.every(conversion => VALUE_PRESERVING_CONVERSIONS.has(conversion))
-        && systemConversions.length === 0;
+    return onlyMpvConversions(path, conversion => VALUE_PRESERVING_CONVERSIONS.has(conversion)) && systemConversions.length === 0;
 };
 
 export const verdictTone = (verdict: HifiSignalVerdict): HifiVerdictTone => (
@@ -105,13 +108,8 @@ export const verdictDescription = (path: HifiSignalPath, t: TFunction, platform:
     }
     // mpv 一路只把 32 位浮点转成了 s32，或只是转成了浮点：仍是「已转换」，但说清楚数值没变。PipeWire 那一级的改动另由那一级说。
     if (path.verdict === 'converted') {
-        const mpvConversions = path.stages.filter(stage => stage.id !== 'system').flatMap(stage => stage.conversions);
-        if (mpvConversions.length > 0 && mpvConversions.every(conversion => conversion === 'float-to-int')) {
-            return t('hifi.signal.verdictDesc.convertedFloatToInt');
-        }
-        if (mpvConversions.length > 0 && mpvConversions.every(conversion => conversion === 'to-float')) {
-            return t('hifi.signal.verdictDesc.convertedToFloat');
-        }
+        if (onlyMpvConversions(path, conversion => conversion === 'float-to-int')) return t('hifi.signal.verdictDesc.convertedFloatToInt');
+        if (onlyMpvConversions(path, conversion => conversion === 'to-float')) return t('hifi.signal.verdictDesc.convertedToFloat');
     }
     return t(`hifi.signal.verdictDesc.${VERDICT_KEY[path.verdict]}`);
 };

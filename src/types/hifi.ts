@@ -392,8 +392,11 @@ export type HifiMprisState =
         seeked: boolean;
     };
 
-/** MPRIS 的封面：页面读到的图片字节，读不到时退回 http(s) 原址。 */
+/** MPRIS 的封面：页面读到的图片字节，读不到时退回 http(s) 原址（主进程下载成文件，原址不交给 MPRIS）。 */
 export type HifiMprisArtwork = { bytes: Uint8Array; mimeType: string } | { url: string };
+
+/** HiFi 在放时主进程有没有在会话总线上登记好 MPRIS。 */
+export type HifiMprisStatus = { registered: boolean };
 
 /** 系统媒体面板经 MPRIS 发来的按键。 */
 export type HifiMprisCommand = 'play' | 'pause' | 'playpause' | 'stop' | 'next' | 'previous';

@@ -22,8 +22,9 @@ const DESKTOP_ENTRY = 'folia-major';
 const REQUEST_NAME_DO_NOT_QUEUE = 4;
 const REQUEST_NAME_PRIMARY_OWNER = 1;
 const REQUEST_NAME_ALREADY_OWNER = 4;
-// 连不上总线时，过这么久之后的下一次推送才再试。
+// 连不上总线时过这么久再试；连上后断了，过一小会儿就重连。HiFi 在放时由定时器自己再试，不等下一次推送。
 const RECONNECT_DELAY_MS = 30000;
+const RECONNECT_AFTER_DROP_MS = 1000;
 // 渲染进程推来的命令；Stop 也只是暂停，Folia 没有「停止」。
 const PLAYER_COMMANDS = Object.freeze({
     Play: 'play',
@@ -178,15 +179,19 @@ const changedPlayerProperties = (before, after) => WATCHED_PLAYER_PROPERTIES
 
 /**
  * connect() → Promise<连接>（dbusConnection.cjs 的 connectBus 绑好地址和 uid）；onCommand(命令) 把按键交给渲染进程；
- * onRaise() 把主窗口拿到前面；readMachineId() 给 Peer.GetMachineId。
+ * onRaise() 把主窗口拿到前面；readMachineId() 给 Peer.GetMachineId；onRegistered(是否) 在 HiFi 在放时每走一遍都报
+ * 登记成没成（页面重新载入后也能马上知道），渲染进程据此决定要不要退回页面里的静音保活。
  */
 const createMprisService = ({
     connect,
     onCommand,
     onRaise,
+    onRegistered = () => {},
     readMachineId = () => '',
     now = Date.now,
     pid = process.pid,
+    setTimer = setTimeout,
+    clearTimer = clearTimeout,
 }) => {
     let desired = INACTIVE_STATE;
     let artwork = { trackKey: null, url: null };
@@ -199,6 +204,25 @@ const createMprisService = ({
     let running = false;
     let again = false;
     let disposed = false;
+    let retryTimer = null;
+
+    const report = registered => {
+        try {
+            onRegistered(registered);
+        } catch (error) {
+            console.warn('[MPRIS] the registration listener threw', error);
+        }
+    };
+
+    // HiFi 在放、却没登记上时，到点自己再走一遍；不在 HiFi 路线上就不用。
+    const retryIn = delayMs => {
+        if (disposed || retryTimer) return;
+        retryTimer = setTimer(() => {
+            retryTimer = null;
+            if (desired.active) schedule();
+        }, delayMs);
+        retryTimer?.unref?.();
+    };
 
     const artUrlFor = state => (state.active && artwork.trackKey === state.trackKey ? artwork.url : null);
     const snapshot = () => playerProperties(desired, artUrlFor(desired), now());
@@ -295,7 +319,12 @@ const createMprisService = ({
                 connection = null;
                 ownedName = null;
                 published = null;
-                if (!disposed) console.warn('[MPRIS] the session bus connection closed', error ?? undefined);
+                if (disposed) return;
+                console.warn('[MPRIS] the session bus connection closed', error ?? undefined);
+                if (desired.active) {
+                    report(false);
+                    retryIn(RECONNECT_AFTER_DROP_MS);
+                }
             });
             connection = opened;
             console.info('[MPRIS] connected to the session bus', { uniqueName: opened.uniqueName });
@@ -303,6 +332,7 @@ const createMprisService = ({
         } catch (error) {
             retryAtMs = now() + RECONNECT_DELAY_MS;
             console.warn('[MPRIS] could not connect to the session bus: no system media controls for HiFi', error);
+            retryIn(RECONNECT_DELAY_MS);
             return false;
         }
     };
@@ -319,7 +349,10 @@ const createMprisService = ({
             }
             return;
         }
-        if (!(await ensureConnection())) return;
+        if (!(await ensureConnection())) {
+            report(false);
+            return;
+        }
         if (!ownedName) {
             // 属性先就位再要名字：媒体面板一看到名字就会来读。
             published = snapshot();
@@ -327,8 +360,10 @@ const createMprisService = ({
             ownedName = await requestName();
             if (ownedName) console.info('[MPRIS] registered the HiFi player', { name: ownedName });
             else console.warn('[MPRIS] could not own an MPRIS bus name: no system media controls for HiFi');
+            report(ownedName !== null);
             return;
         }
+        report(true);
         const next = snapshot();
         const changed = changedPlayerProperties(published, next);
         published = next;
@@ -369,6 +404,7 @@ const createMprisService = ({
                         await step();
                     } catch (error) {
                         console.warn('[MPRIS] could not update the HiFi player on the session bus', error);
+                        if (desired.active && !ownedName) report(false);
                     }
                 } while (again && !disposed);
             } finally {
@@ -393,6 +429,8 @@ const createMprisService = ({
         currentTrackKey: () => (desired.active ? desired.trackKey : null),
         dispose: () => {
             disposed = true;
+            if (retryTimer) clearTimer(retryTimer);
+            retryTimer = null;
             connection?.close();
             connection = null;
         },

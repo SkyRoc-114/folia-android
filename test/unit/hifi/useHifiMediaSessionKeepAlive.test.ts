@@ -29,6 +29,7 @@ const { hifiMediaShim } = await import('@/services/hifi/hifiMediaShim');
 const { useHifiTrackStore } = await import('@/services/hifi/hifiTrackStore');
 const { usePlaybackStore } = await import('@/stores/usePlaybackStore');
 const { useHifiSettingsStore } = await import('@/stores/useHifiSettingsStore');
+const { useHifiMprisStatusStore } = await import('@/components/hifi/useHifiMpris');
 
 const keepAliveElement = () => document.querySelector<HTMLAudioElement>(`audio[${KEEP_ALIVE_ATTRIBUTE}]`);
 
@@ -60,6 +61,7 @@ beforeEach(() => {
     usePlaybackStore.setState({ playbackRoute: 'web' });
     useHifiSettingsStore.setState({ exclusive: true, audioDevice: 'auto' });
     useHifiTrackStore.setState({ current: null });
+    useHifiMprisStatusStore.setState({ registered: null });
     hifiMediaShim.reset();
 });
 
@@ -279,6 +281,24 @@ describe('useHifiMediaSessionKeepAlive', () => {
         act(() => hifiMediaShim.markPlaying());
         expect(keepAliveElement()).toBeNull();
         expect(playSpy).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the keep-alive on Linux when main reports it could not register MPRIS, and drops it once main can', () => {
+        (window as unknown as { electron?: unknown }).electron = {
+            platform: 'linux',
+            hifi: { setMprisState: vi.fn(), setMprisArtwork: vi.fn(), onMprisCommand: vi.fn(() => () => {}) },
+        };
+        useHifiSettingsStore.setState({ exclusive: false, audioDevice: 'auto' });
+        mount();
+        showHifiTrack('t1');
+        act(() => hifiMediaShim.markPlaying());
+        expect(keepAliveElement()).toBeNull();
+
+        act(() => useHifiMprisStatusStore.setState({ registered: false }));
+        expect(keepAliveElement()?.paused).toBe(false);
+
+        act(() => useHifiMprisStatusStore.setState({ registered: true }));
+        expect(keepAliveElement()).toBeNull();
     });
 
     it('removes the element when App unmounts', () => {

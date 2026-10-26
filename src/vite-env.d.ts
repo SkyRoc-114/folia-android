@@ -1109,6 +1109,8 @@ declare global {
         setMprisState?: (state: import('./types/hifi').HifiMprisState) => Promise<void>;
         setMprisArtwork?: (trackKey: string, artwork: import('./types/hifi').HifiMprisArtwork | null) => Promise<void>;
         onMprisCommand?: (callback: (command: import('./types/hifi').HifiMprisCommand) => void) => () => void;
+        /** HiFi 在放时主进程登记 MPRIS 成没成（每次推送后报）；没成时页面退回静音保活。 */
+        onMprisStatus?: (callback: (status: import('./types/hifi').HifiMprisStatus) => void) => () => void;
         onState: (callback: (state: import('./types/hifi').HifiEngineState) => void) => () => void;
         onClock: (callback: (update: import('./types/hifi').HifiClockUpdate) => void) => () => void;
         onError: (callback: (event: import('./types/hifi').HifiErrorEvent) => void) => () => void;

@@ -413,6 +413,11 @@ contextBridge.exposeInMainWorld('electron', {
             ipcRenderer.on('hifi:mpris-command', listener);
             return () => ipcRenderer.removeListener('hifi:mpris-command', listener);
         },
+        onMprisStatus: (callback) => {
+            const listener = (_event, status) => callback(status);
+            ipcRenderer.on('hifi:mpris-status', listener);
+            return () => ipcRenderer.removeListener('hifi:mpris-status', listener);
+        },
         onState: (callback) => {
             const listener = (_event, state) => callback(state);
             ipcRenderer.on('hifi:state', listener);

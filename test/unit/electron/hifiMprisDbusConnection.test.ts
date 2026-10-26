@@ -104,7 +104,8 @@ const waitFor = async (check: () => boolean) => {
     expect(check()).toBe(true);
 };
 
-describe('connectBus', () => {
+// The fake bus listens on a unix socket in a temp folder: Windows (the dev machine) cannot, and MPRIS is Linux only.
+describe.skipIf(process.platform === 'win32')('connectBus', () => {
     it('authenticates with EXTERNAL, says Hello and keeps the unique name', async () => {
         bus = await startFakeBus(socketPath);
         const connection = await connectBus({ address: `tcp:host=x;unix:path=${socketPath}`, uid: 1000 });

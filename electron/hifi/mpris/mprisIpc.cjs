@@ -8,17 +8,20 @@ const { connectBus } = require('./dbusConnection.cjs');
 const { sessionBusAddress } = require('./dbusWire.cjs');
 const { createMprisService } = require('./mprisService.cjs');
 
-// Linux 的 MPRIS 接入点：只认主窗口推来的 HiFi 播放状态和封面并逐项校验，把系统媒体面板的按键转回主窗口。
+// Linux 的 MPRIS 接入点：只认主窗口推来的 HiFi 播放状态和封面并逐项校验，把系统媒体面板的按键和登记成没成转回主窗口。
+// 封面总是写成本地文件再交给 MPRIS：http(s) 原址可能带着凭据（Navidrome 的 getCoverArt），不能挂到会话总线上。
 
 const STATE_CHANNEL = 'hifi:mpris-state';
 const ARTWORK_CHANNEL = 'hifi:mpris-artwork';
 const COMMAND_CHANNEL = 'hifi:mpris-command';
+const STATUS_CHANNEL = 'hifi:mpris-status';
 
 const MAX_TEXT_CHARS = 1024;
 const MAX_ARTISTS = 32;
 const MAX_KEY_CHARS = 256;
 const MAX_ARTWORK_BYTES = 16 * 1024 * 1024;
 const MAX_URL_CHARS = 8192;
+const ARTWORK_FETCH_TIMEOUT_MS = 10000;
 const STATUSES = new Set(['Playing', 'Paused', 'Stopped']);
 const ARTWORK_EXTENSIONS = Object.freeze({
     'image/jpeg': 'jpg',
@@ -66,7 +69,7 @@ const isHttpUrl = value => {
     }
 };
 
-/** 封面：{ bytes, mimeType }（渲染进程读到的图片字节）或 { url }（读不到时的 http(s) 原址）；别的为 null。 */
+/** 封面：{ bytes, mimeType }（渲染进程读到的图片字节）或 { url }（读不到时的 http(s) 原址，由主进程下载）；别的为 null。 */
 const validateArtwork = value => {
     if (!isPlainObject(value)) return null;
     if (value.bytes instanceof Uint8Array) {
@@ -78,9 +81,34 @@ const validateArtwork = value => {
     return null;
 };
 
-// 封面写进 userData 下的一个目录，只留当前这首的；文件名是内容的哈希。
+/** http(s) 原址的封面由主进程自己下载成字节；不是认得的图片类型、太大或失败时为 null。地址不写进日志。 */
+const downloadArtwork = async (url, fetchImpl = fetch) => {
+    try {
+        const response = await fetchImpl(url, { signal: AbortSignal.timeout(ARTWORK_FETCH_TIMEOUT_MS) });
+        if (!response.ok) return null;
+        const mimeType = String(response.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+        const extension = ARTWORK_EXTENSIONS[mimeType];
+        const declared = Number(response.headers.get('content-length'));
+        if (!extension || (Number.isFinite(declared) && declared > MAX_ARTWORK_BYTES)) return null;
+        const bytes = Buffer.from(await response.arrayBuffer());
+        if (bytes.byteLength === 0 || bytes.byteLength > MAX_ARTWORK_BYTES) return null;
+        return { bytes, extension };
+    } catch (error) {
+        console.info('[MPRIS] could not download the cover', error instanceof Error ? error.name : typeof error);
+        return null;
+    }
+};
+
+// 封面写进 userData 下的一个目录，只留当前这首的；文件名是内容的哈希。写和清理排成一队做：两次交错时，
+// 前一次的清理会删掉后一次刚写好、已经交给 MPRIS 的文件。
 const createArtworkFiles = ({ getDirectory, fsImpl = fs.promises }) => {
     let currentFile = null;
+    let queue = Promise.resolve();
+    const enqueue = task => {
+        const result = queue.then(task);
+        queue = result.catch(() => {});
+        return result;
+    };
 
     const removeOthers = async keep => {
         const directory = getDirectory();
@@ -96,7 +124,7 @@ const createArtworkFiles = ({ getDirectory, fsImpl = fs.promises }) => {
     };
 
     return {
-        write: async ({ bytes, extension }) => {
+        write: ({ bytes, extension }) => enqueue(async () => {
             const directory = getDirectory();
             const name = `cover-${crypto.createHash('sha1').update(bytes).digest('hex')}.${extension}`;
             const filePath = path.join(directory, name);
@@ -105,11 +133,11 @@ const createArtworkFiles = ({ getDirectory, fsImpl = fs.promises }) => {
             currentFile = name;
             await removeOthers(name);
             return filePath;
-        },
-        clear: async () => {
+        }),
+        clear: () => enqueue(async () => {
             currentFile = null;
             await removeOthers(null);
-        },
+        }),
     };
 };
 
@@ -124,6 +152,7 @@ const registerMprisIpc = ({
     isTrustedSender,
     getMainWindow,
     getArtworkDirectory,
+    fetchArtwork = url => downloadArtwork(url),
     env = process.env,
     uid = process.getuid(),
     connect = () => connectBus({ address: sessionBusAddress(env), uid }),
@@ -148,6 +177,7 @@ const registerMprisIpc = ({
             return connect();
         },
         onCommand: command => sendToMainWindow(COMMAND_CHANNEL, command),
+        onRegistered: registered => sendToMainWindow(STATUS_CHANNEL, { registered }),
         onRaise: () => {
             const window = getMainWindow();
             if (!window || window.isDestroyed()) return;
@@ -174,12 +204,14 @@ const registerMprisIpc = ({
             service.setArtwork(trackKey, null);
             return;
         }
-        if (valid.url) {
-            service.setArtwork(trackKey, valid.url);
+        const image = valid.url ? await fetchArtwork(valid.url) : valid;
+        if (service.currentTrackKey() !== trackKey) return;
+        if (!image) {
+            service.setArtwork(trackKey, null);
             return;
         }
         try {
-            const filePath = await artworkFiles.write(valid);
+            const filePath = await artworkFiles.write(image);
             if (service.currentTrackKey() === trackKey) service.setArtwork(trackKey, fileUrl(filePath));
         } catch (error) {
             console.warn('[MPRIS] could not write the cover for the system media controls', error);
@@ -199,8 +231,10 @@ module.exports = {
     STATE_CHANNEL,
     ARTWORK_CHANNEL,
     COMMAND_CHANNEL,
+    STATUS_CHANNEL,
     validateMprisState,
     validateArtwork,
+    downloadArtwork,
     createArtworkFiles,
     fileUrl,
     registerMprisIpc,

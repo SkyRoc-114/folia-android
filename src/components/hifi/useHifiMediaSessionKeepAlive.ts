@@ -4,13 +4,14 @@ import { useHifiSettingsStore } from '../../stores/useHifiSettingsStore';
 import { usePlaybackStore } from '../../stores/usePlaybackStore';
 import { hifiMediaShim } from '../../services/hifi/hifiMediaShim';
 import { useHifiTrackStore } from '../../services/hifi/hifiTrackStore';
-import { hasMainProcessMediaControls } from './useHifiMpris';
+import { useMainProcessMediaControls } from './useHifiMpris';
 
 // src/components/hifi/useHifiMediaSessionKeepAlive.ts
 // mpv 发声时页面里没有在放的媒体元素，Chromium 就不向系统登记媒体会话（Linux 的 MPRIS、Windows 的 SMTC、macOS 的正在播放）。
 // HiFi 在放时这里循环放一段音量为 0 的静音 WAV，让会话一直在；元数据和按键动作照旧由 useMediaSessionBridge 给。
 // 独占输出时不放：Chromium 在同一台设备上开一路流会挡住 mpv 的独占，那时系统媒体控制是已知的限制。
-// Linux 上不放：系统媒体控制由主进程登记的 MPRIS 给（useHifiMpris），保活那路流会挡住 PipeWire 切换采样率（#835）。
+// Linux 上不放：系统媒体控制由主进程登记的 MPRIS 给（useHifiMpris），保活那路流会挡住 PipeWire 切换采样率（#835）；
+// 主进程报登记不上时（没有会话总线等）照旧放，系统媒体控制总还有一路。
 
 /** 写在保活元素上的属性，和 deck 的 data-playback-deck 区分开。 */
 export const KEEP_ALIVE_ATTRIBUTE = 'data-hifi-media-session-keep-alive';
@@ -161,7 +162,7 @@ export function useHifiMediaSessionKeepAlive() {
     }, [route, trackKey]);
 
     const exclusiveOutput = isExclusiveHifiOutput({ platform: currentPlatform(), exclusive, audioDevice });
-    const mainProcessMediaControls = hasMainProcessMediaControls();
+    const mainProcessMediaControls = useMainProcessMediaControls();
     const action = keepAliveAction({ route, enginePlaying, exclusiveOutput, mainProcessMediaControls });
 
     useEffect(() => {

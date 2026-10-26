@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // 钉住 MPRIS 对象（#835 的修法：Linux 上 HiFi 的系统媒体控制由主进程登记，不再靠页面里挡住 PipeWire 切采样率的保活）：
 // 属性就位后才要总线名、名字被占时加 .instance<pid>、只为变了的属性发 PropertiesChanged、跳转发 Seeked、
-// 位置在放时往后外推、离开 HiFi 交还名字；Properties / Introspect / Peer 的应答；按键交给渲染进程；连不上时隔一阵再试。
+// 位置在放时往后外推、离开 HiFi 交还名字；Properties / Introspect / Peer 的应答；按键交给渲染进程；连不上时隔一阵再试，
+// 断了一小会儿就重连，都不等下一次推送；登记成没成报给渲染进程。
 
 const require = createRequire(import.meta.url);
 const mpris = require('../../../electron/hifi/mpris/mprisService.cjs') as {
@@ -292,5 +293,46 @@ describe('createMprisService', () => {
         expect(replacement.owned.size).toBe(1);
         service.dispose();
         expect(replacement.close).toHaveBeenCalled();
+    });
+
+    it('retries on its own timer while HiFi plays, reconnects soon after a drop, and reports whether it is registered', async () => {
+        const timers: Array<{ run: () => void; delayMs: number }> = [];
+        const setTimer = vi.fn((run: () => void, delayMs: number) => { timers.push({ run, delayMs }); return timers.length; });
+        const clearTimer = vi.fn();
+        const onRegistered = vi.fn();
+        const connection = createFakeConnection();
+        const connect = vi.fn()
+            .mockRejectedValueOnce(new Error('no bus'))
+            .mockResolvedValue(connection);
+        const service = mpris.createMprisService({ connect, onCommand, onRaise, onRegistered, now: () => nowMs, pid: 1, setTimer, clearTimer });
+        service.update(playing());
+        await flush();
+        expect(onRegistered).toHaveBeenLastCalledWith(false);
+        expect(timers.map(timer => timer.delayMs)).toEqual([30000]);
+
+        // No push comes in: the timer alone brings MPRIS up.
+        nowMs += 30000;
+        timers.shift()!.run();
+        await flush();
+        expect(connect).toHaveBeenCalledTimes(2);
+        expect(connection.owned.size).toBe(1);
+        expect(onRegistered).toHaveBeenLastCalledWith(true);
+
+        const replacement = createFakeConnection();
+        connect.mockResolvedValue(replacement);
+        connection.drop();
+        expect(onRegistered).toHaveBeenLastCalledWith(false);
+        expect(timers.map(timer => timer.delayMs)).toEqual([1000]);
+        timers.shift()!.run();
+        await flush();
+        expect(replacement.owned.size).toBe(1);
+        expect(onRegistered).toHaveBeenLastCalledWith(true);
+
+        // Off the HiFi route a drop schedules nothing.
+        service.update({ active: false });
+        await flush();
+        replacement.drop();
+        expect(timers).toHaveLength(0);
+        service.dispose();
     });
 });

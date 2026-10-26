@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef } from 'react';
+import { create } from 'zustand';
 import { PlayerState } from '../../types';
 import type { SongResult } from '../../types';
-import type { HifiMprisArtwork, HifiMprisCommand, HifiMprisState } from '../../types/hifi';
+import type { HifiMprisArtwork, HifiMprisCommand, HifiMprisState, HifiMprisStatus } from '../../types/hifi';
 import type { UseMediaSessionBridgeOptions } from '../../hooks/useMediaSessionBridge';
 import { getProviderSongMetadata, getSongAlbumLabel, getSongCoverUrl } from '../../services/onlineMusic/songMetadata';
 import { usePlaybackStore } from '../../stores/usePlaybackStore';
@@ -11,7 +12,8 @@ import { getPlaybackSongKey } from '../../utils/appPlaybackGuards';
 
 // src/components/hifi/useHifiMpris.ts
 // Linux：HiFi 在放时系统媒体控制由主进程登记的 MPRIS 提供（electron/hifi/mpris/），不靠页面里的静音保活：保活是
-// Chromium 的一路流，挡住 PipeWire 切换设备采样率（#835）。这里把当前曲目、播放状态和位置推过去，收它转来的按键。
+// Chromium 的一路流，挡住 PipeWire 切换设备采样率（#835）。这里把当前曲目、播放状态和位置推过去，收它转来的按键，
+// 也收它登记成没成：没成（没有会话总线、名字拿不到）时页面退回静音保活，系统媒体控制总还有一路。
 
 type UseHifiMprisOptions = Pick<UseMediaSessionBridgeOptions,
     | 'currentSong'
@@ -29,6 +31,7 @@ type HifiMprisApi = {
     setMprisState: (state: HifiMprisState) => Promise<void>;
     setMprisArtwork: (trackKey: string, artwork: HifiMprisArtwork | null) => Promise<void>;
     onMprisCommand: (callback: (command: HifiMprisCommand) => void) => () => void;
+    onMprisStatus?: (callback: (status: HifiMprisStatus) => void) => () => void;
 };
 
 const ARTWORK_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp']);
@@ -38,11 +41,24 @@ export const getHifiMprisApi = (): HifiMprisApi | null => {
     if (typeof window === 'undefined' || window.electron?.platform !== 'linux') return null;
     const hifi = window.electron?.hifi;
     if (!hifi?.setMprisState || !hifi.setMprisArtwork || !hifi.onMprisCommand) return null;
-    return { setMprisState: hifi.setMprisState, setMprisArtwork: hifi.setMprisArtwork, onMprisCommand: hifi.onMprisCommand };
+    return {
+        setMprisState: hifi.setMprisState,
+        setMprisArtwork: hifi.setMprisArtwork,
+        onMprisCommand: hifi.onMprisCommand,
+        onMprisStatus: hifi.onMprisStatus,
+    };
 };
 
-/** 系统媒体控制是不是由主进程的 MPRIS 给：是的话页面不放保活。 */
-export const hasMainProcessMediaControls = (): boolean => getHifiMprisApi() !== null;
+/** 主进程报来的 MPRIS 登记结果；还没报过时为 null，那时先当作登记得上（不放会挡住 PipeWire 切采样率的保活）。 */
+export const useHifiMprisStatusStore = create<{ registered: boolean | null }>(() => ({ registered: null }));
+
+/** 系统媒体控制是不是由主进程的 MPRIS 给：是的话页面不放保活。主进程报了登记不上时为假，保活照旧。 */
+export const hasMainProcessMediaControls = (registered = useHifiMprisStatusStore.getState().registered): boolean => (
+    getHifiMprisApi() !== null && registered !== false
+);
+
+/** hasMainProcessMediaControls 的 hook 版：主进程报来新的登记结果时重新算。 */
+export const useMainProcessMediaControls = (): boolean => hasMainProcessMediaControls(useHifiMprisStatusStore(state => state.registered));
 
 export const mprisStatusOf = (playerState: PlayerState, isNowPlayingStageActive: boolean): 'Playing' | 'Paused' | 'Stopped' => {
     if (isNowPlayingStageActive) return 'Stopped';
@@ -74,7 +90,10 @@ export const buildMprisState = ({ song, trackKey, status, unknownArtistLabel, se
     };
 };
 
-/** 封面：先在页面里读成字节（blob:、本地封面的自定义协议主进程外面打不开），读不到时 http(s) 的交原址。 */
+/**
+ * 封面：先在页面里读成字节（blob:、本地封面的自定义协议主进程外面打不开），读不到时 http(s) 的交原址，
+ * 由主进程下载成文件（原址可能带凭据，不挂到会话总线上）。
+ */
 export const readMprisArtwork = async (url: string, fetchImpl: typeof fetch = fetch): Promise<HifiMprisArtwork | null> => {
     try {
         const response = await fetchImpl(url);
@@ -114,13 +133,18 @@ export function useHifiMpris({
     const status = mprisStatusOf(playerState, isNowPlayingStageActive);
     const playerStateRef = useRef(playerState);
     playerStateRef.current = playerState;
+    // 推过活动状态之后才需要推一次不活动：Web 路线上换歌、播放暂停时不用每次都告诉主进程。
+    const sentActiveRef = useRef(false);
 
     useEffect(() => {
         if (!api) return;
         if (!active || !song || trackKey === null) {
+            if (!sentActiveRef.current) return;
+            sentActiveRef.current = false;
             api.setMprisState({ active: false }).catch(error => console.warn('[MPRIS] could not clear the HiFi player', error));
             return;
         }
+        sentActiveRef.current = true;
         const push = (seeked: boolean) => {
             const state = buildMprisState({ song, trackKey, status, unknownArtistLabel, seeked, nowMs: Date.now() });
             api.setMprisState(state).catch(error => console.warn('[MPRIS] could not update the HiFi player', error));
@@ -181,7 +205,19 @@ export function useHifiMpris({
         });
     }, [api, isNowPlayingControlDisabledRef, mediaSessionNextRef, mediaSessionPauseRef, mediaSessionPlayRef, mediaSessionPrevRef]);
 
+    useEffect(() => {
+        if (!api?.onMprisStatus) return;
+        return api.onMprisStatus(status => {
+            const registered = status?.registered === true;
+            if (useHifiMprisStatusStore.getState().registered === registered) return;
+            if (!registered) console.warn('[MPRIS] main could not register MPRIS: falling back to the page keep-alive');
+            useHifiMprisStatusStore.setState({ registered });
+        });
+    }, [api]);
+
     useEffect(() => () => {
+        if (!sentActiveRef.current) return;
+        sentActiveRef.current = false;
         getHifiMprisApi()?.setMprisState({ active: false }).catch(() => {});
     }, []);
 }

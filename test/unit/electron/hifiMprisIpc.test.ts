@@ -1,21 +1,27 @@
 import { createRequire } from 'node:module';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, promises as fsPromises, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // 钉住 MPRIS 的 IPC 接入点：只认主窗口、推来的状态逐项校验（不合规的当作不活动）、封面只收图片字节或 http(s) 原址、
-// 封面文件只留当前这首、晚到的上一首封面不写；按键推回主窗口，Raise 把窗口拿到前面。
+// 封面文件只留当前这首、晚到的上一首封面不写、写和清理排队做、http(s) 原址由主进程下载而不挂到总线上；按键和登记成没成推回主窗口，
+// Raise 把窗口拿到前面。
 
 const require = createRequire(import.meta.url);
 const ipc = require('../../../electron/hifi/mpris/mprisIpc.cjs') as {
     STATE_CHANNEL: string;
     ARTWORK_CHANNEL: string;
     COMMAND_CHANNEL: string;
+    STATUS_CHANNEL: string;
     validateMprisState: (value: unknown) => Record<string, unknown>;
     validateArtwork: (value: unknown) => Record<string, unknown> | null;
     fileUrl: (filePath: string) => string;
     registerMprisIpc: (options: Record<string, unknown>) => { dispose: () => void };
+    createArtworkFiles: (options: Record<string, unknown>) => {
+        write: (image: { bytes: Buffer; extension: string }) => Promise<string>;
+        clear: () => Promise<void>;
+    };
 };
 
 const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360000002000154a24f5d0000000049454e44ae426082', 'hex');
@@ -88,6 +94,7 @@ describe('registerMprisIpc', () => {
     let window: Record<string, unknown>;
     let trusted: boolean;
     let connection: ReturnType<typeof fakeConnection>;
+    let fetchArtwork: ReturnType<typeof vi.fn>;
 
     const fakeConnection = () => {
         let handler: ((message: Record<string, unknown>) => unknown) | null = null;
@@ -117,6 +124,7 @@ describe('registerMprisIpc', () => {
         sent = [];
         trusted = true;
         connection = fakeConnection();
+        fetchArtwork = vi.fn(async () => ({ bytes: Buffer.from([...PNG, 9]), extension: 'png' }));
         window = {
             isDestroyed: () => false,
             isMinimized: () => true,
@@ -133,6 +141,7 @@ describe('registerMprisIpc', () => {
             env: { DBUS_SESSION_BUS_ADDRESS: 'unix:path=/nowhere' },
             uid: 1000,
             connect: async () => connection,
+            fetchArtwork,
         });
     });
 
@@ -154,7 +163,7 @@ describe('registerMprisIpc', () => {
         await flush();
         await connection.invoke('org.mpris.MediaPlayer2.Player', 'PlayPause');
         await connection.invoke('org.mpris.MediaPlayer2', 'Raise');
-        expect(sent).toEqual([[ipc.COMMAND_CHANNEL, 'playpause']]);
+        expect(sent.filter(([channel]) => channel === ipc.COMMAND_CHANNEL)).toEqual([[ipc.COMMAND_CHANNEL, 'playpause']]);
         expect(window.restore).toHaveBeenCalled();
         expect(window.show).toHaveBeenCalled();
         expect(window.focus).toHaveBeenCalled();
@@ -169,7 +178,8 @@ describe('registerMprisIpc', () => {
         const [first] = readdirSync(artworkDir);
         expect(first).toMatch(/^cover-[0-9a-f]{40}\.png$/);
         expect(readFileSync(path.join(artworkDir, first))).toEqual(PNG);
-        expect(statSync(path.join(artworkDir, first)).mode & 0o777).toBe(0o600);
+        // Windows has no unix permission bits; MPRIS only runs on Linux.
+        if (process.platform !== 'win32') expect(statSync(path.join(artworkDir, first)).mode & 0o777).toBe(0o600);
         const metadata = (await connection.invoke('org.freedesktop.DBus.Properties', 'Get', 'ss', ['org.mpris.MediaPlayer2.Player', 'Metadata'])) as {
             body: [{ value: Array<[string, { value: unknown }]> }];
         };
@@ -189,5 +199,62 @@ describe('registerMprisIpc', () => {
         await flush();
         await new Promise(resolve => setTimeout(resolve, 20));
         expect(existsSync(artworkDir) ? readdirSync(artworkDir) : []).toEqual([]);
+    });
+
+    it('tells the main window whether MPRIS is registered while HiFi plays', async () => {
+        await handlers[ipc.STATE_CHANNEL]({}, validState());
+        await flush();
+        expect(sent).toContainEqual([ipc.STATUS_CHANNEL, { registered: true }]);
+    });
+
+    it('downloads an http(s) cover in main and never puts the address on the bus', async () => {
+        const address = 'https://nd.example/rest/getCoverArt?id=1&u=me&t=secret&s=salt';
+        await handlers[ipc.STATE_CHANNEL]({}, validState());
+        await flush();
+        await handlers[ipc.ARTWORK_CHANNEL]({}, 'local:1#a', { url: address });
+        await flush();
+        expect(fetchArtwork).toHaveBeenCalledWith(address);
+        const metadata = (await connection.invoke('org.freedesktop.DBus.Properties', 'Get', 'ss', ['org.mpris.MediaPlayer2.Player', 'Metadata'])) as {
+            body: [{ value: Array<[string, { value: unknown }]> }];
+        };
+        const artUrl = Object.fromEntries(metadata.body[0].value.map(([key, value]) => [key, value.value]))['mpris:artUrl'] as string;
+        expect(artUrl).toMatch(/^file:\/\//);
+        expect(String(metadata.body[0].value.map(([, value]) => value.value))).not.toContain('secret');
+
+        // A download that fails leaves no cover rather than the address.
+        fetchArtwork.mockResolvedValueOnce(null);
+        await handlers[ipc.ARTWORK_CHANNEL]({}, 'local:1#a', { url: address });
+        const after = (await connection.invoke('org.freedesktop.DBus.Properties', 'Get', 'ss', ['org.mpris.MediaPlayer2.Player', 'Metadata'])) as {
+            body: [{ value: Array<[string, { value: unknown }]> }];
+        };
+        expect(String(after.body[0].value.map(([, value]) => value.value))).not.toContain('nd.example');
+    });
+});
+
+describe('createArtworkFiles', () => {
+    it('runs writes and clears one after another, so a slower write never deletes the newer cover', async () => {
+        const dir = mkdtempSync(path.join(os.tmpdir(), 'folia-mpris-files-'));
+        try {
+            let releaseFirst: () => void = () => {};
+            const firstWritten = new Promise<void>(resolve => { releaseFirst = resolve; });
+            let writes = 0;
+            const fsImpl = {
+                ...fsPromises,
+                writeFile: async (...args: Parameters<typeof fsPromises.writeFile>) => {
+                    writes += 1;
+                    if (writes === 1) await firstWritten;
+                    return fsPromises.writeFile(...args);
+                },
+            };
+            const files = ipc.createArtworkFiles({ getDirectory: () => dir, fsImpl });
+            const first = files.write({ bytes: Buffer.from([...PNG, 1]), extension: 'png' });
+            const second = files.write({ bytes: Buffer.from([...PNG, 2]), extension: 'png' });
+            releaseFirst();
+            await first;
+            const latest = await second;
+            expect(readdirSync(dir)).toEqual([path.basename(latest)]);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
     });
 });
