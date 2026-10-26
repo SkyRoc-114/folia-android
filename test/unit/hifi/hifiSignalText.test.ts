@@ -11,6 +11,7 @@ import {
     formatSampleRate,
     formatStageFormat,
     isConversionLossless,
+    isValuePreservingPath,
     stageLabel,
     stageStatusLabel,
     verdictDescription,
@@ -51,6 +52,7 @@ const EN: Record<string, string> = {
     'hifi.signal.verdictDesc.bitPerfect': 'Every sample reaches your DAC exactly as it is in the file.',
     'hifi.signal.verdictDesc.converted': 'mpv changes the signal before it reaches the output.',
     'hifi.signal.verdictDesc.convertedFloatToInt': 'mpv only converts 32-bit float to 32-bit integer. Not bit-perfect.',
+    'hifi.signal.verdictDesc.convertedToFloat': 'mpv only converts the samples to floating point. Not bit-perfect.',
     'hifi.signal.verdictDesc.sharedMixer': 'The output device is shared with other apps. Turn on exclusive mode in the HiFi settings.',
     'hifi.signal.verdictDesc.sharedMixerExclusiveOn': 'Exclusive mode is on, but this output device does not take it. Choose another output device.',
     'hifi.signal.verdictDesc.sharedMixerLinux': 'PipeWire or PulseAudio mixes this output. Choose a device marked direct.',
@@ -75,6 +77,7 @@ const EN: Record<string, string> = {
     'hifi.signal.conversion.resample': 'Resampled from {{from}} to {{to}}',
     'hifi.signal.conversion.resamplePlain': 'Resampled',
     'hifi.signal.conversion.format': 'Sample format changed from {{from}} to {{to}}',
+    'hifi.signal.conversion.toFloat': 'Converted from {{from}} to {{to}}: values kept',
     'hifi.signal.conversion.formatPlain': 'Sample format changed',
     'hifi.signal.conversion.floatToInt': '32-bit float converted to 32-bit integer: values kept, only samples above 0 dBFS clipped',
     'hifi.signal.conversion.channels': 'Channels changed from {{from}} to {{to}}',
@@ -354,8 +357,9 @@ describe('formats', () => {
 describe('conversions and stage notes', () => {
     it('says each conversion in plain words, with the values on both ends', () => {
         const path = resampledToFloat();
-        expect(stageOf(path, 'output').conversions).toEqual(['resample', 'format']);
+        expect(stageOf(path, 'output').conversions).toEqual(['resample', 'to-float']);
         expect(describeConversion('resample', path, t, 'en')).toBe('Resampled from 44.1 kHz to 48 kHz');
+        expect(describeConversion('to-float', path, t, 'en')).toBe('Converted from 16 bit to 32 bit float: values kept');
         expect(describeConversion('format', path, t, 'en')).toBe('Sample format changed from 16 bit to 32 bit float');
         expect(describeConversion('dsd-to-pcm', path, t, 'en')).toBe('DSD converted to PCM');
     });
@@ -373,6 +377,57 @@ describe('conversions and stage notes', () => {
         const resampled = buildSignalPath(floatFile, engine({ audioParams: params('float', 96000), audioOutParams: params('s32', 48000) }), settings);
         expect(stageOf(resampled, 'output').conversions).toEqual(['resample', 'float-to-int']);
         expect(verdictDescription(resampled, t, 'win32')).toBe('mpv changes the signal before it reaches the output.');
+    });
+
+    it('treats a path whose only changes keep every value as a note, not a warning', () => {
+        const floatFile = { ...pcmSpec(32, 96000), codec: 'WAV', container: 'WAV' };
+        const floatToS32 = buildSignalPath(floatFile, engine({ audioParams: params('float', 96000), audioOutParams: params('s32', 96000) }), settings);
+        expect(isValuePreservingPath(floatToS32)).toBe(true);
+        expect(signalPathTone(floatToS32)).toBe('accent');
+        // Still not bit-perfect: the verdict and its words stay "converted".
+        expect(floatToS32.verdict).toBe('converted');
+        expect(verdictLabel(floatToS32.verdict, t)).toBe('Converted');
+
+        const s16ToFloat = buildSignalPath(pcmSpec(16, 44100), engine({ audioParams: params('s16', 44100), audioOutParams: params('float', 44100) }), settings);
+        expect(isValuePreservingPath(s16ToFloat)).toBe(true);
+        expect(isConversionLossless('to-float')).toBe(true);
+        expect(verdictDescription(s16ToFloat, t, 'win32')).toBe('mpv only converts the samples to floating point. Not bit-perfect.');
+
+        // Anything else on the way keeps the warning: resampling, DSD to PCM, a system mixer, a narrowing.
+        const resampled = buildSignalPath(floatFile, engine({ audioParams: params('float', 96000), audioOutParams: params('s32', 48000) }), settings);
+        const dsd = buildSignalPath(
+            dsdSpec,
+            engine({ audioParams: params('float', 352800), audioOutParams: params('s32', 352800) }),
+            settings,
+        );
+        const shared = buildSignalPath(
+            pcmSpec(16, 44100),
+            engine({ exclusive: false, audioParams: params('s16', 44100), audioOutParams: params('float', 44100) }),
+            { ...settings, exclusive: false },
+        );
+        const narrowed = buildSignalPath(floatFile, engine({ audioParams: params('float', 96000), audioOutParams: params('s24', 96000) }), settings);
+        for (const [name, path] of [['resampled', resampled], ['dsd', dsd], ['shared', shared], ['narrowed', narrowed]] as const) {
+            expect(isValuePreservingPath(path), name).toBe(false);
+            expect(signalPathTone(path), name).toBe('muted');
+        }
+        expect(isValuePreservingPath(bitPerfect96())).toBe(false);
+    });
+
+    it('on PipeWire, needs the PipeWire step untouched too, and loses the accent when a check fails', () => {
+        const floatOnPipewire = (probe: HifiOutputProbe) => buildSignalPath(
+            { ...pcmSpec(32, 96000), codec: 'WAV', container: 'WAV' },
+            engine({ currentAo: 'pipewire', audioDevice: 'auto', exclusive: false, audioParams: params('float', 96000), audioOutParams: params('s32', 96000) }),
+            { ...settings, exclusive: false },
+            probe,
+        );
+        const clean = floatOnPipewire(cleanProbe(96000));
+        expect(isValuePreservingPath(clean)).toBe(true);
+        expect(signalPathTone(clean)).toBe('accent');
+        // PipeWire runs the device at 48 kHz: resampled after all.
+        expect(isValuePreservingPath(floatOnPipewire(cleanProbe(48000)))).toBe(false);
+        const busy = floatOnPipewire(cleanProbe(96000, { otherStreams: [{ nodeId: 140, name: 'Firefox', own: false }] }));
+        expect(isValuePreservingPath(busy)).toBe(true);
+        expect(signalPathTone(busy)).toBe('muted');
     });
 
     it('names the software volume and the channel remix', () => {

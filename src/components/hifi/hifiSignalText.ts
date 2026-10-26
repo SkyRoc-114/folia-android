@@ -51,17 +51,35 @@ const FLOAT_FORMAT = /^(float|double)p?$/i;
 /** PipeWire 的浮点格式名：F32LE、F32P、F64… */
 const PIPEWIRE_FLOAT_FORMAT = /^F(32|64)(LE|BE|P)?$/i;
 
+/** 只换了采样格式、每个采样的数值不变的改动。 */
+const VALUE_PRESERVING_CONVERSIONS: ReadonlySet<HifiSignalConversion> = new Set<HifiSignalConversion>(['float-to-int', 'to-float']);
+
+/**
+ * 「途中经过转换」里只有数值不变的格式转换：mpv 一路的改动都是 float 转 s32 或转成浮点，PipeWire 那一级（有的话）也没改动。
+ * 结论仍是已转换（格式和文件不同，不算比特完美），但徽标和面板顶上用提示图标，不用警告图标。
+ */
+export const isValuePreservingPath = (path: HifiSignalPath) => {
+    if (path.verdict !== 'converted') return false;
+    const mpvConversions = path.stages.filter(stage => stage.id !== 'system').flatMap(stage => stage.conversions);
+    const systemConversions = path.stages.find(stage => stage.id === 'system')?.conversions ?? [];
+    return mpvConversions.length > 0
+        && mpvConversions.every(conversion => VALUE_PRESERVING_CONVERSIONS.has(conversion))
+        && systemConversions.length === 0;
+};
+
 export const verdictTone = (verdict: HifiSignalVerdict): HifiVerdictTone => (
     verdict === 'bit-perfect' || verdict === 'dop' || verdict === 'rate-passthrough' ? 'accent' : 'muted'
 );
 
 /**
- * 徽标的颜色：按结论（verdictTone），只是采样率直通时 PipeWire 那一级还有一项没过（滤波器、音量、别的流、声道），
- * 就不用强调色：采样率对上了，声音照样可能被 PipeWire 改了。
+ * 徽标的颜色：按结论（verdictTone）；只有数值不变的格式转换时和采样率直通一样用强调色（isValuePreservingPath）。
+ * 这两种情况下 PipeWire 那一级还有一项没过（滤波器、音量、别的流、声道），就不用强调色：声音照样可能被 PipeWire 改了。
  */
-export const signalPathTone = (path: HifiSignalPath): HifiVerdictTone => (
-    path.verdict === 'rate-passthrough' && path.system?.checks.some(check => !check.ok) ? 'muted' : verdictTone(path.verdict)
-);
+export const signalPathTone = (path: HifiSignalPath): HifiVerdictTone => {
+    const valuePreserving = isValuePreservingPath(path);
+    if ((path.verdict === 'rate-passthrough' || valuePreserving) && path.system?.checks.some(check => !check.ok)) return 'muted';
+    return valuePreserving ? 'accent' : verdictTone(path.verdict);
+};
 
 /** 徽标和格子用的短说法：原生直通、原生 DSD、已转换… */
 export const verdictLabel = (verdict: HifiSignalVerdict, t: TFunction) => t(`hifi.signal.verdictShort.${VERDICT_KEY[verdict]}`);
@@ -85,11 +103,14 @@ export const verdictDescription = (path: HifiSignalPath, t: TFunction, platform:
         if (platform === 'linux') return t('hifi.signal.verdictDesc.sharedMixerLinux');
         if (path.output.exclusive) return t('hifi.signal.verdictDesc.sharedMixerExclusiveOn');
     }
-    // mpv 一路只把 32 位浮点转成了 s32：仍是「已转换」，但说清楚数值没变。PipeWire 那一级的改动另由那一级说。
+    // mpv 一路只把 32 位浮点转成了 s32，或只是转成了浮点：仍是「已转换」，但说清楚数值没变。PipeWire 那一级的改动另由那一级说。
     if (path.verdict === 'converted') {
         const mpvConversions = path.stages.filter(stage => stage.id !== 'system').flatMap(stage => stage.conversions);
         if (mpvConversions.length > 0 && mpvConversions.every(conversion => conversion === 'float-to-int')) {
             return t('hifi.signal.verdictDesc.convertedFloatToInt');
+        }
+        if (mpvConversions.length > 0 && mpvConversions.every(conversion => conversion === 'to-float')) {
+            return t('hifi.signal.verdictDesc.convertedToFloat');
         }
     }
     return t(`hifi.signal.verdictDesc.${VERDICT_KEY[path.verdict]}`);
@@ -250,6 +271,8 @@ export const describeConversion = (
             return between('format', formatSampleDepth(decoded, t), formatSampleDepth(output, t));
         case 'float-to-int':
             return t('hifi.signal.conversion.floatToInt');
+        case 'to-float':
+            return between('toFloat', formatSampleDepth(decoded, t), formatSampleDepth(output, t));
         case 'channels':
             return between('channels', formatChannels(decoded?.channels, t), formatChannels(output?.channels, t));
         case 'dsd-to-pcm':
@@ -278,8 +301,12 @@ export const describeConversion = (
     }
 };
 
-/** DoP 打包原样送达，32 位浮点转 s32 数值不变（只截超过 0 dBFS 的），用不警示的颜色；别的改动都改了数据或交给了系统混音器。 */
-export const isConversionLossless = (conversion: HifiSignalConversion) => conversion === 'dop' || conversion === 'float-to-int';
+/**
+ * DoP 打包原样送达，32 位浮点转 s32（只截超过 0 dBFS 的）和转成浮点时数值不变，用不警示的颜色；别的改动都改了数据或交给了系统混音器。
+ */
+export const isConversionLossless = (conversion: HifiSignalConversion) => (
+    conversion === 'dop' || VALUE_PRESERVING_CONVERSIONS.has(conversion)
+);
 
 /**
  * 每一级格式之外的一句说明：传输看来源（本机曲库还是 Navidrome 原文件），处理级说绕过了什么，输出级说独占还是共享。

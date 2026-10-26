@@ -165,7 +165,7 @@ mpv ──HTTP（Range）──> electron/hifi/sourceBridge.cjs（127.0.0.1，�
 
 - 解码出的采样率、声道数和送进设备的一样；不一样就是重采样或声道转换（设备收不下源的格式时 mpv 会换成它收得下的）。
 - 采样格式一样，或者只是整数低位补零（s16 → s24 / s32、s24 → s32）。mpv 把 24 位 FLAC 解成 s32，仍算直通。
-  32 位浮点（含 mp3、AAC 这类解成 floatp 的）送成 s32 单独记一项 `float-to-int`：±1.0 以内每个采样的数值不变，只有超过 0 dBFS 的被截顶，面板用不警示的颜色写明这一点；但送到 DAC 的数据格式和文件不同，判定仍是“途中经过转换”，不算原生直通。很多 USB DAC 独占时只收整数 PCM，mpv 只能这样转。float 转 s24 / s16、double 转整数会丢精度，仍记 `format`。
+  32 位浮点（含 mp3、AAC 这类解成 floatp 的）送成 s32 单独记一项 `float-to-int`：±1.0 以内每个采样的数值不变，只有超过 0 dBFS 的被截顶。很多 USB DAC 独占时只收整数 PCM，mpv 只能这样转。转成浮点而数值不变的记 `to-float`：有效位数不超过尾数的整数转浮点（16 / 24 bit 转 float，32 bit 转 double）、float 转 double。这两种送到 DAC 的数据格式都和文件不同，判定仍是“途中经过转换”，不算原生直通；但途中只有这两种改动、PipeWire 那一级（有的话）也没改动时（`isValuePreservingPath`），进度条旁的徽标和面板顶上用提示图标 `BadgeInfo` 和强调色，不用警告的 `TriangleAlert`，PipeWire 那一级有一项检查没过时徽标改用次要色（和采样率直通一样）。float 转 s24 / s16、double 转 float 或整数、32 bit 整数转 float 会丢精度，仍记 `format`，照旧警告。
 - 软件音量关着。
 
 Linux 的 hw: 设备 mpv 的 `audio-device-list` 里没有（它都滤掉了），`mpvSession.cjs` 从 `/proc/asound/cards` 和 `/proc/asound/pcm` 补上；mpv 一个 `alsa/` 设备都没列（没编 ALSA 输出）时不补。用 hw: 直连时别的程序用不了这块声卡；PipeWire 正在这块声卡上放音时它是被占的（`DEVICE_BUSY`），要选 PipeWire 没在用的声卡，或把它的配置文件设为关。

@@ -130,6 +130,25 @@ const isFloatToS32 = (input: HifiMpvAudioParams, out: HifiMpvAudioParams) => (
     parseSampleFormat(input.format).base === 'float' && parseSampleFormat(out.format).base === 's32'
 );
 
+/** 浮点格式能原样装下的整数位数：float32 的尾数连隐含位 24 位，double 53 位。 */
+const FLOAT_EXACT_BITS: Record<number, number> = { 32: 24, 64: 53 };
+
+/**
+ * 转成浮点而每个采样的数值不变：整数（源的有效位数不超过浮点的尾数，16 / 24 bit 转 float、32 bit 转 double）
+ * 除以 2 的幂、float 转 double，都落在浮点上，不舍入。数据格式变了，仍不算比特完美。
+ */
+const isExactToFloat = (input: HifiMpvAudioParams, out: HifiMpvAudioParams, spec: HifiSourceSpec | null) => {
+    const from = parseSampleFormat(input.format);
+    const to = parseSampleFormat(out.format);
+    const exactBits = to.kind === 'float' && to.width !== null ? FLOAT_EXACT_BITS[to.width] : undefined;
+    if (exactBits === undefined || from.width === null) return false;
+    if (from.kind === 'float') return to.width! > from.width;
+    if (from.kind !== 'int') return false;
+    const sourceBits = spec && !spec.isDsd ? positiveOrNull(spec.bitDepth) : null;
+    const effectiveWidth = sourceBits !== null && sourceBits <= from.width ? sourceBits : from.width;
+    return effectiveWidth <= exactBits;
+};
+
 /** 认 --audio-exclusive 的驱动：开了独占就绕过系统混音器。Core Audio 开独占时 mpv 会改用 coreaudio_exclusive。 */
 const EXCLUSIVE_CAPABLE_DRIVERS = new Set(['wasapi', 'coreaudio']);
 
@@ -245,7 +264,9 @@ export const buildSignalPath = (
     } else if (out && input) {
         if (input.samplerate !== out.samplerate) outputConversions.push('resample');
         if (input.channelCount !== out.channelCount) outputConversions.push('channels');
-        if (!isLosslessFormatChange(input, out, sourceSpec)) outputConversions.push(isFloatToS32(input, out) ? 'float-to-int' : 'format');
+        if (!isLosslessFormatChange(input, out, sourceSpec)) {
+            outputConversions.push(isFloatToS32(input, out) ? 'float-to-int' : isExactToFloat(input, out, sourceSpec) ? 'to-float' : 'format');
+        }
     }
     // 有 PipeWire 的探测时，「可能被系统混音器改动」换成 system 一级里 PipeWire 报的实情。
     const system = out && input && !dop && probe && isPipewireOutputDriver(mpvState.currentAo)

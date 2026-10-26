@@ -180,6 +180,30 @@ describe('the HiFi player surfaces', () => {
             expect(capsuleClick).not.toHaveBeenCalled();
         });
 
+        it('shows a note, not a warning, when the only change keeps every value, and the same in the sheet', () => {
+            playOnHifi();
+            const withOutput = (format: string) => act(() => {
+                useHifiEngineStore.setState({ engine: { ...engineState('local:1#a'), audioOutParams: params(format, 96000) } });
+            });
+            // The 24-bit FLAC decoded as s32 goes out as float: every value kept, still "converted".
+            withOutput('float');
+            draw(React.createElement(React.Fragment, null, React.createElement(HifiBadge), React.createElement(HifiSignalPathPanel)));
+            const badge = place.querySelector('button')!;
+            expect(badge.textContent).toContain(i18n.t('hifi.signal.verdictShort.converted'));
+            expect(badge.querySelector('svg')!.getAttribute('class')).toContain('lucide-badge-info');
+            expect(badge.className).toContain('text-[color:var(--text-accent)]');
+            act(() => openHifiSignalPath());
+            const status = document.querySelector('[role="status"]')!;
+            expect(status.textContent).toBe(i18n.t('hifi.signal.verdict.converted'));
+            expect(status.closest('section')!.querySelector('svg')!.getAttribute('class')).toContain('lucide-badge-info');
+            act(() => closeHifiSignalPath());
+
+            // Narrowed to 16 bit: precision lost, the warning stays.
+            withOutput('s16');
+            expect(badge.querySelector('svg')!.getAttribute('class')).toContain('lucide-triangle-alert');
+            expect(badge.className).toContain('text-[color:var(--text-secondary)]');
+        });
+
         it('stays out of reach while the controls are', () => {
             playOnHifi();
             draw(React.createElement(HifiBadge, { disabled: true }));

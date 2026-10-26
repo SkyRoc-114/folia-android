@@ -14,6 +14,7 @@ import {
     describeStage,
     formatStageFormat,
     isConversionLossless,
+    isValuePreservingPath,
     stageLabel,
     stageStatusLabel,
     verdictDescription,
@@ -38,6 +39,8 @@ const VERDICT_LOOK: Record<HifiSignalVerdict, { icon: LucideIcon; className: str
     'shared-mixer': { icon: Merge, className: 'text-[color:var(--st-warn)]' },
     unknown: { icon: CircleHelp, className: 'text-[color:var(--st-t3)]' },
 };
+// 已转换但只有数值不变的格式转换（float 转 s32、转成浮点）：和采样率直通同一个提示图标，不用警告色。
+const VALUE_PRESERVING_LOOK = { icon: BadgeInfo, className: 'text-[color:var(--st-accent)]' };
 
 const STATUS_CHIP_CLASS: Record<HifiSignalStageStatus, string> = {
     passthrough: 'bg-[color-mix(in_srgb,var(--st-ok)_14%,transparent)] text-[color:var(--st-ok)]',
@@ -135,7 +138,7 @@ const HifiSignalPathPanel: React.FC = () => {
 
     useHifiOutputProbe(isOpen);
 
-    const look = path ? VERDICT_LOOK[path.verdict] : null;
+    const look = path ? (isValuePreservingPath(path) ? VALUE_PRESERVING_LOOK : VERDICT_LOOK[path.verdict]) : null;
     const deviceLabel = path && audioDeviceLabel && path.output.device === audioDevice ? audioDeviceLabel : null;
 
     // 一直画同一个 Sheet，关上时它还能带着最后的内容退场。
