@@ -8,7 +8,6 @@ import { usePlayerChromeSettingsStore } from '../../../../stores/usePlayerChrome
 import { useStageSettingsStore } from '../../../../stores/useStageSettingsStore';
 import { Button, CopyValue, Group, Reveal, Row, Status, Toggle, Value, type SettingsOptionDef } from '../kit';
 import NavidromeRows from './integration/NavidromeRows';
-import FnMusicRows from './integration/FnMusicRows';
 import { O, SERVICES, STREAMING } from './integration/options';
 import { DesktopStageRows, WebStageRows } from './integration/StageModeRows';
 import SyncServerRows from './integration/SyncServerRows';
@@ -49,8 +48,7 @@ const IntegrationPage: React.FC = () => {
         <>
             <Group def={SERVICES}>
                 <NavidromeRows />
-                <FnMusicRows />
-                <SyncServerRows />
+                                <SyncServerRows />
                 {isElectron && (
                     <>
                         <Row option={O.discord} hint={t('options.discordRichPresenceDesc')}>
