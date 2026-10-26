@@ -23,8 +23,10 @@ export const TEMPERA_FRONT_BLUR = 6;
 /**
  * The baked pictures' share of the render resolution. Every shot keeps its own baked textures, and a
  * blurred picture holds no detail a full-resolution texture would show, so half is a quarter the VRAM.
+ * A light blur (the background's, a few px) still shows edges, so those keep full resolution.
  */
 const BAKE_RESOLUTION_SHARE = 0.5;
+const BAKE_HALF_RESOLUTION_MIN_BLUR = 4;
 
 export interface TemperaDepthView {
     back: Container[];
@@ -100,10 +102,11 @@ export const createTemperaBlurBaker = (
     if (options.staticMode || !renderer) return null;
     const scale = options.width / 1280;
     // Blur strength is in logical px (Pixi scales it by the input size), so the radius holds.
-    const resolution = options.resolution * BAKE_RESOLUTION_SHARE;
     return {
         bake: (node, strength) => {
-            const baked = renderBlurred(pixi, renderer, node, strength * scale, resolution);
+            const radius = strength * scale;
+            const share = radius >= BAKE_HALF_RESOLUTION_MIN_BLUR ? BAKE_RESOLUTION_SHARE : 1;
+            const baked = renderBlurred(pixi, renderer, node, radius, options.resolution * share);
             options.textures.add(baked.texture);
             return baked;
         },
