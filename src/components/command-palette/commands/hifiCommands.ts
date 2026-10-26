@@ -1,11 +1,12 @@
 import { AudioWaveform, Download, Lock, RefreshCw, Server, SlidersHorizontal, Waypoints } from 'lucide-react';
 import type { CommandPaletteCommand, CommandPaletteSharedContext } from '../types';
-import { createSettingsCommand, createToggleCommand, defineCommand } from '../commandFactories';
+import { createSettingsAnchorCommand, createToggleCommand, defineCommand } from '../commandFactories';
 import { runtimeLine, type RuntimeTranslate } from '../../modal/settings/pages/hifi/runtimeState';
 
 // src/components/command-palette/commands/hifiCommands.ts
-// The HiFi (mpv) commands of the desktop app: the switch, its settings page, the switches and the
-// mpv actions of that page, and the signal-path panel of the song that is playing through it.
+// The HiFi (mpv) commands of the desktop app: the engine switch (Web Audio or mpv), its settings on
+// the 播放控制 page, the switches and the mpv actions there, and the signal-path panel of the song
+// that is playing through it.
 // DoP has no command on purpose: a DAC without DoP plays it as a hiss instead of the music, so that
 // choice is made on the settings page, beside its warning.
 
@@ -14,25 +15,25 @@ const translateWith = (t: CommandPaletteSharedContext['t']): RuntimeTranslate =>
     Object.entries(values).reduce((text, [name, value]) => text.split(`{{${name}}}`).join(value), t(key))
 );
 
-/** The switches of the HiFi page are offered where it enables them: in a build with the engine. */
+/** The engine switches are offered where the settings enable them: in a build with the engine. */
 const whereHifiIsSupported: CommandPaletteCommand['isAvailable'] = context => (context ? context.settings.isHifiSupported() : true);
 
 export const hifiCommands: CommandPaletteCommand[] = [
     createToggleCommand(
         'hifi-toggle',
         'settings',
-        'HiFi bit-perfect output',
-        'Toggle playing local and Navidrome songs through mpv, straight to the output device',
-        ['hifi', 'bit perfect', 'bitperfect', 'mpv', 'exclusive output', 'wasapi', 'dac', '原生直通', '无损直通', '比特完美', '独占输出'],
+        'mpv playback engine',
+        'Switch local and Navidrome songs between Web Audio and mpv, which sends them straight to the output device',
+        ['hifi', 'bit perfect', 'bitperfect', 'mpv', 'playback engine', 'web audio', 'exclusive output', 'wasapi', 'dac', '播放引擎', '原生直通', '无损直通', '比特完美', '独占输出'],
         (context) => {
             const { settings } = context;
             if (settings.isHifiEnabled()) {
                 settings.setHifiEnabled(false);
                 return;
             }
-            // The full-volume warning is asked on the settings page, never skipped from here.
+            // The full-volume warning is asked in the settings, never skipped from here.
             if (!settings.isHifiVolumeConfirmed()) {
-                settings.openSettings('options', 'hifi', null, 'hifiEngine');
+                settings.openSettings('options', 'playback', null, 'hifiEngine');
                 return;
             }
             settings.setHifiEnabled(true);
@@ -44,13 +45,12 @@ export const hifiCommands: CommandPaletteCommand[] = [
             isAvailable: whereHifiIsSupported,
         },
     ),
-    createSettingsCommand(
+    createSettingsAnchorCommand(
         'hifi-settings',
-        'HiFi settings',
-        'Open the HiFi settings: mpv, output device, exclusive mode and DSD',
-        ['hifi', 'mpv', 'bit perfect', 'dsd', 'dop', 'exclusive mode', 'audio device', '原生直通', '独占模式', '输出设备', '直通设置'],
-        'options',
-        'hifi',
+        'Playback engine settings',
+        'Open the playback engine settings: Web Audio or mpv, and mpv\'s output device, exclusive mode and DSD',
+        ['hifi', 'mpv', 'playback engine', 'web audio', 'bit perfect', 'dsd', 'dop', 'exclusive mode', 'audio device', '播放引擎', '原生直通', '独占模式', '输出设备', '直通设置'],
+        'hifiEngine',
         { platform: ['electron'] },
     ),
     createToggleCommand(
@@ -89,7 +89,7 @@ export const hifiCommands: CommandPaletteCommand[] = [
         keywords: ['find mpv', 'rescan mpv', 'mpv not found', 'locate mpv', '找不到 mpv', '检测 mpv', '重新查找播放器'],
         icon: RefreshCw,
         platform: ['electron'],
-        // The HiFi page disables its button while a download runs; the command is gone then too.
+        // The engine settings disable their button while a download runs; the command is gone then too.
         isAvailable: context => (context ? context.settings.canRedetectHifiRuntime() : true),
         execute: async (_input, context) => {
             const { t, setStatusMsg } = context.shared;
@@ -98,7 +98,7 @@ export const hifiCommands: CommandPaletteCommand[] = [
                 setStatusMsg({ type: 'error', text: t('hifi.errors.UNKNOWN') });
                 return true;
             }
-            // The same line the HiFi page shows: which mpv is in use, or why there is none.
+            // The same line the engine settings show: which mpv is in use, or why there is none.
             setStatusMsg({ type: runtime.available ? 'success' : 'error', text: runtimeLine(runtime, translateWith(t)).text });
             return true;
         },
@@ -111,7 +111,7 @@ export const hifiCommands: CommandPaletteCommand[] = [
         keywords: ['install mpv', 'get mpv', 'upgrade mpv', 'mpv installer', '安装 mpv', '获取 mpv', '升级 mpv', '下载播放器'],
         icon: Download,
         platform: ['electron'],
-        // Only where the HiFi page offers the button: a build Folia can download, nothing running, something newer.
+        // Only where the engine settings offer the button: a build Folia can download, nothing running, something newer.
         isAvailable: context => context?.settings.canInstallHifiRuntime() ?? false,
         // A download is not undone by pressing a key again, so no execute shortcut.
         execute: (_input, context) => {
@@ -125,8 +125,8 @@ export const hifiCommands: CommandPaletteCommand[] = [
                 if (result?.errorCode === 'INSTALL_CANCELLED') return;
                 setStatusMsg({ type: 'error', text: t(`hifi.errors.${result?.errorCode ?? 'INSTALL_FAILED'}`) });
             });
-            // The progress bar and the cancel button are on the HiFi page.
-            context.settings.openSettings('options', 'hifi', null, 'hifiEngine');
+            // The progress bar and the cancel button are in the playback engine settings.
+            context.settings.openSettings('options', 'playback', null, 'hifiEngine');
             return true;
         },
     }),

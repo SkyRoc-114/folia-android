@@ -77,9 +77,14 @@ mpv ──HTTP（Range）──> electron/hifi/sourceBridge.cjs（127.0.0.1，�
 - `HifiSystemReport.tsx`：面板里 PipeWire 那一级的检查、原因、可复制的配置行或命令，和面板底下“以上是 PipeWire 报告的状态…”那句。
 - `HifiBypassNotice.tsx`：音频效果器窗口顶上的“HiFi 绕过了均衡器和音效”。
 
-### 设置页
+### 设置
 
-`src/components/modal/settings/pages/HifiPage.tsx` 只做组装，每组一个文件在 `pages/hifi/`：`HifiEngineGroup.tsx`（开关、mpv 状态、下载 / 更新、手动路径、重新检测、Linux 的包管理器提示）、`HifiOutputGroup.tsx`（输出设备，Windows / macOS 上还有独占模式；Linux 不画这个开关）、`HifiDsdGroup.tsx`（转 PCM 或 DoP）、`HifiScopeGroup.tsx`（Navidrome 走不走 HiFi）、`HifiVolumeGroup.tsx`（软件音量）、`HifiLimitsGroup.tsx`（已知限制；Linux 上组底下一句 PipeWire 什么时候跟着歌切采样率）。`options.ts` 声明组和选项，组 id 就是锚点（`hifiEngine`、`hifiOutput`、`hifiDsd`、`hifiScope`、`hifiVolume`、`hifiLimits`）；`runtimeState.ts` 是设置页和命令面板共用的运行时判断。分区 `hifi` 在 `music` 组里 `playback` 之后，只在桌面版出现（`settingsNavModel.ts`）。
+没有单独的 HiFi 分区：桌面版「播放控制」页（`pages/PlaybackPage.tsx`）最上面画 `pages/hifi/HifiSettings.tsx`，两组：
+
+- `HifiEngineGroup.tsx`「播放引擎」：本地文件和 Navidrome 用 Web Audio 还是 mpv（二选一，存的仍是 `folia_hifi_enabled`），写明只对本地文件和 Navidrome 生效、在线歌曲始终用 Web Audio；第一次选 mpv 先问满音量。选了 mpv 才出现：mpv 会停用哪些 Web Audio 功能（均衡器、音效、ReplayGain、淡入淡出、智能过渡、频谱、歌词视频导出）、mpv 状态和下载 / 更新 / 重新检测、Linux 的包管理器命令、手动指定 mpv、Navidrome 也用 mpv。
+- `HifiOutputGroup.tsx`「mpv 输出」，只在选了 mpv 时画：输出设备（Linux 标「直连」）、独占模式（Windows / macOS，提示独占时系统媒体控制不可用；Linux 不画）、软件音量、`HifiDsdRows.tsx`（转 PCM 或 DoP，只在 Windows 画，别处存着 DoP 时也画出来好改回）。
+
+已知限制那一组和几段长说明（Linux 没有独占、PipeWire 的 allowed-rates、ASIO、mpv 路径的解释）去掉了：被绕过的功能并进了选 mpv 后的那句提示，PipeWire 没切采样率时信号链路面板自己给原因和配置。`options.ts` 声明组和选项，组 id 就是锚点（`hifiEngine`、`hifiOutput`，都在 `playback` 分区）；mpv 的行和输出组的 `available` 跟着当前选的引擎走，选 Web Audio 时设置搜索也搜不到它们。`runtimeState.ts` 是设置和命令面板共用的运行时判断。
 
 ### 命令
 
@@ -159,7 +164,7 @@ mpv ──HTTP（Range）──> electron/hifi/sourceBridge.cjs（127.0.0.1，�
 | --- | --- | --- |
 | Windows | WASAPI 独占：「独占模式」开着 | 独占关着（WASAPI 共享模式） |
 | macOS | Core Audio 独占（hog 模式）：「独占模式」开着，mpv 改用 `coreaudio_exclusive`，按源格式切换设备的采样率 | 独占关着 |
-| Linux | 只有 ALSA 的 hw: 直连设备（设置里标「直连」） | PipeWire、PulseAudio、JACK 一律混音（PipeWire 报告设备采样率和 mpv 的一致时判采样率直通，仍不算原生直通）；mpv 在 Linux 上固定 `--audio-exclusive=no`（PipeWire 下独占会让 mpv 的流连不上别的流在用的输出，丢帧快进），设置页不画独占开关；`plughw` 会在 mpv 背后转格式，不算直连 |
+| Linux | 只有 ALSA 的 hw: 直连设备（设置里标「直连」） | PipeWire、PulseAudio、JACK 一律混音（PipeWire 报告设备采样率和 mpv 的一致时判采样率直通，仍不算原生直通）；mpv 在 Linux 上固定 `--audio-exclusive=no`（PipeWire 下独占会让 mpv 的流连不上别的流在用的输出，丢帧快进），设置里不画独占开关；`plughw` 会在 mpv 背后转格式，不算直连 |
 
 除此之外每一级都要原样：
 

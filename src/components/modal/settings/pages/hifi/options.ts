@@ -1,36 +1,35 @@
 import { option, type SettingsGroupDef } from '../../kit';
+import { useHifiSettingsStore } from '../../../../../stores/useHifiSettingsStore';
 
 // src/components/modal/settings/pages/hifi/options.ts
-// The groups and options of the HiFi page, declared apart from the page so the file of each group
-// names the same ones. The group ids are the anchors other code opens the settings on
-// (settingsAnchorModel). The whole page is the desktop app's: mpv runs under its main process.
+// The groups and options of the playback engine settings on the 播放控制 page (desktop app only:
+// mpv runs under its main process), declared apart from the groups so each group's file names the
+// same ones. The group ids are the anchors other code opens the settings on (settingsAnchorModel).
+// Everything about mpv is drawn only while mpv is the chosen engine, and the search leaves it out
+// the same way.
 
 /** The desktop build's OS, from the preload; null on the web. */
 export const HIFI_PLATFORM: string | null = typeof window !== 'undefined' ? window.electron?.platform ?? null : null;
 
+/** mpv is the chosen engine: the page draws the mpv rows and the output group only then. */
+const usesMpv = () => useHifiSettingsStore.getState().enabled;
+
 export const ENGINE: SettingsGroupDef = { id: 'hifiEngine', titleKey: 'hifi.settings.groupEngine', electronOnly: true };
-export const OUTPUT: SettingsGroupDef = { id: 'hifiOutput', titleKey: 'hifi.settings.groupOutput', electronOnly: true };
-export const DSD: SettingsGroupDef = { id: 'hifiDsd', titleKey: 'hifi.settings.groupDsd', electronOnly: true };
-export const SCOPE: SettingsGroupDef = { id: 'hifiScope', titleKey: 'hifi.settings.groupScope', electronOnly: true };
-export const VOLUME: SettingsGroupDef = { id: 'hifiVolume', titleKey: 'hifi.settings.groupVolume', electronOnly: true };
-export const LIMITS: SettingsGroupDef = { id: 'hifiLimits', titleKey: 'hifi.settings.groupLimits', electronOnly: true };
+export const OUTPUT: SettingsGroupDef = { id: 'hifiOutput', titleKey: 'hifi.settings.groupOutput', electronOnly: true, available: usesMpv };
 
 export const O = {
-    enabled: option(ENGINE, 'hifiEnabled', 'hifi.settings.enable'),
-    runtime: option(ENGINE, 'hifiRuntime', 'hifi.settings.runtime'),
-    mpvPath: option(ENGINE, 'hifiMpvPath', 'hifi.settings.mpvPath'),
+    engine: option(ENGINE, 'hifiEnabled', 'hifi.settings.engine'),
+    runtime: option(ENGINE, 'hifiRuntime', 'hifi.settings.runtime', { available: usesMpv }),
+    mpvPath: option(ENGINE, 'hifiMpvPath', 'hifi.settings.mpvPath', { available: usesMpv }),
+    navidrome: option(ENGINE, 'hifiNavidrome', 'hifi.settings.navidrome', { available: usesMpv }),
     device: option(OUTPUT, 'hifiAudioDevice', 'hifi.settings.device'),
     // Linux has no exclusive mode: mpv's PipeWire and PulseAudio outputs always mix, so mpv is started
     // with --audio-exclusive=no there and the page does not draw the switch (the saved value stays).
     exclusive: option(OUTPUT, 'hifiExclusive', 'hifi.settings.exclusive', { available: () => HIFI_PLATFORM !== 'linux' }),
-    dsdMode: option(DSD, 'hifiDsdMode', 'hifi.settings.dsdMode'),
-    navidrome: option(SCOPE, 'hifiNavidrome', 'hifi.settings.navidrome'),
-    softwareVolume: option(VOLUME, 'hifiSoftwareVolume', 'hifi.settings.softwareVolume'),
-    noAsio: option(LIMITS, 'hifiLimitNoAsio', 'hifi.settings.limitNoAsio'),
-    dopWindowsOnly: option(LIMITS, 'hifiLimitDop', 'hifi.settings.limitDop'),
-    bypassed: option(LIMITS, 'hifiLimitBypassed', 'hifi.settings.limitBypassed'),
-    videoExport: option(LIMITS, 'hifiLimitVideoExport', 'hifi.settings.limitVideoExport'),
-    // Only Windows and macOS lose the system media controls (in exclusive mode): on Linux main
-    // registers MPRIS itself, so the page does not draw this row there.
-    mediaControls: option(LIMITS, 'hifiLimitMediaControls', 'hifi.settings.limitMediaControls', { available: () => HIFI_PLATFORM !== 'linux' }),
+    softwareVolume: option(OUTPUT, 'hifiSoftwareVolume', 'hifi.settings.softwareVolume'),
+    // DoP only works on Windows; elsewhere DSD is always converted to PCM and there is nothing to
+    // choose, unless a DoP choice was saved there, which stays visible so it can be switched back.
+    dsdMode: option(OUTPUT, 'hifiDsdMode', 'hifi.settings.dsdMode', {
+        available: () => HIFI_PLATFORM === 'win32' || useHifiSettingsStore.getState().dsdMode === 'dop',
+    }),
 };

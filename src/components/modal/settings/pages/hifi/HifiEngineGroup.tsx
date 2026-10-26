@@ -7,15 +7,16 @@ import ConfirmDialog from '../../../../shared/ConfirmDialog';
 import { hifiEngine, useHifiEngineStore } from '../../../../../services/hifi/hifiEngine';
 import { useHifiSettingsStore } from '../../../../../stores/useHifiSettingsStore';
 import type { HifiErrorCode, HifiInstallProgress } from '../../../../../types/hifi';
-import { Button, CopyValue, Group, Progress, Reveal, Row, Status, Toggle, Value, useSettingsKitTheme } from '../../kit';
+import { Button, CopyValue, Group, Progress, Reveal, Row, Segmented, Status, Toggle, Value, useSettingsKitTheme } from '../../kit';
 import { ENGINE, HIFI_PLATFORM, O } from './options';
 import { canOfferRuntimeDownload, isRuntimeInstalling, runtimeLine } from './runtimeState';
 
 // src/components/modal/settings/pages/hifi/HifiEngineGroup.tsx
-// The engine group of the HiFi page: the switch (the first time it is turned on it asks to accept
-// that the output is at full volume), which mpv is in use and where it came from, the download of
-// the recommended mpv with its progress, the choice of an mpv file of one's own, and on Linux the
-// package-manager lines in place of a download. The settings are pushed to the main process by the
+// The playback engine group at the top of the 播放控制 page: Web Audio or mpv for local and
+// Navidrome songs (the first switch to mpv asks to accept that the output is at full volume), and
+// what mpv turns off. With mpv chosen: which mpv is in use, the download of the recommended mpv with
+// its progress, an mpv file of one's own, on Linux the package-manager lines in place of a download,
+// and whether Navidrome songs use mpv too. The settings are pushed to the main process by the
 // playback bridge, not from here.
 
 const IS_LINUX = HIFI_PLATFORM === 'linux';
@@ -55,6 +56,8 @@ export const HifiEngineGroup: React.FC = () => {
     const settings = useHifiSettingsStore(useShallow(state => ({
         enabled: state.enabled,
         setEnabled: state.setEnabled,
+        navidrome: state.navidrome,
+        setNavidrome: state.setNavidrome,
         mpvPath: state.mpvPath,
         setMpvPath: state.setMpvPath,
         volumeConfirmed: state.volumeConfirmed,
@@ -89,11 +92,9 @@ export const HifiEngineGroup: React.FC = () => {
         ? null
         : installError ?? (installProgress?.phase === 'error' ? installProgress.errorCode ?? 'INSTALL_FAILED' : null);
 
-    const runtimeHint = !runtime
+    const runtimeHint = !runtime || runtime.available
         ? undefined
-        : runtime.available
-            ? runtime.path ?? undefined
-            : IS_LINUX
+        : IS_LINUX
                 ? t('hifi.settings.linuxInstallHint')
                 : download?.supported
                     ? t('hifi.settings.runtimeMissingDownloadHint')
@@ -126,7 +127,8 @@ export const HifiEngineGroup: React.FC = () => {
         }
     };
 
-    const toggleEnabled = (next: boolean) => {
+    const chooseEngine = (engineChoice: 'web' | 'mpv') => {
+        const next = engineChoice === 'mpv';
         if (next && !settings.volumeConfirmed) {
             setAsking(true);
             return;
@@ -137,12 +139,20 @@ export const HifiEngineGroup: React.FC = () => {
     return (
         <>
             <Group def={ENGINE}>
-                <Row option={O.enabled} hint={t(engine.supported ? 'hifi.settings.enableDesc' : 'hifi.settings.unsupported')} disabled={!engine.supported}>
-                    <Toggle checked={settings.enabled} onChange={toggleEnabled} />
+                <Row option={O.engine} hint={t(engine.supported ? 'hifi.settings.engineDesc' : 'hifi.settings.unsupported')} disabled={!engine.supported}>
+                    <Segmented
+                        value={settings.enabled ? 'mpv' : 'web'}
+                        options={[
+                            { value: 'web', label: t('hifi.settings.engineWeb') },
+                            { value: 'mpv', label: t('hifi.settings.engineMpv') },
+                        ]}
+                        onChange={chooseEngine}
+                    />
                 </Row>
                 {engine.supported && (
-                    <>
-                        <Row option={O.runtime} hint={runtimeHint}>
+                    <Reveal when={settings.enabled}>
+                        <Row sub notice={t('hifi.settings.engineMpvNotice')} />
+                        <Row sub option={O.runtime} hint={runtimeHint}>
                             <Status tone={line.tone}>{line.text}</Status>
                             {installing ? (
                                 <>
@@ -171,14 +181,17 @@ export const HifiEngineGroup: React.FC = () => {
                                 </Row>
                             ))}
                         </Reveal>
-                        <Row option={O.mpvPath} hint={t('hifi.settings.mpvPathDesc')}>
+                        <Row sub option={O.mpvPath}>
                             {settings.mpvPath ? <CopyValue value={settings.mpvPath} /> : <Value>{t('hifi.settings.mpvPathAuto')}</Value>}
                             {settings.mpvPath && (
                                 <Button variant="quiet" onClick={() => settings.setMpvPath(null)}>{t('hifi.settings.clearPath')}</Button>
                             )}
                             <Button onClick={() => void pickPath()}>{t('hifi.settings.pickPath')}</Button>
                         </Row>
-                    </>
+                        <Row sub option={O.navidrome} hint={t('hifi.settings.navidromeDesc')}>
+                            <Toggle checked={settings.navidrome} onChange={settings.setNavidrome} />
+                        </Row>
+                    </Reveal>
                 )}
             </Group>
 

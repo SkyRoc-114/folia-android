@@ -6,16 +6,19 @@ import { hifiEngine, useHifiEngineStore } from '../../../../../services/hifi/hif
 import { useHifiSettingsStore } from '../../../../../stores/useHifiSettingsStore';
 import type { HifiDevice } from '../../../../../types/hifi';
 import { Button, Group, Row, Select, Toggle } from '../../kit';
+import HifiDsdRows from './HifiDsdRows';
 import { HIFI_PLATFORM, O, OUTPUT } from './options';
 
 // src/components/modal/settings/pages/hifi/HifiOutputGroup.tsx
-// The output group of the HiFi page: the device mpv plays to, with its refresh button, and
-// exclusive mode. Reading the devices starts mpv, so the list is only read once it is opened or
-// refreshed; until then the saved device keeps the name it was chosen under. On Linux the ALSA
-// hw: devices, the ones that skip the sound server, are marked, and the texts say that choosing
-// one of them is the bit-perfect path there. Linux has no exclusive switch: mpv's PipeWire and
-// PulseAudio outputs always mix, so mpv runs with --audio-exclusive=no there. The group says so in
-// its foot instead, and leaves the saved value alone.
+// The mpv output group, drawn only while mpv is the engine: the device mpv plays to, with its
+// refresh button, exclusive mode, software volume and the DSD rows. Reading the devices starts mpv,
+// so the list is only read once it is opened or refreshed; until then the saved device keeps the
+// name it was chosen under. On Linux the ALSA hw: devices, the ones that skip the sound server, are
+// marked, and the hint says that choosing one of them is the bit-perfect path there. Linux has no
+// exclusive switch: mpv's PipeWire and PulseAudio outputs always mix, so mpv runs with
+// --audio-exclusive=no there; the saved value is left alone. By default mpv plays at 100% and the
+// DAC or amplifier sets the loudness; software volume lets the app's slider scale the samples in
+// mpv instead, which costs the bit-perfect path.
 
 const IS_LINUX = HIFI_PLATFORM === 'linux';
 
@@ -32,6 +35,9 @@ export const HifiOutputGroup: React.FC = () => {
         setAudioDevice: state.setAudioDevice,
         exclusive: state.exclusive,
         setExclusive: state.setExclusive,
+        softwareVolume: state.softwareVolume,
+        setSoftwareVolume: state.setSoftwareVolume,
+        enabled: state.enabled,
     })));
     const devices = useHifiEngineStore(state => state.devices);
     const runtime = useHifiEngineStore(state => state.runtime);
@@ -88,8 +94,11 @@ export const HifiOutputGroup: React.FC = () => {
     // On Linux, with nothing else to say, the hint points at the one choice that skips the sound server.
     const deviceHint = state ?? (IS_LINUX ? t('hifi.settings.deviceLinuxHint') : undefined);
 
+    // The search asks the same (OUTPUT.available).
+    if (!settings.enabled) return null;
+
     return (
-        <Group def={OUTPUT} foot={IS_LINUX ? t('hifi.settings.exclusiveLinuxNote') : undefined}>
+        <Group def={OUTPUT}>
             <Row option={O.device} hint={deviceHint} note={IS_LINUX ? t('hifi.settings.deviceDirectNote') : undefined} disabled={!supported}>
                 <Button icon={RefreshCw} tip={t('hifi.settings.devicesRefresh')} onClick={() => void refresh()} disabled={listState === 'loading' || noMpv} />
                 <Select value={settings.audioDevice} options={options} onChange={chooseDevice} onOpen={ensureLoaded} />
@@ -99,6 +108,10 @@ export const HifiOutputGroup: React.FC = () => {
                     <Toggle checked={settings.exclusive} onChange={settings.setExclusive} />
                 </Row>
             )}
+            <Row option={O.softwareVolume} hint={t('hifi.settings.softwareVolumeDesc')} disabled={!supported}>
+                <Toggle checked={settings.softwareVolume} onChange={settings.setSoftwareVolume} />
+            </Row>
+            <HifiDsdRows />
         </Group>
     );
 };

@@ -103,11 +103,11 @@ describe('hifi commands', () => {
         expect(settings.openSettings).not.toHaveBeenCalled();
     });
 
-    it('opens the HiFi page instead of switching on while the full-volume warning is unanswered', async () => {
+    it('opens the playback engine settings instead of switching on while the full-volume warning is unanswered', async () => {
         const { context, settings } = contextFor({ enabled: false, confirmed: false });
         await command('hifi-toggle').execute('', context);
         expect(settings.setHifiEnabled).not.toHaveBeenCalled();
-        expect(settings.openSettings).toHaveBeenCalledExactlyOnceWith('options', 'hifi', null, 'hifiEngine');
+        expect(settings.openSettings).toHaveBeenCalledExactlyOnceWith('options', 'playback', null, 'hifiEngine');
     });
 
     it('switches on once the warning was accepted', async () => {
@@ -122,15 +122,14 @@ describe('hifi commands', () => {
         expect(command('hifi-toggle').isAvailable?.()).toBe(true);
     });
 
-    it('lands the settings command on the HiFi page', async () => {
+    it('lands the settings command on the playback engine group of the 播放控制 page', async () => {
         const { context, settings } = contextFor();
-        expect(command('hifi-settings').settingsTarget).toEqual({ subview: 'hifi' });
+        expect(command('hifi-settings').settingsTarget).toEqual({ subview: 'playback', anchorId: 'hifiEngine' });
         await command('hifi-settings').execute('', context);
-        expect(settings.openSettings).toHaveBeenCalledExactlyOnceWith('options', 'hifi');
-        // The subview is the page itself, which the web build does not have.
-        expect(sectionForSettingsSubview('hifi')).toBe('hifi');
-        expect(getAvailableSettingsSectionIds({ isElectron: true })).toContain('hifi');
-        expect(getAvailableSettingsSectionIds({ isElectron: false })).not.toContain('hifi');
+        expect(settings.openSettings).toHaveBeenCalledExactlyOnceWith('options', 'playback', null, 'hifiEngine');
+        expect(sectionForSettingsSubview('playback')).toBe('playback');
+        // The page is on the web too; only the engine group is the desktop app's.
+        expect(getAvailableSettingsSectionIds({ isElectron: false })).toContain('playback');
     });
 
     it('offers the signal path only on the HiFi route, and opens the panel', async () => {
@@ -148,7 +147,7 @@ describe('hifi commands', () => {
         ['hifi-exclusive-toggle', 'toggleHifiExclusive'],
         ['hifi-navidrome-toggle', 'toggleHifiNavidrome'],
         ['hifi-software-volume-toggle', 'toggleHifiSoftwareVolume'],
-    ] as const)('flips a switch of the HiFi page with %s, where the build has the engine', async (id, toggle) => {
+    ] as const)('flips a switch of the playback engine settings with %s, where the build has the engine', async (id, toggle) => {
         const { context, settings } = contextFor();
         expect(await command(id).execute('', context)).toBe(true);
         expect(settings[toggle]).toHaveBeenCalledOnce();
@@ -181,7 +180,7 @@ describe('hifi commands', () => {
         const done = contextFor({ canInstall: true });
         expect(await download.execute('', done.context)).toBe(true);
         expect(done.settings.installHifiRuntime).toHaveBeenCalledOnce();
-        expect(done.settings.openSettings).toHaveBeenCalledExactlyOnceWith('options', 'hifi', null, 'hifiEngine');
+        expect(done.settings.openSettings).toHaveBeenCalledExactlyOnceWith('options', 'playback', null, 'hifiEngine');
         await settle();
         expect(done.shared.setStatusMsg).toHaveBeenCalledExactlyOnceWith({ type: 'success', text: 'mpv 0.41.0 · downloaded by Folia' });
     });
