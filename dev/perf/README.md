@@ -228,12 +228,13 @@ measuring and in the pictures mode alike:
 1. What `LyricParserFactory.parse` does to the lines a parser has read, called without options as
    `resolveLocalSongLyrics` calls it: `finalizeParsedLyricLines` (every parser ends in it), which
    puts a line `......` into every gap of more than 3 s between two lines and before a first line
-   that starts after 3 s, and adds the render hints; then `applyLyricDisplayFilter`. The test song
-   so gets two such lines: 0.5 s to 5.5 s, and 30.25 s to 34.55 s in its pause.
+   that starts after 3 s, and adds the render hints. The line rules are not applied here; they run
+   in `createLyricsSetter` (step 2). The test song so gets two such lines: 0.5 s to 5.5 s, and
+   30.25 s to 34.55 s in its pause.
 2. `createLyricsSetter`, built as `App.tsx` builds it from the lyric settings store, which holds a
-   new user's settings here (no filter pattern; staff credits by the `smart` policy, 1.5 s minimum
+   new user's settings here (no line rules; staff credits by the `smart` policy, 1.5 s minimum
    dwell, absorbing off, no pattern of the user's). Inside it, in this order: the pure-music check,
-   the display filter, the staff-credit policy, the chorus effects (from the lines' own chorus
+   the line rules (`applyLyricLineRules`), the staff-credit policy, the chorus effects (from the lines' own chorus
    marks, else from the ranges cached for the song, else found from repeated text), the saved word
    segmentation, the render hints, and the `lyrics.transform` hook of mods (none are installed).
    The song it reads follows the store in an effect, as in the app.

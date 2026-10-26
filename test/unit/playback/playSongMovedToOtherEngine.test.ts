@@ -98,7 +98,7 @@ vi.mock('@/services/prefetchService', async importOriginal => ({
 }));
 // The online song that fails, so that its play defers a skip to the next song.
 vi.mock('@/services/onlineMusic/omni', () => ({ omni: { canPlaySong: () => true, getProviderLabel: (id: string) => id } }));
-vi.mock('@/services/onlineMusic/songAvailability', () => ({ isSongUnavailable: () => false }));
+vi.mock('@/services/onlineMusic/songAvailability', () => ({ askPlayedSong: () => null, isSongUnavailable: () => false }));
 vi.mock('@/services/onlineMusic/resourceCache', () => ({
     hasCachedSongAudio: async () => null,
     getCachedSongCoverUrl: async () => null,

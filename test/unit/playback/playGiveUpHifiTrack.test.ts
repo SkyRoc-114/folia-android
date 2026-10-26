@@ -110,7 +110,7 @@ vi.mock('@/services/onlineMusic/omni', () => ({
         }),
     },
 }));
-vi.mock('@/services/onlineMusic/songAvailability', () => ({ isSongUnavailable: (song: { id: string }) => env.takenDown.has(String(song.id)) }));
+vi.mock('@/services/onlineMusic/songAvailability', () => ({ askPlayedSong: () => null, isSongUnavailable: (song: { id: string }) => env.takenDown.has(String(song.id)) }));
 vi.mock('@/services/onlineMusic/resourceCache', () => ({
     hasCachedSongAudio: async () => null,
     getCachedSongCoverUrl: async () => null,
