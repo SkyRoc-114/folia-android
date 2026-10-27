@@ -8,6 +8,7 @@ import { SheetLayerContext } from '../shared/Sheet';
 import TitlebarDragZone from '../TitlebarDragZone';
 import WindowControls from '../WindowControls';
 import { usePlayerOverlayRoot, usePlayerOverlayReservation } from '../../hooks/usePlayerOverlayLayout';
+import { usePlayerChromeSettingsStore } from '../../stores/usePlayerChromeSettingsStore';
 import type { FoliumLayoutRect } from '../../mods/folium/contract';
 
 // Shared shell for the app container, Electron titlebar, and mounted audio node.
@@ -69,6 +70,7 @@ const AppShell: React.FC<AppShellProps> = ({
     const [isWindowMaximized, setIsWindowMaximized] = useState(false);
     const [isWindowFullscreen, setIsWindowFullscreen] = useState(false);
     const hasFullscreenTitlebarButton = isElectronWindow && !hideFullscreenButton;
+    const playerHeaderBlur = usePlayerChromeSettingsStore(state => state.playerHeaderBlur);
 
     useEffect(() => {
         if (!useCustomWindowRadius || !window.electron?.isWindowMaximized) {
@@ -141,7 +143,11 @@ const AppShell: React.FC<AppShellProps> = ({
 
     const shouldApplyWindowRadius = useCustomWindowRadius && !isWindowMaximized && !isWindowFullscreen;
     const areTitlebarControlsVisible = isTitlebarRevealed || alwaysShowMainWindowTitlebar;
-    const shouldRenderTitlebarBackdrop = !isPlayerView || (useCustomWindowRadius && !isMainWindowClickThroughEnabled);
+    // 播放页顶栏模糊背景：浅色主题压在深色画面上时，标题栏按钮看不清，开了就给播放页也垫上主页那层磨砂底。
+    // 跟着按钮一起出现（悬停顶部或「始终显示标题栏控制按钮」），点击穿透时按钮都藏了，底也不画。
+    const showsPlayerHeaderBlur = isPlayerView && playerHeaderBlur && !isMainWindowClickThroughEnabled;
+    const shouldRenderTitlebarBackdrop = !isPlayerView || showsPlayerHeaderBlur || (useCustomWindowRadius && !isMainWindowClickThroughEnabled);
+    const isTitlebarBackdropVisible = isTitlebarRevealed || (showsPlayerHeaderBlur && alwaysShowMainWindowTitlebar);
     const titlebarBackdropClassName = `absolute inset-0 backdrop-blur-sm ${
         isDaylight
             ? isPlayerView
@@ -169,7 +175,7 @@ const AppShell: React.FC<AppShellProps> = ({
                         <motion.div
                             initial={false}
                             animate={{
-                                opacity: isTitlebarRevealed ? 1 : 0,
+                                opacity: isTitlebarBackdropVisible ? 1 : 0,
                             }}
                             transition={{ duration: 0.18, ease: 'easeOut' }}
                             className={titlebarBackdropClassName}

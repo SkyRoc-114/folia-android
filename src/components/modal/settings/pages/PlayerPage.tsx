@@ -18,6 +18,7 @@ import { ensureVideoLayerFileRestored, useVideoLayerSettingsStore, VIDEO_LAYER_O
 import { PLAYER_BOTTOM_BAR_BASE_OFFSET_PX, resolvePlayerBottomBarMaxOffset } from '../../../../utils/playerBottomBarLayout';
 import { Button, FoldedGroup, Group, PictureChoice, Reveal, Row, Segmented, Select, Slider, TextField, Toggle, Value, option, type SettingsGroupDef, type SettingsOptionDef } from '../kit';
 import { EntryViewPicture } from './pictures';
+import { useSettingsPage } from './settingsPageContext';
 
 // src/components/modal/settings/pages/PlayerPage.tsx
 // The 播放页 page: what the playing screen looks like. Which view play opens and the look of the
@@ -58,6 +59,8 @@ const O = {
     hidePanelButton: option(PLAYER_UI, 'hidePlayerRightPanelButton', 'options.hidePlayerRightPanelButton'),
     alwaysBackButton: option(PLAYER_UI, 'alwaysShowPlayerBackButton', 'options.alwaysShowPlayerBackButton'),
     alwaysTrackSwitch: option(PLAYER_UI, 'alwaysShowTrackSwitchButtons', 'options.alwaysShowTrackSwitchButtons'),
+    // The titlebar it sits behind is only drawn by the desktop window.
+    headerBlur: option(PLAYER_UI, 'playerHeaderBlur', 'options.playerHeaderBlur', { electronOnly: true }),
 };
 
 export const OPTIONS: SettingsOptionDef[] = Object.values(O);
@@ -66,6 +69,7 @@ const percent = (value: number) => `${Math.round(value * 100)}%`;
 
 const PlayerPage: React.FC = () => {
     const { t } = useTranslation();
+    const { isElectron } = useSettingsPage();
     const { playbackEntryView, setPlaybackEntryView } = usePlaybackEntryViewStore(useShallow(state => ({
         playbackEntryView: state.playbackEntryView,
         setPlaybackEntryView: state.setPlaybackEntryView,
@@ -95,6 +99,7 @@ const PlayerPage: React.FC = () => {
         hidePanelButton: state.hidePlayerRightPanelButton,
         alwaysBackButton: state.alwaysShowPlayerBackButton,
         alwaysTrackSwitch: state.alwaysShowTrackSwitchButtons,
+        headerBlur: state.playerHeaderBlur,
         cardCloseButton: state.showOpenPanelCloseButton,
         setAutoHide: state.handleToggleAutoHidePlayerChrome,
         setAutoHideCursor: state.handleToggleAutoHideCursorWithPlayerChrome,
@@ -105,6 +110,7 @@ const PlayerPage: React.FC = () => {
         setHidePanelButton: state.handleToggleHidePlayerRightPanelButton,
         setAlwaysBackButton: state.handleToggleAlwaysShowPlayerBackButton,
         setAlwaysTrackSwitch: state.handleToggleAlwaysShowTrackSwitchButtons,
+        setHeaderBlur: state.handleTogglePlayerHeaderBlur,
         setCardCloseButton: state.handleToggleOpenPanelCloseButton,
     })));
     const card = useStageSettingsStore(useShallow(state => ({
@@ -376,6 +382,11 @@ const PlayerPage: React.FC = () => {
                 <Row option={O.alwaysTrackSwitch} note={t('options.alwaysShowTrackSwitchButtonsDesc')}>
                     <Toggle checked={chrome.alwaysTrackSwitch} onChange={chrome.setAlwaysTrackSwitch} />
                 </Row>
+                {isElectron && (
+                    <Row option={O.headerBlur} hint={t('options.playerHeaderBlurDesc')}>
+                        <Toggle checked={chrome.headerBlur} onChange={chrome.setHeaderBlur} />
+                    </Row>
+                )}
             </FoldedGroup>
         </>
     );

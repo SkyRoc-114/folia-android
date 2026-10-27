@@ -599,6 +599,7 @@ export const compressConfig = (config: any): string => {
     if (config.libraryWallBackdropLyrics !== undefined) minified.lwbl = config.libraryWallBackdropLyrics;
     if (config.libraryWallBackdropBlur !== undefined) minified.lwbb = config.libraryWallBackdropBlur;
     if (config.libraryWallSeamDirection !== undefined) minified.lwsd = config.libraryWallSeamDirection;
+    if (config.playerHeaderBlur !== undefined) minified.phb = config.playerHeaderBlur;
 
     const jsonStr = JSON.stringify(minified);
     const bytes = new TextEncoder().encode(jsonStr);
@@ -668,7 +669,8 @@ export const decompressConfig = (str: string): any => {
         || parsed.lwss !== undefined
         || parsed.lwbl !== undefined
         || parsed.lwbb !== undefined
-        || parsed.lwsd !== undefined;
+        || parsed.lwsd !== undefined
+        || parsed.phb !== undefined;
     if (isMinified) {
         const decompressed: any = {};
         if (parsed.t) {
@@ -744,6 +746,7 @@ export const decompressConfig = (str: string): any => {
         if (parsed.lwbl !== undefined) decompressed.libraryWallBackdropLyrics = parsed.lwbl;
         if (parsed.lwbb !== undefined) decompressed.libraryWallBackdropBlur = parsed.lwbb;
         if (parsed.lwsd !== undefined) decompressed.libraryWallSeamDirection = parsed.lwsd;
+        if (parsed.phb !== undefined) decompressed.playerHeaderBlur = parsed.phb;
 
         return decompressed;
     } else {
@@ -767,6 +770,7 @@ export const decompressConfig = (str: string): any => {
             'libraryWallStackEdges',
             'libraryWallSeamClear', 'libraryWallSeamStyle', 'libraryWallBackdropLyrics', 'libraryWallBackdropBlur',
             'libraryWallSeamDirection',
+            'playerHeaderBlur',
         ];
         const hasValidKey = validKeys.some(k => parsed[k] !== undefined);
         if (!hasValidKey) {
