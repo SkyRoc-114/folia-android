@@ -266,6 +266,11 @@ export type CommandPaletteSettingsContext = {
      * A function, because switching suites while the palette is open has to close the wall-look commands off.
      */
     isLibraryWallLookAvailable: () => boolean;
+    /**
+     * Same predicate the settings rows only the grid reads show themselves with (library/app/gridLibraryActive):
+     * the *active* suite is the grid. A function, for the same reason as the one above.
+     */
+    isGridLibraryActive: () => boolean;
     /** bravais wall transparency (useLibraryWallLookStore); read live. Not part of appearance import / export. */
     libraryWallLook: () => LibraryWallLook;
     setLibraryWallLook: (look: LibraryWallLook) => void;

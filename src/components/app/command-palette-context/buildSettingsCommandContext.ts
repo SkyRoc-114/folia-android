@@ -15,6 +15,7 @@ import { usePlaybackEntryViewStore } from '../../../stores/usePlaybackEntryViewS
 import { hasLibrarySuiteChoice } from '../../../library/registry';
 import { chooseLibrarySuite, getActiveLibrarySuiteId, listLibrarySuiteOptions } from '../../../library/app/librarySuiteChoice';
 import { isBravaisLibraryActive } from '../../../library/app/bravaisLibraryActive';
+import { isGridLibraryActive } from '../../../library/app/gridLibraryActive';
 import { useLibraryWallLookStore } from '../../../stores/useLibraryWallLookStore';
 import { usePonderStore } from '../../../stores/usePonderStore';
 import { useHomeLayoutSettingsStore } from '../../../stores/useHomeLayoutSettingsStore';
@@ -92,6 +93,8 @@ export const buildSettingsCommandContext = (
         chooseLibrarySuite,
         // bravais 的透光偏好：与设置分区同一个谓词；值与 setter 都现读 store（面板开着时也会变）。
         isLibraryWallLookAvailable: isBravaisLibraryActive,
+        // 只有网格界面读的设置（首页卡片、网格卡片、海报墙按钮）：与设置页同一个谓词。
+        isGridLibraryActive,
         libraryWallLook: () => useLibraryWallLookStore.getState().look,
         setLibraryWallLook: look => useLibraryWallLookStore.getState().setLook(look),
         libraryWallWindowsPerBlock: () => useLibraryWallLookStore.getState().windowsPerBlock,

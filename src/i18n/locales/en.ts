@@ -2277,7 +2277,7 @@ export default {
     "stageTrackPillMode_always": "Always show",
     "stageTrackPillMode_never": "Never show",
     "stageTrackPillOnHome": "Show on the home page too",
-    "stageTrackPillOnHomeDesc": "Off keeps the card on the player and play queue. On also shows it on home, including after launch or a track change there. With the Bravais library it is always on the wall.",
+    "stageTrackPillOnHomeDesc": "Off keeps the card on the player and play queue. On also shows it on home, including after launch or a track change there.",
     "stageTrackPillTimeout": "Visible duration",
     "disableVisualizerVignette": "Disable vignette",
     "visualizerVignette": "Vignette",

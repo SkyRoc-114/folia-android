@@ -106,6 +106,7 @@ const createContext = (overrides: CommandPaletteContextOverrides = {}): CommandP
             canChooseLibrarySuite: vi.fn(() => true),
             chooseLibrarySuite: vi.fn(),
             isLibraryWallLookAvailable: vi.fn(() => false),
+            isGridLibraryActive: vi.fn(() => true),
             libraryWallLook: vi.fn(() => 'partial' as const),
             setLibraryWallLook: vi.fn(),
             libraryWallWindowsPerBlock: vi.fn(() => 3),

@@ -2,7 +2,7 @@ import { syncNow } from '../../../services/sync/syncCoordinator';
 import { isSyncConfigured } from '../../../services/sync/syncConfig';
 import { buildObsCustomCss } from '../../../services/obs/obsCustomCss';
 import { hasUploadedObsAsset } from '../../../services/obs/visualSettingsConfig';
-import type { CommandPaletteCommand } from '../types';
+import type { CommandPaletteCommand, CommandPaletteContext } from '../types';
 import type { GpuPreference } from '../../../stores/useDesktopSettingsStore';
 import { createToggleCommand, createAppLanguageCommand, createSettingsCommand, createSettingsAnchorCommand, defineCommand } from '../commandFactories';
 import { nowPlayingCardPositionCommand } from './nowPlayingCardPositionCommand';
@@ -19,6 +19,15 @@ import { copyText } from '../../../utils/system/clipboard';
 
 // src/components/command-palette/commands/settingsCommands.ts
 // Commands in the `settings` group: settings subviews, app toggles, theme, sync, and desktop-only switches.
+
+/**
+ * Settings only the grid library UI reads (home cards, the card grid, the grid action button): same
+ * gate the settings page hides their rows behind. No context (contract tests, the full list) counts as available.
+ */
+const isGridOnlyCommandAvailable = (context?: CommandPaletteContext): boolean => (
+    context ? context.settings.isGridLibraryActive() : true
+);
+const GRID_ONLY = { isAvailable: isGridOnlyCommandAvailable };
 
 /** One command per render GPU choice (Windows only), hidden while it is the saved one. */
 function gpuPreferenceCommand(preference: GpuPreference, title: string, description: string, keywords: string[]): CommandPaletteCommand {
@@ -58,7 +67,7 @@ export const settingsCommands: CommandPaletteCommand[] = [
     createSettingsAnchorCommand('settings-ai-provider', 'AI provider settings', 'Choose an AI provider and model', ['model connection', 'api key', '模型设置', '供应商', '密钥', 'deepseek', 'kimi', 'glm', 'qwen', '通义', '智谱'], 'electronSettings', { platform: ['electron'] }),
     createSettingsAnchorCommand('settings-theme-presets', 'Theme presets', 'Jump to the built-in and saved theme presets', ['preset theme', 'color preset', '预设主题'], 'themePresets'),
     createSettingsAnchorCommand('settings-lyrics-renderer', 'Lyrics renderer', 'Jump to how lyrics are drawn on the player', ['lyric renderer', 'lyric engine', '歌词渲染'], 'lyricsRenderer'),
-    createSettingsAnchorCommand('settings-grid-card-style', 'Grid card style', 'Jump to how the home grid draws its cards', ['card style', 'polaroid', 'grid style', '卡片样式'], 'grid3dCardStyle'),
+    createSettingsAnchorCommand('settings-grid-card-style', 'Grid card style', 'Jump to how the home grid draws its cards', ['card style', 'polaroid', 'grid style', '卡片样式'], 'grid3dCardStyle', GRID_ONLY),
     createSettingsCommand('settings-general', 'General settings', 'Open general app preferences', ['general', 'language settings', 'locale', '通用', '语言'], 'options', 'general'),
     createSettingsAnchorCommand('settings-home-tabs', 'Home tab visibility', 'Choose which tabs the home screen shows', ['hide tabs', 'home tabs', '首页标签'], 'homeTabsVisibility'),
     createToggleCommand(
@@ -68,6 +77,7 @@ export const settingsCommands: CommandPaletteCommand[] = [
         'Toggle restoring each home section to its last card',
         ['restore card', 'tab position', '卡片定位', '返回首页'],
         context => context.settings.toggleRememberHomeCardPosition(),
+        GRID_ONLY,
     ),
     createSettingsAnchorCommand('settings-playback-entry-view', 'Play opens', 'Jump to which view pressing play opens', ['entry view', 'open on play', 'default view', '播放进入视图', '默认视图'], 'playbackEntryView'),
     {
@@ -139,7 +149,7 @@ export const settingsCommands: CommandPaletteCommand[] = [
     createSettingsCommand('settings-interaction', 'Interaction settings', 'Open keyboard, shortcut and grid interaction settings', ['interaction', 'keyboard', 'hotkey', '交互', '快捷键设置'], 'options', 'interaction'),
     createSettingsAnchorCommand('settings-global-shortcuts', 'Global shortcuts', 'Jump to the system-wide shortcuts for playback and mod commands', ['global hotkey', 'system shortcut', 'media keys', '全局快捷键', '系统快捷键'], 'globalShortcuts', { platform: ['electron'] }),
     createSettingsAnchorCommand('settings-custom-shortcut', 'Custom shortcuts', 'Jump to the custom keyboard shortcut bindings', ['keybinding', 'rebind', 'hotkey', '自定义快捷键'], 'customShortcut'),
-    createSettingsAnchorCommand('settings-grid-action-button', 'Grid action button', 'Jump to what the grid action button slides to', ['grid button', 'action button', '海报墙按钮'], 'gridActionButton'),
+    createSettingsAnchorCommand('settings-grid-action-button', 'Grid action button', 'Jump to what the grid action button slides to', ['grid button', 'action button', '海报墙按钮'], 'gridActionButton', GRID_ONLY),
     createSettingsCommand('settings-playback', 'Playback settings', 'Open playback behavior settings', ['playback', '播放', '播放设置'], 'options', 'playback'),
     createSettingsAnchorCommand('settings-queue-behavior', 'Queue behavior', 'Jump to how the play queue is built and kept', ['queue settings', 'queue behaviour', '队列行为'], 'queueSettings'),
     createSettingsAnchorCommand('settings-netease-scrobble', 'NetEase listening report', 'Jump to whether finished plays are reported to NetEase Cloud Music', ['scrobble', 'netease scrobble', 'listening report', 'play count', '听歌打卡', '打卡', '听歌排行'], 'scrobbleSettings'),
@@ -620,9 +630,10 @@ export const settingsCommands: CommandPaletteCommand[] = [
         requiresInput: true,
         surface: gridViewCardsSurface,
         placeholder: context => context.shared.t('commandPalette.gridViewCardsPlaceholder', 'Adjust the controls below'),
+        ...GRID_ONLY,
         execute: () => false,
     }),
-    createToggleCommand('settings-toggle-gridview-full-bleed-cover', 'settings', 'Full-bleed grid covers', 'Toggle whether grid card artwork fills the whole card', ['full bleed cover', 'edge to edge cover', 'grid cover art', 'cover fills card', '全画幅封面', '封面铺满', '网格卡片封面'], context => context.settings.toggleGridViewFullBleedCover()),
+    createToggleCommand('settings-toggle-gridview-full-bleed-cover', 'settings', 'Full-bleed grid covers', 'Toggle whether grid card artwork fills the whole card', ['full bleed cover', 'edge to edge cover', 'grid cover art', 'cover fills card', '全画幅封面', '封面铺满', '网格卡片封面'], context => context.settings.toggleGridViewFullBleedCover(), GRID_ONLY),
     createToggleCommand(
         'settings-toggle-gridview-square-cards',
         'settings',
@@ -632,7 +643,7 @@ export const settingsCommands: CommandPaletteCommand[] = [
         context => context.settings.toggleGridViewSquareCards(),
         // Same gate the settings panel hides the row behind: squaring the card only means anything
         // once the artwork owns it. A getter, because the parent toggle flips without a re-render.
-        { isAvailable: context => (context ? context.settings.canUseGridViewSquareCards() : false) },
+        { isAvailable: context => (context ? context.settings.isGridLibraryActive() && context.settings.canUseGridViewSquareCards() : false) },
     ),
     defineCommand({
         id: 'lattice-poster-tint',

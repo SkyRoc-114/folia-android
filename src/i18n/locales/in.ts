@@ -2277,7 +2277,7 @@ export default {
     "stageTrackPillMode_always": "Selalu tampil",
     "stageTrackPillMode_never": "Jangan tampilkan",
     "stageTrackPillOnHome": "Tampilkan juga di halaman utama",
-    "stageTrackPillOnHomeDesc": "Saat nonaktif, kartu tetap tampil di pemutar dan antrean putar. Aktifkan untuk menampilkannya juga di halaman utama. Dengan pustaka Bravais, kartu selalu tampil di dinding.",
+    "stageTrackPillOnHomeDesc": "Saat nonaktif, kartu tetap tampil di pemutar dan antrean putar. Aktifkan untuk menampilkannya juga di halaman utama.",
     "stageTrackPillTimeout": "Durasi tampil",
     "disableVisualizerVignette": "Nonaktifkan vignette",
     "visualizerVignette": "Vignette",

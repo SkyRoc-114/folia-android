@@ -2277,7 +2277,7 @@ export default {
     "stageTrackPillMode_always": "常驻显示",
     "stageTrackPillMode_never": "不显示",
     "stageTrackPillOnHome": "在首页显示",
-    "stageTrackPillOnHomeDesc": "关闭时仍在播放器和播放队列显示；开启后也会在首页显示。资料库界面是 Bravais 时，墙上始终显示。",
+    "stageTrackPillOnHomeDesc": "关闭时仍在播放器和播放队列显示；开启后也会在首页显示。",
     "stageTrackPillTimeout": "显示时长",
     "disableVisualizerVignette": "禁用暗角",
     "visualizerVignette": "暗角",
