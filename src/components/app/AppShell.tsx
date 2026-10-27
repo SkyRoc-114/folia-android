@@ -148,15 +148,23 @@ const AppShell: React.FC<AppShellProps> = ({
     const showsPlayerHeaderBlur = isPlayerView && playerHeaderBlur && !isMainWindowClickThroughEnabled;
     const shouldRenderTitlebarBackdrop = !isPlayerView || showsPlayerHeaderBlur || (useCustomWindowRadius && !isMainWindowClickThroughEnabled);
     const isTitlebarBackdropVisible = isTitlebarRevealed || (showsPlayerHeaderBlur && alwaysShowMainWindowTitlebar);
-    const titlebarBackdropClassName = `absolute inset-0 backdrop-blur-sm ${
-        isDaylight
-            ? isPlayerView
-                ? 'bg-white/[0.18] border-b border-white/25 shadow-[0_8px_28px_rgba(0,0,0,0.06)]'
-                : 'bg-white/[0.12] border-b border-white/15'
-            : isPlayerView
-                ? 'bg-black/[0.18] border-b border-white/10 shadow-[0_8px_28px_rgba(0,0,0,0.20)]'
-                : ''
-    }`;
+    // 开了顶栏模糊时用更实的一层：0.18 的白在深色画面上只会混成深灰，浅色主题的深色按钮照样看不清，
+    // 得把底色抬到接近浅色主题的底；深色主题同理压暗。透明窗口原有的 0.18 样式不变。
+    const titlebarBackdropClassName = showsPlayerHeaderBlur
+        ? `absolute inset-0 backdrop-blur-md border-b ${
+            isDaylight
+                ? 'bg-white/65 border-black/5 shadow-[0_8px_28px_rgba(0,0,0,0.06)]'
+                : 'bg-black/40 border-white/10 shadow-[0_8px_28px_rgba(0,0,0,0.20)]'
+        }`
+        : `absolute inset-0 backdrop-blur-sm ${
+            isDaylight
+                ? isPlayerView
+                    ? 'bg-white/[0.18] border-b border-white/25 shadow-[0_8px_28px_rgba(0,0,0,0.06)]'
+                    : 'bg-white/[0.12] border-b border-white/15'
+                : isPlayerView
+                    ? 'bg-black/[0.18] border-b border-white/10 shadow-[0_8px_28px_rgba(0,0,0,0.20)]'
+                    : ''
+        }`;
 
     return (
         <div
