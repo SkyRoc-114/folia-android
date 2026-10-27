@@ -6,6 +6,7 @@ import type { LocalGridViewCollectionDescriptor } from '../../library/core/colle
 import {
     localCollectionCoverKey,
     resolveLocalCollectionPosterFolder,
+    resolveLocalSongCoverCandidates,
     type LocalCollectionCoverOrigin,
 } from '../../library/core/collection/cover/localCollectionCover';
 import { localCollectionCovers } from '../../library/core/collection/cover/localCollectionCovers.service';
@@ -14,7 +15,7 @@ import {
     loadLocalSongCoverBlob,
     prepareLocalCollectionCoverImage,
     type LocalFolderPosterLookup,
-} from '../../library/core/collection/cover/localCollectionCoverSources.service';
+} from '../../services/localCollectionCoverSources';
 import { useLocalCollectionCoverUrls } from '../../library/core/collection/cover/useLocalCollectionCoverUrls';
 import { getLocalCoverUrl } from '../../library/core/home/localHomeModel';
 import { getLocalCoverAssetUrl } from '../../services/localCoverAssetUrl';
@@ -196,7 +197,10 @@ const LocalCollectionCoverDialog: React.FC<LocalCollectionCoverDialogProps> = ({
             <LocalCollectionCoverSongPicks
                 songs={songs}
                 disabled={busy}
-                onPick={song => void apply('song', () => loadLocalSongCoverBlob(song))}
+                onPick={song => void apply('song', () => loadLocalSongCoverBlob(
+                    resolveLocalSongCoverCandidates(song, getLocalCoverAssetUrl),
+                    song.id,
+                ))}
             />
         </ThemedDialog>
     );

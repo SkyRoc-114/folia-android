@@ -4,8 +4,10 @@ import type { LocalLibraryGroup, LocalSong } from '../../../../types';
 // 本地集合（文件夹、专辑、歌单）自定义封面的纯规则：用哪个键记、什么时候盖过自动封面、poster.png 去哪个文件夹找。
 // 自定义封面只是曲库里这个集合自己的图，不写进歌曲文件，也不随集合里的歌变化；图片的字节在设置那一刻存下来
 // （localCollectionCovers.service），这里只认键与 URL。
-// 功能的其它部分：存储与运行时 URL 在同目录的 *.service.ts，对话框在 components/local-collection-cover/，
-// 接入点是 core/home/useLibraryHomeLocal（首页卡片）与 library/app/GridViewOverlayHost（集合层）。
+// 功能的其它部分：存储与运行时 URL 在同目录的 localCollectionCovers.service，取图与缩放（画布、目录句柄）在
+// services/localCollectionCoverSources，对话框在 components/local-collection-cover/；接入点是
+// core/home/useLibraryHomeLocal（首页卡片）、core/artist/useArtistView（本地歌手页的专辑）与
+// library/app/GridViewOverlayHost（集合层）。
 
 /** 封面从哪里来的（只作记录，显示时不区分）。 */
 export type LocalCollectionCoverOrigin = 'poster' | 'upload' | 'song';
@@ -52,22 +54,43 @@ export const resolveLocalCollectionCover = (
     return (key ? overrides.get(key) : undefined) ?? automaticCoverUrl;
 };
 
-/** 首页分组换上自定义封面；没有一个要换时返回原数组（memo 的下游不白算）。 */
+/** 一组带封面的条目按各自的键换上自定义封面；没有一个要换时返回原数组（memo 的下游不白算）。 */
+const applyCoverOverrides = <T extends { readonly coverUrl?: unknown }>(
+    items: readonly T[],
+    keyOf: (item: T) => string | null,
+    overrides: ReadonlyMap<string, string>,
+): readonly T[] => {
+    if (overrides.size === 0) return items;
+    let changed = false;
+    const next = items.map(item => {
+        const key = keyOf(item);
+        const override = key ? overrides.get(key) : undefined;
+        if (!override || override === item.coverUrl) return item;
+        changed = true;
+        return { ...item, coverUrl: override };
+    });
+    return changed ? next : items;
+};
+
+/** 首页分组换上自定义封面；没有一个要换时返回原数组。 */
 export const applyLocalCollectionCoverOverrides = <T extends LocalLibraryGroup>(
     groups: T[],
     overrides: ReadonlyMap<string, string>,
-): T[] => {
-    if (overrides.size === 0) return groups;
-    let changed = false;
-    const next = groups.map(group => {
-        const key = localCollectionCoverKey(group);
-        const override = key ? overrides.get(key) : undefined;
-        if (!override || override === group.coverUrl) return group;
-        changed = true;
-        return { ...group, coverUrl: override };
-    });
-    return changed ? next : groups;
-};
+): T[] => applyCoverOverrides(groups, localCollectionCoverKey, overrides) as T[];
+
+/**
+ * 本地歌手页的专辑换上自定义封面：专辑条目的 id 就是曲库里专辑实体的 id（core/artist/artistModel 按跟随重定向后的
+ * 实体分组），与首页专辑分组、由它打开的专辑页是同一个键，所以三处显示同一张图。「未知专辑」那一项没有实体，键里
+ * 也不会有它的封面。没有一个要换时返回原数组。
+ */
+export const applyLocalArtistAlbumCoverOverrides = <T extends { readonly id: string | number; readonly coverUrl?: string }>(
+    albums: readonly T[],
+    overrides: ReadonlyMap<string, string>,
+): readonly T[] => applyCoverOverrides(
+    albums,
+    album => localCollectionCoverKey({ type: 'album', id: album.id, entityId: String(album.id) }),
+    overrides,
+);
 
 /**
  * poster.png 去哪个文件夹找（曲库里的文件夹路径，含根文件夹名）；没有对应文件夹时为 null。

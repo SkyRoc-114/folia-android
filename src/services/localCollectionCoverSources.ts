@@ -1,12 +1,12 @@
-import type { LocalSong } from '../../../../types';
-import { getDirHandles } from '../../../../services/db';
-import { fetchCoverBlob } from '../../../../services/coverCache';
-import { getLocalCoverAssetUrl, isLocalCoverAssetUrl } from '../../../../services/localCoverAssetUrl';
-import { resolveLocalSongCoverCandidates } from './localCollectionCover';
+import { getDirHandles } from './db';
+import { fetchCoverBlob } from './coverCache';
+import { isLocalCoverAssetUrl } from './localCoverAssetUrl';
 
-// src/library/core/collection/cover/localCollectionCoverSources.service.ts
-// 自定义封面的三个来源取图片字节：文件夹里的 poster.png、用户上传的图片、集合里一首歌的封面；再统一缩到
-// 合适的大小。只在设置那一刻读一次，存下来的是字节本身（localCollectionCovers.service），之后与来源无关。
+// src/services/localCollectionCoverSources.ts
+// 本地集合自定义封面的三个来源取图片字节：文件夹里的 poster.png、用户上传的图片、集合里一首歌的封面；再统一缩到
+// 合适的大小。只在设置那一刻读一次，存下来的是字节本身（library/core/collection/cover/localCollectionCovers.service），
+// 之后与来源无关。要画布、图片元素与目录句柄，所以放在 services，不进 headless 的 library core；
+// 一首歌该取哪几张图（纯规则）由 core 的 resolveLocalSongCoverCandidates 算好再交进来。
 
 /** 存下来的封面最长边。集合封面最大也就铺满一张海报，1024 足够，存储也小。 */
 export const LOCAL_COLLECTION_COVER_MAX_EDGE = 1024;
@@ -108,11 +108,6 @@ export const findLocalFolderPoster = async (
     return handle ? { status: 'found', file: await handle.getFile() } : { status: 'missing' };
 };
 
-/** 一首歌能不能拿来当集合封面（有本地或在线封面）。 */
-export const hasLocalSongCover = (song: Pick<LocalSong, 'useOnlineCover' | 'localCoverAssetId' | 'onlineMetadata'>): boolean => (
-    resolveLocalSongCoverCandidates(song, getLocalCoverAssetUrl).length > 0
-);
-
 /**
  * 经 <img crossOrigin> 解码再画到画布上取字节：fetch 被拒（没有 CORS 头的图床）时的退路，与取色读封面像素同一条路。
  * 画布被污染时 toBlob 抛错，由调用方接住。
@@ -146,20 +141,19 @@ const fetchSongCoverBlob = async (url: string): Promise<Blob> => {
 };
 
 /**
- * 取一首歌封面的原图字节：本地封面读原尺寸资源（不是缩略图），在线封面经封面缓存同一条请求路径（网页版的代理）；
- * 请求被拒时退回经图片元素解码。首选的那张取不到时试另一张；都取不到抛错。
+ * 取一首歌封面的原图字节：candidates 是这首歌的候选封面（core 的 resolveLocalSongCoverCandidates，按偏好排好，
+ * 不带尺寸——本地封面读原尺寸资源，不是缩略图）。在线封面经封面缓存同一条请求路径（网页版的代理）；请求被拒时
+ * 退回经图片元素解码。首选的那张取不到时试下一张；都取不到抛错。songId 只用于日志。
  */
-export const loadLocalSongCoverBlob = async (
-    song: Pick<LocalSong, 'id' | 'useOnlineCover' | 'localCoverAssetId' | 'onlineMetadata'>,
-): Promise<Blob> => {
+export const loadLocalSongCoverBlob = async (candidates: readonly string[], songId: string): Promise<Blob> => {
     let lastError: unknown = new Error('The song has no cover.');
-    for (const url of resolveLocalSongCoverCandidates(song, getLocalCoverAssetUrl)) {
+    for (const url of candidates) {
         try {
             const blob = await fetchSongCoverBlob(url).catch(() => loadImageBlobViaElement(url));
             if (blob.size > 0) return blob;
         } catch (error) {
             lastError = error;
-            console.warn(`[LocalCollectionCover] Failed to read a cover of song ${song.id}:`, error);
+            console.warn(`[LocalCollectionCover] Failed to read a cover of song ${songId}:`, error);
         }
     }
     throw lastError;

@@ -276,16 +276,16 @@ const GridViewOverlayHost: React.FC<GridViewOverlayHostProps> = ({
             return liveSelectedCollection;
         }
 
-        // 设了自定义封面就用它（固定不变）；否则是由曲目推出来的自动封面。
-        const coverUrl = resolveLocalCollectionCover(
-            liveSelectedCollection,
-            resolvedLocalCollectionCoverUrl || getPersistentCoverUrl(liveSelectedCollection.coverUrl),
-            localCollectionCoverUrls,
-        );
+        // 设了自定义封面就用它（固定不变）；否则是由曲目推出来的自动封面。自动封面另外带着，画曲目的地方
+        // （Bravais 的专辑墙）用它：集合封面不影响集合里的歌。（自定义封面是 blob: 地址，getPersistentCoverUrl
+        // 不会把导航栈里带着的那张当成自动封面。）
+        const automaticCoverUrl = resolvedLocalCollectionCoverUrl || getPersistentCoverUrl(liveSelectedCollection.coverUrl);
+        const coverUrl = resolveLocalCollectionCover(liveSelectedCollection, automaticCoverUrl, localCollectionCoverUrls);
 
         return {
             ...liveSelectedCollection,
             coverUrl,
+            automaticCoverUrl: automaticCoverUrl ?? null,
         };
     }, [liveSelectedCollection, localCollectionCoverUrls, resolvedLocalCollectionCoverUrl]);
 
