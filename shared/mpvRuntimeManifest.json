@@ -7,9 +7,14 @@
     "macOS 的 zip 里只有一个 mpv.tar.gz（mpv.app 在里面）：先 ditto 解 zip，再用系统 tar 解它。",
     "macOS 构建的最低系统版本取自 Mach-O 的 LC_BUILD_VERSION（Info.plist 没写）；Intel 只有 macos-15 一种构建。",
     "官方 0.41.0 构建的 `mpv --version` 打印 `mpv v0.41.0-dev-g41f6a6450`，这是它们 CI 里 git describe 找不到标签时的写法。",
-    "列出的版本不能低于 mpvRuntime.cjs 的 MIN_MPV_VERSION（0.39.0）：更旧的 mpv 认不得启动参数，检测会跳过它。"
+    "列出的版本不能低于 mpvRuntime.cjs 的 MIN_MPV_VERSION（0.39.0）：更旧的 mpv 认不得启动参数，检测会跳过它。",
+    "mirrors 是原址之后依次试的镜像，`{url}` 换成构建的 url：国内直连 GitHub 没响应、卡住或太慢时换到 gh-proxy。镜像是第三方的，给的字节照样按 bytes 和 sha256 核对。",
+    "设置页另给夸克、百度网盘让用户手动下（HifiEngineGroup.tsx 的 MPV_DRIVE_LINKS，文件在「原生音频组件」文件夹）：换推荐版本时那里的 zip 也要换。"
   ],
   "schema": 1,
+  "mirrors": [
+    "https://gh-proxy.com/{url}"
+  ],
   "recommended": "0.41.0",
   "versions": [
     {
