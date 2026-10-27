@@ -94,7 +94,7 @@ const GeneralPage: React.FC = () => {
             ? t('options.appLanguageZhCN')
             : resolvedLanguage === 'in' || resolvedLanguage?.startsWith('id')
                 ? t('options.appLanguageInID')
-                : resolvedLanguage === 'vi' || resolvedLanguage?.startsWith('vi')
+                : resolvedLanguage === 'vi'
                     ? t('options.appLanguageViVN')
                     : t('options.appLanguageEnUS');
 

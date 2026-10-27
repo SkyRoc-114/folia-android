@@ -66,7 +66,7 @@ const normalizeSupportedLanguage = (value: string | null | undefined): Exclude<A
     return 'in';
   }
 
-  if (value === 'vi' || value.toLowerCase().startsWith('vi')) {
+  if (value.toLowerCase() === 'vi' || value.toLowerCase().startsWith('vi-')) {
     return 'vi';
   }
 

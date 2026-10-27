@@ -77,7 +77,8 @@
       "en-US",
       "zh-CN",
       "zh-TW",
-      "id"
+      "id",
+      "vi"
     ],
     "generateUpdatesFilesForAllChannels": true,
     "directories": {
@@ -161,7 +162,8 @@
         "en",
         "zh_CN",
         "zh_TW",
-        "id"
+        "id",
+        "vi"
       ],
       "extraResources": [
         {
@@ -214,7 +216,8 @@
       "installerLanguages": [
         "en_US",
         "zh_CN",
-        "id"
+        "id",
+        "vi_VN"
       ],
       "include": "build/installer.nsh"
     },
