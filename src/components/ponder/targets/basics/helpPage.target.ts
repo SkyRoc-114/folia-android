@@ -1,11 +1,15 @@
-import { ONBOARDING_ILLUSTRATION } from './ponderOnboardingShared';
-import type { PonderAnchorSource, PonderSceneScript, PonderTargetDefinition } from '../../../../types/ponder';
+import { ONBOARDING_ILLUSTRATION, ONBOARDING_TOUCH } from './ponderOnboardingShared';
+import type { PonderAnchorSource, PonderSceneScript, PonderStep, PonderTargetDefinition } from '../../../../types/ponder';
 
 // src/components/ponder/targets/basics/helpPage.target.ts
-// Folia 的总览。第一次打开应用时那道门指向它，思索导航页上按 Ctrl+G 也是它。
+// Folia 的总览。第一次打开应用时那道门指向它，思索导航页上按 Ctrl+G（触屏点右上角灯泡）也是它。
 //
 // 这里只放四个最短的入门章节：思索、命令面板、常用操作示例和官方文档。
 // 媒体键、完整快捷键、桌面端等细节仍各自作为导航页上的独立目标。
+//
+// 触屏上没有悬停也没有键盘：讲思索和命令面板的两章各有一套触屏分镜（导出成
+// TOUCH_SCENE_STEPS，让注册表测试把两套都拉去同一道防线），常用操作和文档两章
+// 不涉及按键，两套共用。
 
 const palette = {
     kind: 'synthetic',
@@ -48,11 +52,45 @@ const commandExampleAnchors = {
 } satisfies PonderSceneScript['anchors'];
 
 /**
+ * 总览章的触屏分镜：灯泡就是整页入口，先亮出来讲它是什么，再点它进场。
+ *
+ * 桌面那套里的悬停提示和长按 G 在触屏上不存在，直接去掉，不硬凑等价物 ——
+ * 硬凑出来的动作没人做得出。字幕节奏照桌面：每步单独一段，停留比默认长。
+ * 结果层只能淡入、不能退回 base，所以 ponder-open 同样放在最后。
+ */
+const overviewTouchSteps: PonderStep[] = [
+    { kind: 'highlight', id: 'markBulb', anchor: 'touchBulb', intensity: [0, 0.9], durationMs: 440, keyframe: true },
+    {
+        kind: 'caption', id: 'bulb',
+        textKey: 'ponder.captions.onboarding.overviewCtrlGTouch',
+        pointTo: { anchor: 'touchBulb' }, durationMs: 6400, withPrevious: true,
+    },
+    { kind: 'pause', id: 'readBulb', dwellMs: 2200 },
+
+    { kind: 'highlight', id: 'dimBulb', anchor: 'touchBulb', intensity: [0.9, 0], durationMs: 400, keyframe: true },
+    { kind: 'cursor', id: 'tapBulb', to: { anchor: 'touchBulb' }, press: 'tap', durationMs: 900, withPrevious: true },
+    { kind: 'surfaceState', id: 'opened', anchor: 'page', state: 'ponder-open', transition: 'zoom', durationMs: 640 },
+    {
+        kind: 'caption', id: 'wholePage',
+        textKey: 'ponder.captions.onboarding.overviewWholePage',
+        pointTo: { anchor: 'page' }, durationMs: 6400, withPrevious: true,
+    },
+    { kind: 'pause', id: 'readWholePage', dwellMs: 2200 },
+
+    {
+        kind: 'caption', id: 'settings',
+        textKey: 'ponder.captions.onboarding.overviewSettings',
+        pointTo: { anchor: 'page' }, durationMs: 6000, keyframe: true,
+    },
+    { kind: 'pause', id: 'readSettings', dwellMs: 2200 },
+];
+
+/**
  * 第一章：两种思索入口，以及不需要时可以关闭。
  *
  * 先讲 Ctrl+G：它不依赖任何组件，在哪一页都能用，是最先该记住的那一下。
  * 然后才是悬停提示和长按 G。每一步单独一段字幕，停留比默认长，不把两件事塞进一句。
- * 结果层只能淡入、不能退回 base，所以 ponder-open 必须放在最后。
+ * 触屏上改讲右上角灯泡，悬停与长按两段整个去掉。
  */
 const ponderOverview: PonderSceneScript = {
     id: 'help-page-overview',
@@ -63,7 +101,7 @@ const ponderOverview: PonderSceneScript = {
         labelKey: 'ponder.actions.openPonderHints',
     },
     anchors: ONBOARDING_ILLUSTRATION,
-    steps: [
+    steps: ONBOARDING_TOUCH ? overviewTouchSteps : [
         { kind: 'keypress', id: 'pressCtrlG', keys: ['Ctrl G'], at: { anchor: 'page', y: 1, offset: { y: 20 } }, durationMs: 1400, keyframe: true },
         { kind: 'highlight', id: 'markPage', anchor: 'page', intensity: [0, 0.35], durationMs: 520, withPrevious: true },
         {
@@ -109,12 +147,27 @@ const ponderOverview: PonderSceneScript = {
     ],
 };
 
-/** 第二章：命令面板是跨页面的主要操作入口。 */
+/**
+ * 第二章：命令面板是跨页面的主要操作入口。
+ *
+ * 触屏上不开按键演示：入口是左下角的命令面板按钮（面板手柄那颗，点一下或往左滑）。
+ * 图里演的还是面板本身，字幕负责把入口说准。
+ */
+const commandPaletteTouchSteps: PonderStep[] = [
+    { kind: 'highlight', id: 'markInput', anchor: 'input', intensity: [0, 0.75], durationMs: 420, keyframe: true },
+    {
+        kind: 'caption', id: 'palette',
+        textKey: 'ponder.captions.onboarding.overviewCommandPaletteTouch',
+        pointTo: { anchor: 'input' }, durationMs: 6800, withPrevious: true,
+    },
+    { kind: 'pause', id: 'readPalette' },
+];
+
 const commandPalette: PonderSceneScript = {
     id: 'help-page-command-palette',
     titleKey: 'ponder.scenes.helpPageCommandPalette',
     anchors: commandPaletteAnchors,
-    steps: [
+    steps: ONBOARDING_TOUCH ? commandPaletteTouchSteps : [
         { kind: 'keypress', id: 'openPalette', keys: ['Mod K'], at: { anchor: 'palette', y: 0, offset: { y: -24 } }, durationMs: 1000, keyframe: true },
         { kind: 'highlight', id: 'markInput', anchor: 'input', intensity: [0, 0.75], durationMs: 420, withPrevious: true },
         {
@@ -190,3 +243,12 @@ export default {
     hoverSelector: null,
     scenes: [ponderOverview, commandPalette, commandExamples, docs],
 } satisfies PonderTargetDefinition;
+
+/**
+ * 触屏分镜，按场景 id 对号。注册表只读 default export，测试从这里把两套分镜
+ * 都拉去同一道防线（锚点引用、步骤 id、时间线编译）。
+ */
+export const TOUCH_SCENE_STEPS = {
+    'help-page-overview': overviewTouchSteps,
+    'help-page-command-palette': commandPaletteTouchSteps,
+} satisfies Record<string, PonderStep[]>;

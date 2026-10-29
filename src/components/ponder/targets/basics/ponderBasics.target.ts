@@ -1,13 +1,43 @@
-import { ONBOARDING_ILLUSTRATION, onboardingSurface } from './ponderOnboardingShared';
-import type { PonderSceneScript, PonderTargetDefinition } from '../../../../types/ponder';
+import { ONBOARDING_ILLUSTRATION, ONBOARDING_TOUCH, onboardingSurface } from './ponderOnboardingShared';
+import type { PonderSceneScript, PonderStep, PonderTargetDefinition } from '../../../../types/ponder';
 
 // src/components/ponder/targets/basics/ponderBasics.target.ts
 // 思索自己怎么用。
 //
 // 从 help-page 拆出来的详细说明：入门页只概述思索能做什么，「悬停出提示、长按 G、整页 Ctrl+G、
 // 触屏那颗灯泡、看够了怎么关」这些都是具体操作，属于导航页上的一条，不属于总览。
+//
+// 触屏上没有悬停，也没有键盘：前两章（怎么进来、整页入口）各有触屏分镜，灯泡就是唯一的
+// 入口；第五章讲的是设置里的开关，两套共用。触屏步骤导出成 TOUCH_SCENE_STEPS，
+// 让注册表测试把两套都拉去同一道防线。
 
 const illustration = ONBOARDING_ILLUSTRATION;
+
+/**
+ * 第一章的触屏分镜：教程控件怎么用，以及下一次怎么再进来。
+ *
+ * 悬停出提示、长按 G 那两段在触屏上不存在，去掉；「怎么再来」落在灯泡上 ——
+ * 它本来就是触屏上唯一的入口。字幕改说下方的暂停、前后段按钮，不再提方向键和 Space。
+ */
+const insidePonderTouchSteps: PonderStep[] = [
+    { kind: 'highlight', id: 'showPage', anchor: 'page', intensity: [0, 0.35], durationMs: 520, keyframe: true },
+    {
+        kind: 'caption', id: 'here',
+        textKey: 'ponder.captions.onboarding.hereTouch',
+        pointTo: { anchor: 'page' }, durationMs: 5200, withPrevious: true,
+    },
+    { kind: 'pause', id: 'readHere' },
+
+    { kind: 'highlight', id: 'dimPage', anchor: 'page', intensity: [0.35, 0], durationMs: 400, keyframe: true },
+    { kind: 'cursor', id: 'tapBulb', to: { anchor: 'touchBulb' }, press: 'tap', durationMs: 800, withPrevious: true },
+    { kind: 'surfaceState', id: 'opened', anchor: 'page', state: 'ponder-open', transition: 'zoom', durationMs: 560 },
+    {
+        kind: 'caption', id: 'again',
+        textKey: 'ponder.captions.onboarding.touchBulb',
+        pointTo: { anchor: 'page' }, durationMs: 5800, withPrevious: true,
+    },
+    { kind: 'pause', id: 'readAgain' },
+];
 
 /**
  * 第一章：你已经在思索里了，以及怎么再打开下一个。
@@ -16,13 +46,14 @@ const illustration = ONBOARDING_ILLUSTRATION;
  * 说清楚，后面几章才有人看得到。
  *
  * 这一章用的是示意图而不是某个真实页面的轮廓：它讲的是一套机制，而机制没有「所在页面」。
- * 光标移到图里那个组件上 → 胶囊浮出来 → 擦除铺满 → 教程接管整屏，四步就是全过程。
+ * 桌面：光标移到图里那个组件上 → 胶囊浮出来 → 擦除铺满 → 教程接管整屏，四步就是全过程。
+ * 触屏：控件说明加上点灯泡进场，同样四步。
  */
 const insidePonder: PonderSceneScript = {
     id: 'help-page-ponder',
     titleKey: 'ponder.scenes.helpPagePonder',
     anchors: illustration,
-    steps: [
+    steps: ONBOARDING_TOUCH ? insidePonderTouchSteps : [
         { kind: 'highlight', id: 'showPage', anchor: 'page', intensity: [0, 0.35], durationMs: 520, keyframe: true },
         {
             kind: 'caption', id: 'here',
@@ -54,16 +85,40 @@ const insidePonder: PonderSceneScript = {
 };
 
 /**
+ * 第二章的触屏分镜：灯泡是唯一入口，所以这一章整章都围着它转 ——
+ * 先亮出来讲「整页教程是什么」，再点一下，补上它出现几秒会收起、怎么再叫出来的细节。
+ * 和桌面那套一样不切 ponder-open：整屏接管上一章末尾刚演过。
+ */
+const wholePageTouchSteps: PonderStep[] = [
+    { kind: 'highlight', id: 'markBulb', anchor: 'touchBulb', intensity: [0, 0.9], durationMs: 460, keyframe: true },
+    {
+        kind: 'caption', id: 'wholePage',
+        textKey: 'ponder.captions.onboarding.wholePageTouch',
+        pointTo: { anchor: 'touchBulb' }, durationMs: 5800, withPrevious: true,
+    },
+    { kind: 'pause', id: 'readWholePage' },
+
+    { kind: 'cursor', id: 'tapBulb', to: { anchor: 'touchBulb' }, press: 'tap', durationMs: 800, withPrevious: true },
+    {
+        kind: 'caption', id: 'touch',
+        textKey: 'ponder.captions.onboarding.touchBulb',
+        pointTo: { anchor: 'touchBulb' }, durationMs: 6200, withPrevious: true,
+    },
+    { kind: 'pause', id: 'readTouch' },
+];
+
+/**
  * 第二章：整页的教程，以及触屏上那颗灯泡。
  *
  * 灯泡单独说，因为它只在触屏上存在 —— 桌面上照着找是找不到的，而上一版的文案
  * 把这件事写成了一句附带，读的人只会以为自己没看见。
+ * 触屏上反过来：灯泡是唯一入口，Ctrl+G 那段整个换成它。
  */
 const wholePage: PonderSceneScript = {
     id: 'help-page-whole-page',
     titleKey: 'ponder.scenes.helpPageWholePage',
     anchors: illustration,
-    steps: [
+    steps: ONBOARDING_TOUCH ? wholePageTouchSteps : [
         // 这一章不切到 ponder-open：整屏接管的样子上一章末尾刚演过，再演一遍没有新东西，
         // 而它是整屏替换 —— 切过去之后右下角那颗灯泡就不在画面上了，第二段没法指。
         { kind: 'keypress', id: 'ctrlG', keys: ['Ctrl G'], at: { anchor: 'page', y: 1, offset: { y: 20 } }, durationMs: 1100, keyframe: true },
@@ -120,3 +175,12 @@ export default {
     hoverSelector: null,
     scenes: [insidePonder, wholePage, hintSettings],
 } satisfies PonderTargetDefinition;
+
+/**
+ * 触屏分镜，按场景 id 对号。注册表只读 default export，测试从这里把两套分镜
+ * 都拉去同一道防线（锚点引用、步骤 id、时间线编译）。
+ */
+export const TOUCH_SCENE_STEPS = {
+    'help-page-ponder': insidePonderTouchSteps,
+    'help-page-whole-page': wholePageTouchSteps,
+} satisfies Record<string, PonderStep[]>;

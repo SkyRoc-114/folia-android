@@ -4,7 +4,9 @@ import { compilePonderScene } from '@/utils/ponder/compilePonderTimeline';
 import { SETTINGS_ANCHOR_DEFINITIONS } from '@/components/modal/settings/navigation/settingsAnchorModel';
 import { VISUALIZER_SETTINGS_SECTIONS } from '@/stores/useSettingsModalStore';
 import { PONDER_TARGET_CATEGORIES } from '@/types/ponder';
-import type { PonderAnchorPoint, PonderStep, PonderSurfaceKind } from '@/types/ponder';
+import type { PonderAnchorPoint, PonderStep, PonderSceneScript, PonderSurfaceKind } from '@/types/ponder';
+import { TOUCH_SCENE_STEPS as HELP_PAGE_TOUCH_STEPS } from '@/components/ponder/targets/basics/helpPage.target';
+import { TOUCH_SCENE_STEPS as PONDER_BASICS_TOUCH_STEPS } from '@/components/ponder/targets/basics/ponderBasics.target';
 
 // test/unit/ponder/ponderRegistry.test.ts
 // 场景脚本是纯声明数据，写错了不会有任何类型错误 —— 引用一个不存在的锚点只会让骨架
@@ -33,6 +35,12 @@ const referencedAnchors = (step: PonderStep): string[] => {
         default:
             return [];
     }
+};
+
+// 触屏分镜用到的结果层 → 实现它的 surface。桌面那张大表在下面单独的测试里；
+// 触屏目前只切 ponder-open，新分镜用到别的 surface 时在这里补。
+const TOUCH_SURFACE_STATES: Partial<Record<PonderSurfaceKind, Set<string>>> = {
+    'ponder-onboarding': new Set(['ponder-open']),
 };
 
 describe('ponder registry', () => {
@@ -252,6 +260,49 @@ describe('ponder registry', () => {
                     sections.has(scene.action.section),
                     `${target.id}/${scene.id} 指向了调参台不存在的一页 "${scene.action.section}"`,
                 ).toBe(true);
+            });
+        });
+    });
+
+    // 触屏分镜与桌面分镜是两套数据，注册表启动时只会选中其中一套，上面的断言
+    // 只覆盖被选中的那套（node 环境没有 window，选中桌面）。触屏那套从这里拉去
+    // 同一道防线：锚点引用、步骤 id、结果层、时间线编译，外加「不演按键」这一条 ——
+    // 触屏上没有键盘，分镜里出现 keypress 就是把桌面动作漏进了触屏。
+    it('入门目标的触屏分镜与桌面分镜过同一道防线', () => {
+        const variants = [
+            { target: findPonderTarget('help-page'), touch: HELP_PAGE_TOUCH_STEPS },
+            { target: findPonderTarget('ponder-basics'), touch: PONDER_BASICS_TOUCH_STEPS },
+        ];
+
+        variants.forEach(({ target, touch }) => {
+            expect(target, '触屏分镜对号的目标不存在').toBeDefined();
+            const definedTarget = target!;
+            Object.entries(touch).forEach(([sceneId, steps]) => {
+                const scene = definedTarget.scenes.find(candidate => candidate.id === sceneId);
+                expect(scene, `${definedTarget.id}/${sceneId} 没有这个场景`).toBeDefined();
+                const definedScene = scene!;
+
+                const ids = steps.map(step => step.id);
+                expect(new Set(ids).size, `${definedTarget.id}/${sceneId} 触屏步骤 id 重复`).toBe(ids.length);
+
+                const declared = new Set(Object.keys(definedScene.anchors));
+                steps.forEach(step => {
+                    expect(step.kind, `${definedTarget.id}/${sceneId}/${step.id} 触屏分镜里还在演按键`).not.toBe('keypress');
+                    referencedAnchors(step).forEach(anchor => {
+                        expect(declared.has(anchor), `${definedTarget.id}/${sceneId}/${step.id} 引用了未声明的锚点 "${anchor}"`).toBe(true);
+                    });
+                    if (step.kind !== 'surfaceState') return;
+                    const surfaceKind = definedScene.anchors[step.anchor]?.surfaceKind;
+                    expect(surfaceKind, `${definedTarget.id}/${sceneId}/${step.id} 没有指向 surface`).toBeDefined();
+                    expect(
+                        surfaceKind && TOUCH_SURFACE_STATES[surfaceKind]?.has(step.state),
+                        `${definedTarget.id}/${sceneId}/${step.id} 引用了未实现的结果层 "${step.state}"`,
+                    ).toBe(true);
+                });
+
+                const plan = compilePonderScene({ ...definedScene, steps } satisfies PonderSceneScript);
+                expect(plan.totalMs, `${definedTarget.id}/${sceneId} 触屏分镜时长为 0`).toBeGreaterThan(0);
+                expect(plan.keyframes.length, `${definedTarget.id}/${sceneId} 触屏分镜没有关键帧`).toBeGreaterThan(0);
             });
         });
     });
