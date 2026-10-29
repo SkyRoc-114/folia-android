@@ -25,6 +25,8 @@ type SampleBoxProps = {
     room: string;
     className: string;
     style?: React.CSSProperties;
+    /** The box itself (the live preview and the still-clock pulse measure it). */
+    ref?: React.Ref<HTMLDivElement>;
     children: React.ReactNode;
 };
 
@@ -32,11 +34,11 @@ type SampleBoxProps = {
  * The sample's box: the shape of the app's window, as large as its room allows, centred there. The
  * room is a size container, so its size comes from its parent, never from the box in it.
  */
-export const SampleBox: React.FC<SampleBoxProps> = ({ room, className, style, children }) => {
+export const SampleBox: React.FC<SampleBoxProps> = ({ room, className, style, ref, children }) => {
     const { width, height } = useWindowSize();
     return (
         <div className={`grid place-items-center [container-type:size] ${room}`}>
-            <div className={className} style={{ ...style, aspectRatio: `${width} / ${height}`, width: `min(100cqw, 100cqh * ${width / height})` }}>
+            <div ref={ref} className={className} style={{ ...style, aspectRatio: `${width} / ${height}`, width: `min(100cqw, 100cqh * ${width / height})` }}>
                 {children}
             </div>
         </div>
