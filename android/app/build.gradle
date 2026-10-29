@@ -33,6 +33,18 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // 按 ABI 拆分 APK：产出 armv7 (armeabi-v7a) / armv8 (arm64-v8a) / universal 三种安装包，
+    // 由 .github/workflows/android-pre-release.yml 重命名后随 pre-release 一并发布。
+    // 项目本身无自绘 native 代码，拆分主要服务分发格式需求；三包 versionCode 相同，
+    // 同签名侧载覆盖安装不受影响。
+    splits {
+        abi {
+            enable true
+            reset()
+            include 'armeabi-v7a', 'arm64-v8a'
+            universalApk true
+        }
+    }
     signingConfigs {
         if (hasReleaseKeystore) {
             release {

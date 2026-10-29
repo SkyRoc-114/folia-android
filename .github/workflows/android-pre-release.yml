@@ -70,14 +70,19 @@ jobs:
           chmod +x gradlew
           ./gradlew -Dorg.gradle.java.home="$JAVA_HOME" assembleDebug --no-daemon --stacktrace
 
-      - name: Rename APK
+      # splits.abi（见 android/app/build.gradle）产出三种安装包，按惯例命名：
+      # armv7 = armeabi-v7a、armv8 = arm64-v8a、universal = 全 ABI。
+      - name: Rename APKs
         id: apk
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           TAG="${{ github.ref_type == 'tag' && github.ref_name || inputs.version }}"
           TAG="${TAG:-v${VERSION}}"
-          cp android/app/build/outputs/apk/debug/app-debug.apk "folia-${VERSION}.apk"
-          echo "APK: folia-${VERSION}.apk ($(du -h "folia-${VERSION}.apk" | cut -f1)) -> tag ${TAG}"
+          OUT=android/app/build/outputs/apk/debug
+          cp "$OUT/app-armeabi-v7a-debug.apk" "folia-${VERSION}-armv7.apk"
+          cp "$OUT/app-arm64-v8a-debug.apk"  "folia-${VERSION}-armv8.apk"
+          cp "$OUT/app-universal-debug.apk"  "folia-${VERSION}-universal.apk"
+          ls -lh folia-*.apk
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Publish pre-release
