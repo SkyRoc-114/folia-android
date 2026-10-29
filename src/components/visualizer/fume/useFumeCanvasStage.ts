@@ -1,6 +1,8 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import { drawFumeBackground } from './FumeBackground';
 import { isGlowBlurQuantized } from '../../../utils/glowBlurQuantize';
+import { useLyricSettingsStore } from '../../../stores/useLyricSettingsStore';
+import { resolveLyricRenderQuality } from '../../../utils/lyricRenderQuality';
 import type { StaticBlockSnapshot } from './fumeTypes';
 import { resolveFumeBackgroundView, stepFumeCamera, syncFumeCameraToArticle } from './fumeCameraStep';
 import { isFumeBlockOnScreen, resolveFumeBlockTiming, resolveFumeGlowBases, resolveFumeStaticLayers, type FumeStaticLayerInput } from './fumeBlockFrame';
@@ -204,7 +206,11 @@ export const useFumeCanvasStage = (
                 passedGlowBase,
                 passedFadeDuration,
                 overviewTextRestoreProgress,
-                snapshotScale: clamp(window.devicePixelRatio || 1, 1, 2),
+                // 快照纹理上限 2：再大只换内存不换观感，固定档也钳在 2（spec 决策）。
+                snapshotScale: Math.min(
+                    2,
+                    resolveLyricRenderQuality(useLyricSettingsStore.getState().lyricRenderQuality, window.devicePixelRatio || 1),
+                ),
             };
 
             const rasterLive = isGlowBlurQuantized();

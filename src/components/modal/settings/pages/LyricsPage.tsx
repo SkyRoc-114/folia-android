@@ -19,6 +19,7 @@ import { useSettingsPage } from './settingsPageContext';
 
 const SOURCE: SettingsGroupDef = { id: 'lyrics', titleKey: 'options.settingsHeadingLyricSource' };
 const ADJUST: SettingsGroupDef = { id: 'lyricAdjust', titleKey: 'options.settingsHeadingLyricTiming' };
+const RENDER: SettingsGroupDef = { id: 'lyricRender', titleKey: 'options.settingsHeadingLyricRender' };
 const FORMATS: SettingsGroupDef = { id: 'localLyricFormatOrder', titleKey: 'options.localLyricFormatOrder' };
 
 const O = {
@@ -27,6 +28,8 @@ const O = {
     localPriority: option(SOURCE, 'localLyricsPriority', 'options.localLyricsPriority'),
     globalOffset: option(ADJUST, 'globalLyricTimelineOffset', 'options.globalLyricTimelineOffset'),
     filter: option(ADJUST, 'lyricFilterRegex', 'options.lyricFilterRegex'),
+    renderQuality: option(RENDER, 'lyricRenderQuality', 'options.lyricRenderQuality'),
+    antialias: option(RENDER, 'lyricAntialias', 'options.lyricAntialias'),
     formatOrder: option(FORMATS, 'localLyricFormatOrderList', 'options.localLyricFormatOrderList'),
 };
 
@@ -41,10 +44,14 @@ const LyricsPage: React.FC = () => {
         localPriority: state.localLyricsPriority,
         formatOrder: state.localLyricFormatOrder,
         globalOffsetMs: state.globalLyricTimelineOffsetMs,
+        renderQuality: state.lyricRenderQuality,
+        antialias: state.lyricAntialias,
         setAutoBest: state.handleToggleAutoUseBestLyric,
         setPreferredSource: state.handleSetPreferredAlternativeLyricSource,
         setLocalPriority: state.handleSetLocalLyricsPriority,
         setFormatOrder: state.handleSetLocalLyricFormatOrder,
+        setRenderQuality: state.handleSetLyricRenderQuality,
+        setAntialias: state.handleToggleLyricAntialias,
     })));
     const sources = useLyricMatchSources();
     // A choice that is not on offer now is not in force either: the matcher falls back the same way.
@@ -109,6 +116,24 @@ const LyricsPage: React.FC = () => {
                     <Value>{`${lyric.globalOffsetMs > 0 ? '+' : ''}${lyric.globalOffsetMs} ms`}</Value>
                 </Row>
                 <Row option={O.filter} hint={t('options.lyricFilterRegexDesc')} onClick={onOpenLyricFilterSettings} />
+            </Group>
+
+            <Group def={RENDER}>
+                <Row option={O.renderQuality} note={t('options.lyricRenderQualityDesc')}>
+                    <Select
+                        value={lyric.renderQuality}
+                        options={[
+                            { value: 'auto', label: t('options.lyricRenderQualityAuto') },
+                            { value: '1', label: '1×' },
+                            { value: '2', label: '2×' },
+                            { value: '3', label: '3×' },
+                        ]}
+                        onChange={lyric.setRenderQuality}
+                    />
+                </Row>
+                <Row option={O.antialias} note={t('options.lyricAntialiasDesc')}>
+                    <Toggle checked={lyric.antialias} onChange={lyric.setAntialias} />
+                </Row>
             </Group>
 
             <FoldedGroup def={FORMATS} summary={t('options.localLyricFormatOrderFirst', { format: `.${lyric.formatOrder[0]}` })}>

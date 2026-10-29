@@ -28,6 +28,8 @@ import { changedHanabiKeys, HANABI_OVERLAY_KEYS, requiresHanabiSceneRebuild } fr
 import { createBloomFilter, type BloomFilter } from '../pixi/bloomFilter';
 import { rescaleBeatEnvelope, resolveHanabiBeatPulse } from './hanabiBeatFx';
 import { resolveHanabiChorusWeight, resolveHanabiScreenBloomStrength } from './hanabiScreenBloom';
+import { useLyricSettingsStore } from '../../../stores/useLyricSettingsStore';
+import { applyLyricRenderQuality } from '../../../utils/lyricRenderQuality';
 import { createHanabiTextures } from './mg/textures';
 import type { HanabiBeatSource } from './scene';
 import { buildHanabiOverlay } from './overlay';
@@ -71,7 +73,12 @@ const MAX_RESOLUTION = 2;
 const DARK_SKY = 0.5;
 const NIGHT_BACKGROUND = '#0b0d24';
 
-const resolveRenderResolution = (devicePixelRatio: number) => Math.min(MAX_RESOLUTION, Math.max(1, devicePixelRatio || 1));
+const resolveRenderResolution = (devicePixelRatio: number) =>
+    applyLyricRenderQuality(
+        useLyricSettingsStore.getState().lyricRenderQuality,
+        devicePixelRatio,
+        dpr => Math.min(MAX_RESOLUTION, Math.max(1, dpr || 1)),
+    );
 
 export class HanabiPixiRuntime {
     private readonly sceneCache = new PixiSceneCache<HanabiSceneEntry>({
@@ -130,7 +137,9 @@ export class HanabiPixiRuntime {
         const contextOptions = {
             // 画布透明：夜空不透明度小于 1 时 folia 的共享背景要透出来。
             backgroundAlpha: 0,
-            antialias: false,
+            // MSAA 一等设置（#929）：默认关（旧行为，几何边缘 AA 由风格自身的辉光掩）；
+            // 设置开启时才多重采样。定格于 context 创建，改后由 rebuildKey 重建。
+            antialias: useLyricSettingsStore.getState().lyricAntialias,
             powerPreference: 'high-performance',
         } as const;
         const context = await makePixiContext(pixi, contextOptions, options.signal);

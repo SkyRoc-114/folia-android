@@ -16,6 +16,7 @@ import { DEFAULT_PREFERRED_LYRIC_SOURCE, migratePreferredLyricSource } from '../
 import { DEFAULT_LYRIC_STAFF_ABSORB_MODE, DEFAULT_LYRIC_STAFF_MIN_DWELL_SECONDS, DEFAULT_LYRIC_STAFF_POLICY, LYRIC_STAFF_MIN_DWELL_RANGE, type LyricStaffAbsorbMode, type LyricStaffPolicy } from '../utils/lyrics/staffCreditsPolicy';
 import { getStoredBoolean, getStoredString, removeStoredKey, setStoredBoolean, setStoredString } from './storagePrimitives';
 import { setStatusMessage } from './useStatusMessageStore';
+import { DEFAULT_LYRIC_RENDER_QUALITY, isLyricRenderQuality, type LyricRenderQuality } from '../utils/lyricRenderQuality';
 
 export const GLOBAL_LYRIC_TIMELINE_OFFSET_STORAGE_KEY = 'global_lyric_timeline_offset_ms';
 
@@ -121,8 +122,17 @@ const readStoredLyricStaffAbsorbMode = (): LyricStaffAbsorbMode => {
     return saved === 'before' || saved === 'both' || saved === 'off' ? saved : DEFAULT_LYRIC_STAFF_ABSORB_MODE;
 };
 
+const readStoredLyricRenderQuality = (): LyricRenderQuality => {
+    const saved = localStorage.getItem('lyrics_render_quality');
+    return isLyricRenderQuality(saved) ? saved : DEFAULT_LYRIC_RENDER_QUALITY;
+};
+
 export type LyricSettingsState = {
     autoUseBestLyric: boolean;
+    /** 歌词画布渲染倍率（#929）：auto 随 dpr 钳 1..2，或固定 1/2/3 倍。 */
+    lyricRenderQuality: LyricRenderQuality;
+    /** 歌词 WebGL 上下文的多重采样（MSAA）：定格于 context 创建，改后需重建。 */
+    lyricAntialias: boolean;
     preferredAlternativeLyricSource: LyricProviderSource;
     localLyricsPriority: LocalLyricsPriority;
     localLyricFormatOrder: LocalLyricFileFormat[];
@@ -143,6 +153,8 @@ export type LyricSettingsState = {
     handleSetLyricStaffMinDwellSeconds: (seconds: number) => void;
     handleSetLyricStaffAbsorbMode: (mode: LyricStaffAbsorbMode) => void;
     handleSetLyricStaffPattern: (pattern: string) => void;
+    handleSetLyricRenderQuality: (quality: LyricRenderQuality) => void;
+    handleToggleLyricAntialias: (enable: boolean) => void;
 };
 
 export const useLyricSettingsStore = create<LyricSettingsState>((set, get) => ({
@@ -156,6 +168,8 @@ export const useLyricSettingsStore = create<LyricSettingsState>((set, get) => ({
     lyricStaffMinDwellSeconds: readStoredLyricStaffMinDwellSeconds(),
     lyricStaffAbsorbMode: readStoredLyricStaffAbsorbMode(),
     lyricStaffPattern: getStoredString('lyrics_staff_pattern', ''),
+    lyricRenderQuality: typeof window === 'undefined' ? DEFAULT_LYRIC_RENDER_QUALITY : readStoredLyricRenderQuality(),
+    lyricAntialias: getStoredBoolean('lyrics_antialias', false),
     handleToggleAutoUseBestLyric: (enable) => {
         setStoredBoolean('auto_use_best_lyric', enable);
         set({ autoUseBestLyric: enable });
@@ -163,6 +177,14 @@ export const useLyricSettingsStore = create<LyricSettingsState>((set, get) => ({
             type: 'info',
             text: i18n.t('notifications.' + (enable ? 'autoBestLyricOn' : 'autoBestLyricOff')),
         });
+    },
+    handleSetLyricRenderQuality: (quality) => {
+        setStoredString('lyrics_render_quality', quality);
+        set({ lyricRenderQuality: quality });
+    },
+    handleToggleLyricAntialias: (enable) => {
+        setStoredBoolean('lyrics_antialias', enable);
+        set({ lyricAntialias: enable });
     },
     handleSetPreferredAlternativeLyricSource: (source) => {
         if (typeof window !== 'undefined') {

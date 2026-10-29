@@ -1,6 +1,8 @@
 // Copyright (c) 2026 chthollyphile
 import type { LumiereRenderQuality, LumiereTuning } from '../../../types';
 import { snapResolutionToTexturePool } from '../pixi/pixiTextureBudget';
+import { useLyricSettingsStore } from '../../../stores/useLyricSettingsStore';
+import { applyLyricRenderQuality } from '../../../utils/lyricRenderQuality';
 import type { LumiereProgramOptions } from './lumiereProgram';
 import type { LumiereSceneTuning } from './types';
 
@@ -38,10 +40,14 @@ export const LUMIERE_QUALITY_PROFILES: Record<LumiereRenderQuality, LumiereQuali
 /** 渲染分辨率上限：再高的屏幕也按 2 倍画，4K / 高 DPI 下整屏光场的开销是按像素数涨的。 */
 export const LUMIERE_MAX_RENDER_RESOLUTION = 2;
 
-/** 画布（文字、画框）的渲染分辨率：devicePixelRatio 钳在 1..2。 */
+/** 画布（文字、画框）的渲染分辨率：devicePixelRatio 钳在 1..2；「歌词渲染质量」固定档可越过上限。 */
 export const resolveLumiereRenderResolution = (devicePixelRatio: number | undefined) => {
     const ratio = typeof devicePixelRatio === 'number' && Number.isFinite(devicePixelRatio) ? devicePixelRatio : 1;
-    return Math.min(LUMIERE_MAX_RENDER_RESOLUTION, Math.max(1, ratio));
+    return applyLyricRenderQuality(
+        useLyricSettingsStore.getState().lyricRenderQuality,
+        ratio,
+        dpr => Math.min(LUMIERE_MAX_RENDER_RESOLUTION, Math.max(1, dpr)),
+    );
 };
 
 /**

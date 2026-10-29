@@ -156,7 +156,9 @@ export const buildGlyphAtlas: BuildGlyphAtlas = (pixi, options) => {
         width = Math.max(width, x);
     });
     const height = Math.max(1, y + shelf);
-    const limit = options.maxCanvasPx ?? 4096;
+    // 上限按倍率放大（#929）：限制的是物理像素 ≤4096，而不是逻辑像素 ≤4096 ——
+    // 旧写法会在一行十几个大字时把调用方的 resolution 压回 1.0-1.5，字形仍是 1 倍光栅化。
+    const limit = options.maxCanvasPx ?? 4096 * Math.max(1, options.resolution);
     const resolution = Math.max(0.1, Math.min(options.resolution, limit / width, limit / height));
 
     const canvas = document.createElement('canvas');

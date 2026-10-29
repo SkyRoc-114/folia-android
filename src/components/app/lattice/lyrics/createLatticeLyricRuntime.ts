@@ -1,5 +1,7 @@
 import { cubicBezier } from 'framer-motion';
 import { loadPixi } from '../../../visualizer/pixi/loadPixi';
+import { useLyricSettingsStore } from '../../../../stores/useLyricSettingsStore';
+import { applyLyricRenderQuality } from '../../../../utils/lyricRenderQuality';
 import { clearMonetMeasurementCaches, type MonetVisibleLineEntry } from '../../../visualizer/monet/monetLyricsModel';
 import { MONET_SCROLL_SPRING, MONET_SCALE_SPRING, resolveMonetTone } from '../../../visualizer/monet/monetLyricMotion';
 import { createLatticeRaster } from './latticeLyricRaster';
@@ -28,7 +30,11 @@ let initialization: Promise<unknown> = Promise.resolve();
  * never costs more than before.
  */
 export const latticeLyricResolution = (devicePixelRatio: number) =>
-    Math.min(2, Math.max(1, Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? Math.ceil(devicePixelRatio) : 1));
+    applyLyricRenderQuality(
+        useLyricSettingsStore.getState().lyricRenderQuality,
+        devicePixelRatio,
+        dpr => Math.min(2, Math.max(1, Number.isFinite(dpr) && dpr > 0 ? Math.ceil(dpr) : 1)),
+    );
 
 /**
  * 卡顿治理：建行（逐字素测量 + 排版）与建片（建 canvas → fillText → 建 Pixi 纹理 → 上传）

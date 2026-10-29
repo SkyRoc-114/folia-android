@@ -11,6 +11,7 @@ import { useVisualizerRuntime } from '../runtime';
 import { useVisualizerSongCommit } from '../songHandover';
 import { resolveSubtitleFontSizes } from '../subtitleFontSizes';
 import VisualizerShell from '../VisualizerShell';
+import { useLyricSettingsStore } from '../../../stores/useLyricSettingsStore';
 import VisualizerSubtitleOverlay from '../VisualizerSubtitleOverlay';
 import type { HanabiPixiRuntime, HanabiSongContext } from './createHanabiPixiRuntime';
 import type { HanabiCreditsMetadata } from './hanabiCreditsLayer';
@@ -91,11 +92,16 @@ const VisualizerHanabi: React.FC<VisualizerSharedProps & { hanabiTuning: HanabiT
         [committedSeed, program, theme],
     );
 
+    // #929：两项都定格于 WebGL context 创建，变化即整体重建。
+    const lyricRenderQuality = useLyricSettingsStore(state => state.lyricRenderQuality);
+    const lyricAntialias = useLyricSettingsStore(state => state.lyricAntialias);
+
     const runtimeRef = useVisualizerPixiHost<HanabiPixiRuntime, HanabiSongContext>({
         hostRef,
         label: 'Hanabi',
         // 只有真正需要新 WebGL 上下文的输入；歌、tuning、暂停、静态模式都就地推给运行时。
-        rebuildKey: [currentTime],
+        // 渲染质量/MSAA（#929）定格于 context 创建，改了就重建。
+        rebuildKey: [currentTime, lyricRenderQuality, lyricAntialias],
         song: songContext,
         create: async (host, song, signal) => {
             const [{ HanabiPixiRuntime }] = await Promise.all([

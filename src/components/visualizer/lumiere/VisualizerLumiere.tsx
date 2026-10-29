@@ -12,6 +12,7 @@ import { useVisualizerRuntime } from '../runtime';
 import { useVisualizerSongCommit } from '../songHandover';
 import { resolveSubtitleFontSizes } from '../subtitleFontSizes';
 import VisualizerShell from '../VisualizerShell';
+import { useLyricSettingsStore } from '../../../stores/useLyricSettingsStore';
 import VisualizerSubtitleOverlay from '../VisualizerSubtitleOverlay';
 import type { LumierePixiRuntime, LumiereSongContext, LumiereSongMetadata } from './createLumierePixiRuntime';
 import { compileLumiereProgram } from './lumiereProgram';
@@ -89,11 +90,14 @@ const VisualizerLumiere: React.FC<VisualizerSharedProps> = (props) => {
         [committedSeed, program, theme],
     );
 
+    // #929：渲染倍率定格于 context 创建，变化即整体重建（MSAA 不适用 lumiere：大头在 filter 纹理里）。
+    const lyricRenderQuality = useLyricSettingsStore(state => state.lyricRenderQuality);
+
     const runtimeRef = useVisualizerPixiHost<LumierePixiRuntime, LumiereSongContext>({
         hostRef,
         label: 'Lumiere',
         // 只有真正需要新 WebGL 上下文的输入；歌、tuning、暂停、静态模式都就地推给运行时。
-        rebuildKey: [currentTime],
+        rebuildKey: [currentTime, lyricRenderQuality],
         song: songContext,
         // 场景同步建，主题图标线稿只画已加载的图标：建运行时和换歌前先把这首歌的主题图标加载好。
         create: async (host, song, signal) => {
