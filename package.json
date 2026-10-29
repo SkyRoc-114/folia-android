@@ -8,7 +8,7 @@
     "email": "chthollyphile@users.noreply.github.com"
   },
   "private": true,
-  "version": "0.7.22-android.280",
+  "version": "0.7.22-android.281",
   "license": "AGPL-3.0",
   "type": "module",
   "main": "electron/main.cjs",
@@ -234,6 +234,12 @@
     }
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/browser": "^8.0.4",
+    "@capacitor/core": "^8.4.2",
+    "@capacitor/splash-screen": "^8.0.2",
+    "@capacitor/status-bar": "^8.0.3",
     "@google/genai": "^2.24.0",
     "@neteasecloudmusicapienhanced/api": "4.41.1",
     "@xhayper/discord-rpc": "^1.5.1",
@@ -252,12 +258,7 @@
     "music-metadata": "^11.16.1",
     "qishui-music-api": "0.2.2",
     "ws": "^8.21.3",
-    "youtubei.js": "18.1.0",
-    "@capacitor/android": "^8.4.2",
-    "@capacitor/browser": "^8.0.4",
-    "@capacitor/core": "^8.4.2",
-    "@capacitor/splash-screen": "^8.0.2",
-    "@capacitor/status-bar": "^8.0.3"
+    "youtubei.js": "18.1.0"
   },
   "devDependencies": {
     "@applemusic-like-lyrics/ttml": "^1.0.1",

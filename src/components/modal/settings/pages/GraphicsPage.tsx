@@ -29,6 +29,13 @@ const IS_LINUX = typeof navigator !== 'undefined' && navigator.userAgent.toLower
 /** The render GPU choice only does something in the Windows desktop app (electron/gpuPreference.cjs). */
 const IS_WINDOWS_DESKTOP = typeof window !== 'undefined' && window.electron?.platform === 'win32';
 
+/** The native Capacitor shell (Android) provides the app lifecycle events background throttling listens to. */
+const IS_NATIVE_CAPACITOR = typeof window !== 'undefined'
+    && Boolean((window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor?.isNativePlatform?.());
+
+/** The desktop app owns the main-process side; Android gets the same switch through the JS branch. */
+const IS_THROTTLING_SUPPORTED = typeof window !== 'undefined' && (Boolean(window.electron) || IS_NATIVE_CAPACITOR);
+
 const PERFORMANCE: SettingsGroupDef = { id: 'graphicsPerformance', titleKey: 'options.labPerformanceSection' };
 const MOTION: SettingsGroupDef = { id: 'graphicsMotion', titleKey: 'options.reduceMotionSection' };
 
@@ -38,7 +45,7 @@ const O = {
     nativeBlur: option(PERFORMANCE, 'enablePlayerPageNativeBlur', 'options.enablePlayerPageNativeBlur'),
     frameRate: option(PERFORMANCE, 'visualizerFrameRate', 'options.visualizerFrameRate'),
     frameRateValue: option(PERFORMANCE, 'visualizerFrameRateValue', 'options.visualizerFrameRateValue'),
-    backgroundThrottling: option(PERFORMANCE, 'backgroundThrottling', 'options.backgroundThrottling', { electronOnly: true }),
+    backgroundThrottling: option(PERFORMANCE, 'backgroundThrottling', 'options.backgroundThrottling', { available: () => IS_THROTTLING_SUPPORTED }),
     glowFix: option(PERFORMANCE, 'glowBlurQuantize', 'options.glowBlurQuantize'),
     gpuPreference: option(PERFORMANCE, 'gpuPreference', 'options.gpuPreference', { electronOnly: true, available: () => IS_WINDOWS_DESKTOP }),
     followSystem: option(MOTION, 'reduceMotionFollowSystem', 'options.reduceMotionFollowSystem'),
