@@ -669,9 +669,10 @@ export function usePlaybackQueueController({
                 return;
             }
             const nextSong = getNextPlayableQueueSong(queueContext, song, isFmCall);
-            // 倒数跳过与即时跳过共用的切歌体：按跳的那一瞬间的队列与 FM 往下走。extra 带上即时跳过给
-            // 下一首播放的额外选项（不发 loading 提示，让刚才那条失败提示短暂可见）。
-            const skipToNextPlayable = (extra: PlaybackNavigationOptions = {}) => {
+            // 倒数跳过与即时跳过共用的切歌体：按跳的那一瞬间的队列与 FM 往下走。fallback 是本首的下一首
+            // （调用处已收窄非空）；extra 带上即时跳过给下一首播放的额外选项（不发 loading 提示，
+            // 让刚才那条失败提示短暂可见）。
+            const skipToNextPlayable = (fallback: SongResult, extra: PlaybackNavigationOptions = {}) => {
                 if (!isLatestPlaybackRequest()) return;
                 // The queue was replaced whole meanwhile: the skip steps through the queue and FM of now
                 // from this song (from the first entry when the new queue does not hold it), as a skip
@@ -689,7 +690,7 @@ export function usePlaybackQueueController({
                 // A queue given here and not yet in the store is the one kept; else the queue of now,
                 // so that edits made meanwhile are not undone.
                 const targetQueue = readClickTimeQueue() ?? newQueue;
-                void latestQueueActionsRef.current.playSong(getNextPlayableQueueSong(targetQueue, song, isFmCall) ?? nextSong, targetQueue, isFmCall, {
+                void latestQueueActionsRef.current.playSong(getNextPlayableQueueSong(targetQueue, song, isFmCall) ?? fallback, targetQueue, isFmCall, {
                     ...deferredPlayOptions,
                     unavailableSkipCount: skipCount + 1,
                     ...extra,
@@ -702,11 +703,11 @@ export function usePlaybackQueueController({
                 clearPendingUnavailableSkip();
                 setStatusMsg(said);
                 tellFailure(shown, true);
-                skipToNextPlayable({ skipLoadingStatusToast: true });
+                skipToNextPlayable(nextSong, { skipLoadingStatusToast: true });
                 return;
             }
             if (nextSong && skipCount < MAX_UNAVAILABLE_AUTO_SKIP_COUNT) {
-                showTimedSkipPrompt(said, skipToNextPlayable, stopsPlayback(shown) ? () => { if (isLatestPlaybackRequest()) stopHere(); } : undefined);
+                showTimedSkipPrompt(said, () => skipToNextPlayable(nextSong), stopsPlayback(shown) ? () => { if (isLatestPlaybackRequest()) stopHere(); } : undefined);
                 tellFailure(shown, true);
                 return;
             }

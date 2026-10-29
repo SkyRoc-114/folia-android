@@ -14,6 +14,7 @@ import {
 import type { WallCameraRange } from '../../../components/wall/finiteWall';
 import { BRAVAIS_CAMERA_TWEEN_S, BRAVAIS_CULL_EDGE_MARGIN, BRAVAIS_OVERSCAN } from './bravaisConstants';
 import { rubberBand } from './bravaisFiniteWall';
+import { advanceShownCenter, isShownSettled } from './bravaisCameraInterpolation';
 import { computeBravaisFrame, getTiltReach } from './bravaisFrame';
 import type { BravaisFrameState } from './useBravaisFrame';
 import { seamBoundsOf } from './bravaisAnchor';
@@ -89,6 +90,47 @@ export const useBravaisCamera = ({
     // useWallPointerPan 读写的是 Lattice 形状的平移相机：每次移动都同步它。
     const cameraRef = useRef<LatticeCamera>({ x: 0, y: 0, scale: 1 });
     const viewportRef = useRef({ width: 1, height: 1 });
+    // 拖动的写入节奏（#843）：真源 center 只当目标，显示值 renderCenter 在 rAF 里按指数逼近，
+    // 输出仍走 formatWorldTransform 的整设备像素吸附。同一帧内多次 pointermove 只更新目标，
+    // 一帧最多写一次 DOM。lastShown 记住上次显示位置：收敛停循环后，下一轮拖拽从它起追，
+    // 而不是从新目标起追（否则 shown 永远追不上出滞后，插值不会生效）。
+    const cameraFrameRef = useRef<number | null>(null);
+    const lastCameraFrameTimeRef = useRef(0);
+    const lastShownRef = useRef<WallViewCenter | null>(null);
+
+    const stopCameraInterpolation = useCallback(() => {
+        if (cameraFrameRef.current !== null) {
+            cancelAnimationFrame(cameraFrameRef.current);
+            cameraFrameRef.current = null;
+        }
+    }, []);
+
+    /** 每帧：shown 向 center（目标）逼近一步并写 DOM；不到半设备像素差时 snap 到目标、停循环。 */
+    const startCameraInterpolation = useCallback(() => {
+        if (cameraFrameRef.current !== null) return;
+        lastCameraFrameTimeRef.current = 0;
+        const step = (now: number) => {
+            cameraFrameRef.current = null;
+            const state = frameRef.current;
+            if (!state.view) return;
+            // 首帧拿不到上一次的时间戳：按一屏 vsync 记（60Hz 约 16.7ms）。
+            const dt = lastCameraFrameTimeRef.current ? Math.min(now - lastCameraFrameTimeRef.current, 100) : 16.7;
+            lastCameraFrameTimeRef.current = now;
+            const target = state.center;
+            const shown = advanceShownCenter(state.renderCenter ?? lastShownRef.current ?? target, target, dt);
+            if (isShownSettled(shown, target, state.view.scale, window.devicePixelRatio || 1)) {
+                state.renderCenter = null;
+                lastShownRef.current = null;
+                renderFrame();
+                return;
+            }
+            state.renderCenter = shown;
+            lastShownRef.current = shown;
+            renderFrame();
+            cameraFrameRef.current = requestAnimationFrame(step);
+        };
+        cameraFrameRef.current = requestAnimationFrame(step);
+    }, [frameRef, renderFrame]);
 
     const syncPointerCamera = useCallback(() => {
         const { view, center } = frameRef.current;
@@ -107,14 +149,22 @@ export const useBravaisCamera = ({
         });
     }, [frameRef]);
 
-    /** 移到一个视图中心：写 DOM；快到裁剪边缘时（或调用方要求时）重新裁剪。 */
+    /** 移到一个视图中心：更新目标（真源）；拖拽/滚轮按 rAF 插值写 DOM（降级动效时同步写），
+     *  快到裁剪边缘时（或调用方要求时）重新裁剪（裁剪按真源，稍超前于显示值无妨）。 */
     const moveTo = useCallback((center: WallViewCenter, forceRecull = false) => {
         frameRef.current.center = center;
         syncPointerCamera();
-        renderFrame();
+        if (reducedMotion) {
+            stopCameraInterpolation();
+            frameRef.current.renderCenter = null;
+            lastShownRef.current = null;
+            renderFrame();
+        } else {
+            startCameraInterpolation();
+        }
         const visible = getVisibleWorldBounds(frameRef.current);
         if (visible && (forceRecull || needsRecull(visible, boundsRef.current))) scheduleRecull();
-    }, [frameRef, renderFrame, scheduleRecull, syncPointerCamera]);
+    }, [frameRef, reducedMotion, renderFrame, scheduleRecull, startCameraInterpolation, stopCameraInterpolation, syncPointerCamera]);
 
     /**
      * 相机没动、可见范围变了（缝开口补间：两半各让出半个开口，可见的世界范围随之变宽）时按此刻的可见范围重新裁剪
@@ -134,6 +184,10 @@ export const useBravaisCamera = ({
     /** 补间到一个视图中心；开始时把目的地并进裁剪范围，免得飞行途中墙是空的。 */
     const tweenTo = useCallback((target: WallViewCenter, duration = BRAVAIS_CAMERA_TWEEN_S) => {
         stopCamera();
+        // 补间自己就是 rAF 节奏的精确写：停掉拖拽插值循环、清掉显示值，落点不叠加二次平滑。
+        stopCameraInterpolation();
+        frameRef.current.renderCenter = null;
+        lastShownRef.current = null;
         const from = { ...frameRef.current.center };
         if (Math.abs(target.x - from.x) < 0.5 && Math.abs(target.y - from.y) < 0.5) return;
         const view = frameRef.current.view;
@@ -170,7 +224,7 @@ export const useBravaisCamera = ({
                 moveTo(target, true);
             },
         });
-    }, [frameRef, moveTo, reducedMotion, renderFrame, reservedViewports, stopCamera, syncPointerCamera]);
+    }, [frameRef, moveTo, reducedMotion, renderFrame, reservedViewports, stopCamera, stopCameraInterpolation, syncPointerCamera]);
 
     // B7 有限拼贴的相机范围：拖动中超出范围按阻尼走（弹性），惯性与滚轮硬钳制，松手后补间回范围里。
     const rangeRef = useRef<WallCameraRange | null>(null);
@@ -230,7 +284,8 @@ export const useBravaisCamera = ({
     useEffect(() => () => {
         if (cullFrameRef.current !== null) cancelAnimationFrame(cullFrameRef.current);
         animationRef.current?.stop();
-    }, []);
+        stopCameraInterpolation();
+    }, [stopCameraInterpolation]);
 
     // 记下「正在拖」（弹性只在手指 / 鼠标按着时有），松手没有惯性就立即落回范围。
     const { onPointerDown: panDown, onPointerUp: panUp, onPointerCancel: panCancel, onPointerMove, onClickCapture, didDragRef } = pointer;

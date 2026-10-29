@@ -12,6 +12,9 @@ import { computeBravaisFrame, posterSafeArea, wallHintRowSpan, wallHintSpan, wit
 export type BravaisFrameState = {
     view: WallView | null;
     center: WallViewCenter;
+    /** 拖动时相机插值的显示位置（#843）：renderFrame 用它写 DOM，center 仍是真源（平移数学、裁剪按它）；
+     *  不在拖动插值中为 null（renderFrame 用 center）。 */
+    renderCenter: WallViewCenter | null;
     anchorX: number | null;
     /** 横向的缝的锚点（块行边界的世界 y）；与 anchorX 至多一个不是 null（useBravaisSeam 的 setAnchor）。 */
     anchorY: number | null;
@@ -40,6 +43,7 @@ export const useBravaisFrame = (refs: BravaisFrameRefs) => {
     const stateRef = useRef<BravaisFrameState>({
         view: null,
         center: { x: 0, y: 0 },
+        renderCenter: null,
         anchorX: null,
         anchorY: null,
         openWidth: 0,
@@ -54,7 +58,9 @@ export const useBravaisFrame = (refs: BravaisFrameRefs) => {
         const state = stateRef.current;
         if (!state.view) return;
         const frame = computeBravaisFrame({
-            center: state.center,
+            // 拖动插值中（renderCenter 非 null）每帧写的一切（两半墙、缝、提示区间）都从同一个显示位置出，
+            // 相对几何不散；不在插值中两者相同。裁剪、平移数学仍按 center（真源）。
+            center: state.renderCenter ?? state.center,
             view: state.view,
             anchorX: state.anchorX,
             anchorY: state.anchorY,
