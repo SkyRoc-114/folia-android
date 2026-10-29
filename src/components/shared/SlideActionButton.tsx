@@ -55,7 +55,9 @@ export const SlideActionButton: React.FC<SlideActionButtonProps> = ({
         ? 'translate-x-0 opacity-100'
         : supportsHover
             ? 'translate-x-1/2 opacity-60 group-hover:translate-x-0 group-hover:opacity-100 md:translate-x-0 md:opacity-100 md:hover:scale-105'
-            : 'translate-x-1/2 opacity-60';
+            // 触屏没有 hover，peek 位移只会把按钮推出屏幕右缘（被裁剪且丢失一半点击区）；
+            // 改为完整可见 + 半透明保留「可滑动」暗示。见 MERGE-STATE 审计 T2。
+            : 'translate-x-0 opacity-60';
 
     const setDestinationFeedback = (progress: number) => {
         const icon = trackEndIconRef.current;
