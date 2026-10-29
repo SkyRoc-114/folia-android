@@ -5,6 +5,8 @@ export type MediaSessionTrackMetadata = {
     artist: string;
     album: string;
     artworkUrl: string;
+    /** 歌曲元数据里的时长（秒）：流式音源的 <audio>.duration 是 Infinity，系统媒体控制的进度时间线用它兜底。 */
+    durationSeconds?: number;
 };
 
 type MediaSessionMetadataFactory = (init: MediaMetadataInit) => MediaMetadata;
@@ -35,12 +37,17 @@ export const getSupportedMediaSessionArtworkUrl = (source: string, baseUrl?: str
 };
 
 // Rejects late events from the previous source and sources whose timeline is not usable yet.
+// A streaming source's own timeline is never usable (duration stays Infinity); one with a track
+// duration beside it still counts as ready - the position is published on that fallback timeline.
 export const isMediaSessionSourceReady = (
     audio: Pick<HTMLAudioElement, 'currentSrc' | 'readyState' | 'duration'>,
     expectedSource: string,
-    baseUrl?: string
+    baseUrl?: string,
+    fallbackDurationSeconds?: number
 ) => {
-    if (audio.readyState < 1 || !Number.isFinite(audio.duration) || audio.duration <= 0) {
+    const timelineReady = (Number.isFinite(audio.duration) && audio.duration > 0)
+        || (Number.isFinite(fallbackDurationSeconds) && (fallbackDurationSeconds ?? 0) > 0);
+    if (audio.readyState < 1 || !timelineReady) {
         return false;
     }
 
@@ -52,21 +59,29 @@ export const isMediaSessionSourceReady = (
 };
 
 export const createMediaSessionPositionState = (
-    audio: Pick<HTMLAudioElement, 'currentTime' | 'duration' | 'playbackRate'>
+    audio: Pick<HTMLAudioElement, 'currentTime' | 'duration' | 'playbackRate'>,
+    fallbackDurationSeconds?: number
 ): MediaPositionState | null => {
-    if (!Number.isFinite(audio.duration) || audio.duration <= 0) {
+    // The element's own timeline wins; a stream (duration Infinity/NaN) falls back to the song's
+    // metadata duration, so the platform media session still gets a progress timeline.
+    const duration = Number.isFinite(audio.duration) && audio.duration > 0
+        ? audio.duration
+        : (Number.isFinite(fallbackDurationSeconds) && (fallbackDurationSeconds ?? 0) > 0
+            ? fallbackDurationSeconds as number
+            : 0);
+    if (duration <= 0) {
         return null;
     }
 
     const position = Number.isFinite(audio.currentTime)
-        ? Math.min(Math.max(audio.currentTime, 0), audio.duration)
+        ? Math.min(Math.max(audio.currentTime, 0), duration)
         : 0;
     const playbackRate = Number.isFinite(audio.playbackRate) && audio.playbackRate > 0
         ? audio.playbackRate
         : 1;
 
     return {
-        duration: audio.duration,
+        duration,
         playbackRate,
         position,
     };
@@ -79,7 +94,7 @@ export const publishMediaSessionTrack = (
     track: MediaSessionTrackMetadata,
     createMetadata: MediaSessionMetadataFactory = init => new MediaMetadata(init)
 ) => {
-    const positionState = createMediaSessionPositionState(audio);
+    const positionState = createMediaSessionPositionState(audio, track.durationSeconds);
     if (!positionState) {
         return false;
     }

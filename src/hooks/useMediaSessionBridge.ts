@@ -142,8 +142,12 @@ export const useMediaSessionBridge = ({
         const sourceArtworkUrl = cachedCoverUrl || getSongCoverUrl(currentSong) || '';
         let artworkUrl = getSupportedMediaSessionArtworkUrl(sourceArtworkUrl, document.baseURI);
         let disposableArtworkUrl: string | null = null;
+        // 元数据里的时长：流式音源的 <audio>.duration 是 Infinity，系统媒体控制的进度用它兜底（#869）。
+        const metadataDurationSeconds = Number.isFinite(currentSong.durationMs) && currentSong.durationMs > 0
+            ? currentSong.durationMs / 1000
+            : undefined;
         const publish = () => {
-            if (disposed || !isMediaSessionSourceReady(audio, expectedSource, document.baseURI)) {
+            if (disposed || !isMediaSessionSourceReady(audio, expectedSource, document.baseURI, metadataDurationSeconds)) {
                 return;
             }
 
@@ -153,6 +157,7 @@ export const useMediaSessionBridge = ({
                     artist: getSongArtistLabel(currentSong) || unknownArtistLabel,
                     album: getSongAlbumLabel(currentSong),
                     artworkUrl,
+                    durationSeconds: metadataDurationSeconds,
                 });
             } catch (e) {
                 console.warn('[MediaSession] Failed to update metadata', e);

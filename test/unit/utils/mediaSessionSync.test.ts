@@ -31,6 +31,78 @@ describe('mediaSessionSync', () => {
         }, '/new.mp3', 'https://music.example/')).toBe(true);
     });
 
+    it('accepts a streaming source of unknown duration when the track metadata carries a duration', () => {
+        // 流式加载的音源 <audio>.duration 是 Infinity：媒体元素自己的时间线不可用，但歌曲元数据的时长是现成的。
+        expect(isMediaSessionSourceReady({
+            currentSrc: 'https://music.example/stream',
+            readyState: 4,
+            duration: Number.POSITIVE_INFINITY,
+        }, '/stream', 'https://music.example/', 212.5)).toBe(true);
+
+        expect(createMediaSessionPositionState({
+            currentTime: 30,
+            duration: Number.POSITIVE_INFINITY,
+            playbackRate: 1,
+        }, 212.5)).toEqual({
+            duration: 212.5,
+            playbackRate: 1,
+            position: 30,
+        });
+    });
+
+    it('still rejects a streaming source when no fallback duration is available', () => {
+        expect(isMediaSessionSourceReady({
+            currentSrc: 'https://music.example/stream',
+            readyState: 4,
+            duration: Number.POSITIVE_INFINITY,
+        }, '/stream', 'https://music.example/')).toBe(false);
+
+        expect(createMediaSessionPositionState({
+            currentTime: 30,
+            duration: Number.POSITIVE_INFINITY,
+            playbackRate: 1,
+        })).toBeNull();
+    });
+
+    it('clamps the position into the fallback timeline', () => {
+        expect(createMediaSessionPositionState({
+            currentTime: 400,
+            duration: Number.POSITIVE_INFINITY,
+            playbackRate: 1,
+        }, 212.5)).toEqual({
+            duration: 212.5,
+            playbackRate: 1,
+            position: 212.5,
+        });
+    });
+
+    it('publishes the metadata duration as the position timeline of a streaming track', () => {
+        const mediaSession = {
+            setPositionState: vi.fn(),
+            set metadata(_value: MediaMetadata | null) { },
+        } as unknown as MediaSession;
+
+        const published = publishMediaSessionTrack(
+            mediaSession,
+            { currentTime: 5, duration: Number.POSITIVE_INFINITY, playbackRate: 1 },
+            {
+                title: 'streamed track',
+                artist: 'artist',
+                album: 'album',
+                artworkUrl: '',
+                durationSeconds: 187,
+            },
+            init => init as unknown as MediaMetadata
+        );
+
+        expect(published).toBe(true);
+        expect(mediaSession.setPositionState).toHaveBeenCalledWith({
+            duration: 187,
+            playbackRate: 1,
+            position: 5,
+        });
+    });
+
     it('clamps position into the Media Session timeline', () => {
         expect(createMediaSessionPositionState({
             currentTime: 240,
