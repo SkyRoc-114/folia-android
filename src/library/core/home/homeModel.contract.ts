@@ -182,6 +182,8 @@ export type LibraryHomePlaylistImportResult = {
     matchedCount: number;
     /** 没匹配上或匹配到多首的路径数。 */
     skippedCount: number;
+    /** #866：true = 更新了已有同源歌单而非新建。 */
+    updated: boolean;
 };
 
 /** 端口发出的提示：alert 是阻塞式提示框（原先的 window.alert），status 是应用内状态消息。 */

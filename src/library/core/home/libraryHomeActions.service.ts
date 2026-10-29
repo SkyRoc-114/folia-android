@@ -153,7 +153,7 @@ export const createLibraryHomeActions = (port: LibraryHomePort): LibraryHomeActi
                 const values = { name: result.playlistName, count: result.matchedCount };
                 port.notify(result.skippedCount > 0
                     ? { kind: 'status', type: 'info', message: { key: 'localMusic.playlistImportPartial', values: { ...values, skipped: result.skippedCount } } }
-                    : { kind: 'status', type: 'success', message: { key: 'localMusic.playlistImportSuccess', values } });
+                    : { kind: 'status', type: 'success', message: { key: result.updated ? 'localMusic.playlistImportUpdated' : 'localMusic.playlistImportSuccess', values } });
                 return OK;
             } catch (error) {
                 console.error('[LibraryHome] Failed to import local playlist:', error);

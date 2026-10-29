@@ -1414,6 +1414,8 @@ export interface LocalPlaylist {
   createdAt: number;
   updatedAt: number;
   isFavorite?: boolean;
+  /** 导入来源文件名（#866 歌单跟源）：同名文件再导入时更新这个歌单而不是新建一个。 */
+  sourcePath?: string;
 }
 
 export type LocalLibraryGroupType = 'folder' | 'album' | 'artist' | 'playlist';

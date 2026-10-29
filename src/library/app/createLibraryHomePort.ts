@@ -44,6 +44,7 @@ export const createLibraryHomePort = (getSurface: () => HomePortSurface): Librar
                 playlistName: result.playlist?.name ?? null,
                 matchedCount: result.matchedSongIds.length,
                 skippedCount: result.unmatchedPaths.length + result.ambiguousPaths.length,
+                updated: result.updated,
             };
         },
         refreshLocalSongs: () => getSurface().onRefreshLocalSongs(),

@@ -27,7 +27,7 @@ const createPort = (patch: Partial<LibraryHomePort> = {}) => {
         scanDeviceMusic: vi.fn(async () => 2),
         deviceScanAvailable: () => true,
         resyncAllFolders: vi.fn(async () => 1),
-        importPlaylistFile: vi.fn(async () => ({ playlistName: 'List', matchedCount: 3, skippedCount: 0 })),
+        importPlaylistFile: vi.fn(async () => ({ playlistName: 'List', matchedCount: 3, skippedCount: 0, updated: false })),
         refreshLocalSongs: vi.fn(),
         subscribeScanProgress: vi.fn((listener) => {
             scanListener = listener;
@@ -172,13 +172,13 @@ describe('createLibraryHomeActions — playlist file import', () => {
     });
 
     it('reports a partial import with the skipped count', async () => {
-        const { port, notices } = createPort({ importPlaylistFile: vi.fn(async () => ({ playlistName: 'List', matchedCount: 2, skippedCount: 4 })) });
+        const { port, notices } = createPort({ importPlaylistFile: vi.fn(async () => ({ playlistName: 'List', matchedCount: 2, skippedCount: 4, updated: false })) });
         await createLibraryHomeActions(port).importPlaylistFile(file);
         expect(notices).toEqual([{ kind: 'status', type: 'info', message: { key: 'localMusic.playlistImportPartial', values: { name: 'List', count: 2, skipped: 4 } } }]);
     });
 
     it('no matches: an error and no refresh', async () => {
-        const { port, notices } = createPort({ importPlaylistFile: vi.fn(async () => ({ playlistName: null, matchedCount: 0, skippedCount: 3 })) });
+        const { port, notices } = createPort({ importPlaylistFile: vi.fn(async () => ({ playlistName: null, matchedCount: 0, skippedCount: 3, updated: false })) });
         expect(await createLibraryHomeActions(port).importPlaylistFile(file)).toEqual({ ok: false, reason: 'failed' });
         expect(port.refreshLocalSongs).not.toHaveBeenCalled();
         expect(notices).toEqual([{ kind: 'status', type: 'error', message: { key: 'localMusic.playlistImportNoMatches' } }]);

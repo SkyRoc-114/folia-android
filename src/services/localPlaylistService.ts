@@ -219,6 +219,8 @@ const normalizePlaylist = (playlist: LegacyLocalPlaylist): LocalPlaylist => ({
     createdAt: typeof playlist.createdAt === 'number' ? playlist.createdAt : Date.now(),
     updatedAt: typeof playlist.updatedAt === 'number' ? playlist.updatedAt : Date.now(),
     isFavorite: Boolean(playlist.isFavorite),
+    // #866 歌单跟源：导入来源文件名。normalize 时保留，别把它洗掉。
+    ...(typeof playlist.sourcePath === 'string' && playlist.sourcePath ? { sourcePath: playlist.sourcePath } : {}),
 });
 
 const playlistNeedsNormalization = (playlist: LegacyLocalPlaylist): boolean => {
@@ -309,6 +311,49 @@ export const createLocalPlaylist = async (name: string, songs: LocalSong[] = [])
 
     await persistPlaylists([...playlists, playlist]);
     return playlist;
+};
+
+/**
+ * #866 歌单跟源：导入 M3U 文件时，若已有同源歌单则更新它（曲目与顺序替换，
+ * id/名字/创建时间/收藏等设置保留），否则新建并记住来源。
+ *
+ * 匹配规则（务实取舍，见 spec）：sourcePath 精确匹配（导入过的歌单都带源）；
+ * 兜底再按歌单名与 `#PLAYLIST` 名（或文件名）精确同名匹配 —— 覆盖旧版本导入的
+ * 无 sourcePath 歌单。手动建的同名歌单被更新的概率极低，且结果有状态提示；
+ * 宁可更新到位，也不要再多出一个重复歌单（那正是 issue 抱怨的）。
+ */
+export const upsertLocalPlaylistFromFile = async (
+    name: string,
+    sourcePath: string,
+    songs: LocalSong[] = [],
+): Promise<{ playlist: LocalPlaylist; updated: boolean }> => {
+    const playlists = await getLocalPlaylists();
+    const trimmedName = name.trim();
+    const songIds = dedupeSongIds(songs.map(song => song.id));
+    const existing = playlists.find(playlist =>
+        (playlist.sourcePath !== undefined && playlist.sourcePath === sourcePath)
+        || playlist.name === trimmedName);
+
+    if (existing) {
+        const updated = await updateLocalPlaylist(existing.id, playlist => ({
+            ...playlist,
+            songIds,
+            sourcePath,
+        }));
+        if (updated) return { playlist: updated, updated: true };
+    }
+
+    const now = Date.now();
+    const playlist: LocalPlaylist = {
+        id: createPlaylistId(),
+        name: trimmedName,
+        songIds,
+        createdAt: now,
+        updatedAt: now,
+        sourcePath,
+    };
+    await persistPlaylists([...playlists, playlist]);
+    return { playlist, updated: false };
 };
 
 export const updateLocalPlaylist = async (

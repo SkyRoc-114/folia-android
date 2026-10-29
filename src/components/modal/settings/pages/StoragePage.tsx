@@ -12,6 +12,7 @@ import { Button, CopyValue, FoldedGroup, Group, Row, Select, Toggle, Value, useS
 import { useSettingsPage } from './settingsPageContext';
 import ConfigTransferRows from './storage/ConfigTransferRows';
 import FolderWatchGroup from './storage/FolderWatchGroup';
+import LocalRescanGroup from './storage/LocalRescanGroup';
 import { BACKUP, CACHE_ROWS, CACHES, MEDIA, O } from './storage/options';
 
 // src/components/modal/settings/pages/StoragePage.tsx
@@ -136,6 +137,7 @@ const StoragePage: React.FC = () => {
             </Group>
 
             <FolderWatchGroup />
+            <LocalRescanGroup />
 
             <FoldedGroup def={BACKUP}>
                 <ConfigTransferRows />

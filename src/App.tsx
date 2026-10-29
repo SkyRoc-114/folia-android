@@ -105,6 +105,7 @@ import { readLiveLyricTime, useBackgroundLyricHoldStore } from './components/app
 import { useSleepTimer } from './hooks/useSleepTimer';
 import { useProviderNotices } from './components/app/useProviderNotices';
 import { useLocalLibraryAutoScan } from './hooks/useLocalLibraryAutoScan';
+import { useLocalLibraryStartupRescan } from './hooks/useLocalLibraryStartupRescan';
 import { useElectronVideoExportController } from './hooks/useElectronVideoExportController';
 import { useElectronWindowPlaybackHandoff } from './components/app/playback/restore/useElectronWindowPlaybackHandoff';
 import { useMediaSessionBridge } from './hooks/useMediaSessionBridge';
@@ -289,6 +290,8 @@ export default function App() {
     useProviderNotices(t);
     // Watches the imported local folders and rescans them when their contents change.
     useLocalLibraryAutoScan();
+    // #866：开关开启时启动后整库重扫一次（Android=设备音乐库扫描；桌面兑底监听漏项）。
+    useLocalLibraryStartupRescan();
 
     // Auto-close the player panel when leaving the player view
     // (Effect moved to after useAppNavigation where currentView is defined)

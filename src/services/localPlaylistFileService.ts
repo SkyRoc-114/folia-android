@@ -1,7 +1,7 @@
 import type { LocalPlaylist, LocalSong } from '../types';
 import { createSafeObjectUrl } from '../utils/blobGuards';
 import { sanitizeDownloadFileName } from '../utils/downloadFileName';
-import { createLocalPlaylist } from './localPlaylistService';
+import { upsertLocalPlaylistFromFile } from './localPlaylistService';
 
 // src/services/localPlaylistFileService.ts
 // Parses, matches, imports, and exports portable M3U playlists for the indexed local library.
@@ -16,6 +16,8 @@ export interface LocalPlaylistImportResult {
     matchedSongIds: string[];
     unmatchedPaths: string[];
     ambiguousPaths: string[];
+    /** #866：true = 更新了已有同源歌单而非新建。 */
+    updated: boolean;
 }
 
 const M3U_COMMENT_PREFIX = '#';
@@ -108,7 +110,7 @@ const addCandidate = (map: Map<string, LocalSong[]>, path: string, song: LocalSo
 export const matchM3uPathsToLocalSongs = (
     paths: string[],
     localSongs: LocalSong[],
-): Omit<LocalPlaylistImportResult, 'playlist'> => {
+): { matchedSongIds: string[]; unmatchedPaths: string[]; ambiguousPaths: string[] } => {
     const exactCandidates = new Map<string, LocalSong[]>();
     const normalizedSongs = localSongs.flatMap(song => {
         const fullPath = normalizeM3uPath(song.filePath);
@@ -179,11 +181,13 @@ export const importLocalPlaylistFile = async (
     const matchedSongs = matched.matchedSongIds
         .map(songId => songsById.get(songId))
         .filter((song): song is LocalSong => Boolean(song));
-    const playlist = matchedSongs.length > 0
-        ? await createLocalPlaylist(parsed.name?.trim() || getPlaylistNameFromFile(file.name), matchedSongs)
-        : null;
+    const sourceName = parsed.name?.trim() || getPlaylistNameFromFile(file.name);
+    // #866 跟源：同源文件（sourcePath 或 #PLAYLIST 名匹配）再导入时更新已有歌单。
+    const { playlist, updated } = matchedSongs.length > 0
+        ? await upsertLocalPlaylistFromFile(sourceName, file.name, matchedSongs)
+        : { playlist: null, updated: false };
 
-    return { playlist, ...matched };
+    return { playlist, updated, ...matched };
 };
 
 const getExportPath = (song: LocalSong, sharedRoot: string | null): string => {

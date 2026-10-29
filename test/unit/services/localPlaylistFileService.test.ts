@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LocalPlaylist, LocalSong } from '@/types';
-import { createLocalPlaylist } from '@/services/localPlaylistService';
+import { upsertLocalPlaylistFromFile } from '@/services/localPlaylistService';
 import {
     importLocalPlaylistFile,
     matchM3uPathsToLocalSongs,
@@ -13,7 +13,7 @@ import {
 // Covers portable M3U parsing, path matching, import reporting, and relative-path export.
 
 vi.mock('@/services/localPlaylistService', () => ({
-    createLocalPlaylist: vi.fn(),
+    upsertLocalPlaylistFromFile: vi.fn(),
 }));
 
 const createSong = (id: string, filePath: string, patch: Partial<LocalSong> = {}): LocalSong => ({
@@ -37,7 +37,7 @@ const createSong = (id: string, filePath: string, patch: Partial<LocalSong> = {}
 
 describe('localPlaylistFileService', () => {
     beforeEach(() => {
-        vi.mocked(createLocalPlaylist).mockReset();
+        vi.mocked(upsertLocalPlaylistFromFile).mockReset();
     });
 
     it('parses playlist metadata while keeping only media paths', () => {
@@ -97,15 +97,16 @@ describe('localPlaylistFileService', () => {
             createdAt: 1,
             updatedAt: 1,
         };
-        vi.mocked(createLocalPlaylist).mockResolvedValue(created);
+        vi.mocked(upsertLocalPlaylistFromFile).mockResolvedValue({ playlist: created, updated: false });
 
         const result = await importLocalPlaylistFile(
             new File(['#EXTM3U\n#PLAYLIST:Road Trip\nB.mp3\nMissing.mp3\nA.mp3\n'], 'fallback.m3u8'),
             songs,
         );
 
-        expect(createLocalPlaylist).toHaveBeenCalledWith('Road Trip', [songs[1], songs[0]]);
+        expect(upsertLocalPlaylistFromFile).toHaveBeenCalledWith('Road Trip', 'fallback.m3u8', [songs[1], songs[0]]);
         expect(result.playlist).toBe(created);
+        expect(result.updated).toBe(false);
         expect(result.unmatchedPaths).toEqual(['Missing.mp3']);
     });
 

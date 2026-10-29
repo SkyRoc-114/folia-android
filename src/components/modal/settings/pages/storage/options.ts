@@ -9,6 +9,8 @@ export const MEDIA: SettingsGroupDef = { id: 'mediaCache', titleKey: 'options.me
 export const CACHES: SettingsGroupDef = { id: 'cacheDetails', titleKey: 'options.cacheDetails' };
 // Drawn only where the browser can watch a folder (FolderWatchGroup).
 export const WATCH: SettingsGroupDef = { id: 'localLibraryWatch', titleKey: 'options.localLibraryWatch', available: isLocalLibraryAutoScanSupported };
+// #866：启动时整库重扫（全平台；Android 上这是唯一的自动重扫入口）。
+export const RESCAN: SettingsGroupDef = { id: 'localLibraryRescan', titleKey: 'options.localLibraryStartupRescan' };
 export const BACKUP: SettingsGroupDef = { id: 'importExportTitle', titleKey: 'options.importExportTitle' };
 
 /** What the app keeps on disk, one row each, in the order they are drawn. */
@@ -28,6 +30,7 @@ export const O = {
     // 歌词后方视频层的本地视频也占缓存，单独一行给清理入口（不受「缓存分类」接口管，直接清文件句柄/blob）。
     localVideo: option(CACHES, 'cacheLocalVideo', 'options.localVideoCache'),
     autoScan: option(WATCH, 'localLibraryAutoScan', 'options.localLibraryAutoScan'),
+    rescanStartup: option(RESCAN, 'localLibraryStartupRescan', 'options.localLibraryStartupRescan'),
     exportConfig: option(BACKUP, 'exportConfig', 'options.exportThemeLabel'),
     importConfig: option(BACKUP, 'importConfig', 'options.importBtn'),
 };
