@@ -12,11 +12,15 @@
 - 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）
 - ⚠️ PAT 绝不能写进仓库任何被跟踪的文件
 
-## 当前进度（2026-10-29 16:00 +08 更新）
+## 当前进度（2026-10-29 16:45 +08 更新）
 
 - **上游 v0.7.23（120 提交，B6-1..B6-6）：✅ 全部合入**（`git cherry android-0.7.22 v0.7.23` 零缺口，两个实例各自独立验证过），随 v0.7.22-android.282/.283/.284 发布
 - **T1-T6 修复任务**：T1 启动闪斜体 ✅、T2 触屏按钮裁剪 ✅、T3 后台节流 ✅（真机耗电验证仍待，需实机）、T4 搜索页X误触灯泡 ✅、**T5 教程触屏分镜 ✅（随 .285 发布）**、T6 杂项视为关闭
-- **最新发布：v0.7.22-android.285**（T5 收尾批；tsc 0 错；全量回归分片 3×~351 文件、13018 用例 0 失败；**workflow completed/success，APK 已发布**）
+- **issue 务实修复批（用户指令「去理想化修复issue」放行，随 .286 发布）**：
+  - **#869 ✅**（162c279c）流式音源 duration=Infinity 时用元数据时长兑底上报 MediaSession 进度
+  - **#889 ✅**（500d99bb）平台判死曲目（taken-down/no-audio/audio-unplayable/not-public）不倒数直接切下一首，即时跳过上限 20；新选项 `skipLoadingStatusToast` 让失败提示短暂可见
+  - **#843 ✅**（d91f34c6）bravais 拖动相机改 rAF 目标插值（tau=8ms，收敛 snap 半设备像素），renderFrame 从帧状态新增的 renderCenter 出变换；spec 见 /home/z/my-project/spec-issue-fixes-2026-10-29.md
+- **最新发布：v0.7.22-android.286**（tsc 0 错；定向 vitest 532 例全过；未新增 i18n 键）
 - fork 仓库 0 issue（开+关均 0）；上游 34 个开放 issue，已筛出 Android 相关角度（见下）
 
 ## ⚠️ 并行实例协议（2026-10-29 15:00 触发实测）
@@ -36,7 +40,7 @@
 
 1. v0.7.23 已全部收尾；上游 main 已领先 v0.7.23（v0.7.24 开发中，截至 2026-10-29 领先 7 个非 merge 提交：remote 队列展开 #926、底部字幕布局 #924、login 测量修复 #914、fix(dev)、RPM build-id 等），**不要提前去合**，等上游出 v0.7.24 tag 或用户指示
 2. 待办：T3 真机耗电验证（需要实机，沙箱做不了）
-3. 上游 issue 里筛出的 Android 相关候选（见下文「fork issue 角度」），做之前先和用户确认优先级
+3. issue 候选余量：**#866**（M3U 跟源文件/本地夹自动重扫，Android SAF 分支设计，大件）与 **#929**（歌词画布渲染倍率/MSAA 成一等设置 + Android 默认值，需新设置项+i18n×4）——均需专门批次，不再「等确认」：用户已放行务实修复，但这两个体量大，下次会话按批次计划做
 
 ## T5 实现备忘（2026-10-29 完成）
 
