@@ -49,8 +49,11 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      # 补齐/接受 SDK 许可：runner 预装的 SDK 缺平台 36.1 时 gradle 会自动下载
-      - uses: android-actions/setup-android@v3
+      # runner 预装了 Android SDK 且许可目录就绪；不要用 android-actions/setup-android@v3，
+      # 它对预装 sdkmanager 报「Wrong version in preinstalled sdkmanager」直接失败。
+      # 这里只兜底确保许可全部接受，缺的组件让 gradle 自动下载。
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
       - name: Install web dependencies
         run: npm ci --registry=https://registry.npmjs.org --no-audit --no-fund --ignore-scripts
