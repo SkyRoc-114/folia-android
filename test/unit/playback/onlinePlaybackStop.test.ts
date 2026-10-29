@@ -212,7 +212,7 @@ describe('online playback stop conditions', () => {
         expect(message()).toBeNull();
     });
 
-    it.each(['no-audio', 'unreachable', 'local-service-stopped', 'retry-later', 'refused', 'unknown'] as const)(
+    it.each(['unreachable', 'local-service-stopped', 'retry-later', 'refused', 'unknown'] as const)(
         'counts down to the next song for %s, with what happened above the countdown',
         async caseId => {
             loader.mockResolvedValue(unavailable(caseId));
@@ -226,6 +226,23 @@ describe('online playback stop conditions', () => {
         },
     );
 
+    // 平台已经明确说这首没有可播地址：不停留倒数，提示条普通弹出自动收起，直接接下一首（issue #889）。
+    it('skips on at once for no-audio, with a toast that is not persistent and no countdown', async () => {
+        loader.mockResolvedValueOnce(unavailable('no-audio')).mockReturnValueOnce(new Promise(() => undefined));
+        const queue = controller();
+        await queue.playSong(songs[0], songs);
+        expect(window.setTimeout).not.toHaveBeenCalled();
+        expect(queue.pause).not.toHaveBeenCalled();
+        const shown = message();
+        expect(shown).toMatchObject({ text: 'failure.noAudio', quote: { text: '20018' }, providerId: 'bodian' });
+        expect(shown?.persistent).toBeUndefined();
+        expect(shown?.countdown).toBeUndefined();
+        expect(notified).toHaveBeenCalledWith({ song: songs[0], reason: 'no-audio', phase: 'play', willAutoSkip: true });
+        await vi.waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
+        expect(loader.mock.calls[1][0]).toBe(songs[1]);
+        expect(queue.playbackAutoSkipCountRef.current).toBe(1);
+    });
+
     it('offers a retry when there is nothing to skip to and asking again may help', async () => {
         loader.mockResolvedValue(unavailable('unreachable'));
         await controller().playSong(songs[0], songs, false, { unavailableSkipCount: 2 });
@@ -238,9 +255,10 @@ describe('online playback stop conditions', () => {
         expect(loader.mock.calls[1][0]).toBe(songs[0]);
     });
 
-    it('offers nothing when there is nothing to skip to and asking again would not help', async () => {
+    it('offers nothing once the instant skips are used up and asking again would not help', async () => {
         loader.mockResolvedValue(unavailable('no-audio'));
-        await controller().playSong(songs[0], songs, false, { unavailableSkipCount: 2 });
+        await controller().playSong(songs[0], songs, false, { unavailableSkipCount: 20 });
+        expect(window.setTimeout).not.toHaveBeenCalled();
         const shown = message();
         expect(shown).toMatchObject({ text: 'failure.noAudio', quote: { text: '20018' } });
         expect(shown?.onAction).toBeUndefined();
@@ -393,16 +411,15 @@ describe('online playback stop conditions', () => {
 });
 
 describe('taken-down songs', () => {
-    it('looks up another version and then counts down without pausing', async () => {
+    it('looks up another version and then skips on at once without pausing', async () => {
         loader.mockResolvedValueOnce(unavailable('taken-down')).mockReturnValueOnce(new Promise(() => undefined));
         const queue = controller();
         await queue.playSong(songs[1], songs);
         expect(getSongReplacement).toHaveBeenCalledWith(songs[1]);
-        expect(window.setTimeout).toHaveBeenCalledOnce();
+        expect(window.setTimeout).not.toHaveBeenCalled();
         expect(queue.pause).not.toHaveBeenCalled();
-        expect(message()).toMatchObject({ text: 'status.songUnavailable', persistent: true, countdown: { text: 'failure.skipCountdown' } });
-
-        countdownSkip();
+        expect(message()).toMatchObject({ text: 'status.songUnavailable' });
+        expect(message()?.persistent).toBeUndefined();
         await vi.waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
         expect(loader.mock.calls[1][0]).toBe(songs[2]);
         expect(queue.playbackAutoSkipCountRef.current).toBe(1);
@@ -421,12 +438,14 @@ describe('taken-down songs', () => {
         expect(message()).toBeNull();
     });
 
-    it('counts down for a song its record says is taken down, without asking the loader', async () => {
+    it('skips on at once for a song its record says is taken down, through the loader for the next one', async () => {
         vi.mocked(isSongUnavailable).mockImplementation(song => song === songs[1]);
+        loader.mockReturnValueOnce(new Promise(() => undefined));
         const queue = controller();
         await queue.playSong(songs[1], songs);
-        expect(loader).not.toHaveBeenCalled();
-        expect(window.setTimeout).toHaveBeenCalledOnce();
+        expect(window.setTimeout).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(loader).toHaveBeenCalledOnce());
+        expect(loader.mock.calls[0][0]).toBe(songs[2]);
         expect(message()).toMatchObject({ text: 'status.songUnavailable' });
     });
 
@@ -439,10 +458,10 @@ describe('taken-down songs', () => {
         expect(message()).toMatchObject({ text: 'failure.unreachable', actionLabel: 'ui.retry' });
     });
 
-    it('stops counting down once the automatic skips are used up', async () => {
+    it('stops skipping once the instant skips are used up', async () => {
         loader.mockResolvedValue(unavailable('taken-down'));
         const queue = controller();
-        await queue.playSong(songs[1], songs, false, { unavailableSkipCount: 2 });
+        await queue.playSong(songs[1], songs, false, { unavailableSkipCount: 20 });
         expect(window.setTimeout).not.toHaveBeenCalled();
         expect(message()).toMatchObject({ type: 'error', text: 'status.songUnavailable' });
         expect(message()?.onAction).toBeUndefined();
@@ -546,7 +565,7 @@ describe('skip unplayable songs setting', () => {
 describe('stale requests', () => {
     it('drops a superseded failure so the newer request keeps its message', async () => {
         const first = deferred<LoaderResult>();
-        loader.mockReturnValueOnce(first.promise).mockResolvedValueOnce(unavailable('no-audio'));
+        loader.mockReturnValueOnce(first.promise).mockResolvedValueOnce(unavailable('unknown'));
         const queue = controller();
         const a = queue.playSong(songs[1], songs);
         await vi.waitFor(() => expect(loader).toHaveBeenCalledOnce());
@@ -776,16 +795,21 @@ describe('Stage takeover', () => {
 });
 
 describe('skipAfterPlaybackFailure', () => {
-    it('after a media error, says why an online song could not play while it counts down', () => {
-        controller().skipAfterPlaybackFailure(mediaFailureOf({ code: 3 }, 'bodian'));
-        expect(window.setTimeout).toHaveBeenCalledOnce();
+    it('after a media error, says why an online song could not play and skips on at once', () => {
+        loader.mockReturnValue(new Promise(() => undefined));
+        const queue = controller();
+        queue.skipAfterPlaybackFailure(mediaFailureOf({ code: 3 }, 'bodian'));
+        expect(window.setTimeout).not.toHaveBeenCalled();
+        expect(queue.pause).not.toHaveBeenCalled();
         expect(message()).toMatchObject({
-            text: 'failure.audioUnplayable', quote: { text: 'MEDIA_ERR_DECODE', code: '3' }, countdown: { text: 'failure.skipCountdown' }, providerId: 'bodian',
+            text: 'failure.audioUnplayable', quote: { text: 'MEDIA_ERR_DECODE', code: '3' }, providerId: 'bodian',
         });
+        expect(message()?.persistent).toBeUndefined();
+        expect(notified).toHaveBeenCalledWith(expect.objectContaining({ reason: 'audio-unplayable', phase: 'mid-playback', willAutoSkip: true }));
     });
 
     it('counts the five seconds in one toast that knows the whole time, and skips when they are over', async () => {
-        loader.mockResolvedValue(unavailable('no-audio'));
+        loader.mockResolvedValue(unavailable('unreachable'));
         await controller().playSong(songs[0], songs);
         const first = message();
         expect(first?.countdown).toEqual({ text: 'failure.skipCountdown', seconds: 5, totalMs: 5000 });
@@ -940,8 +964,8 @@ describe('reporting playback failures', () => {
         expect(notified).toHaveBeenCalledWith(expect.objectContaining({ song: songs[2], reason: 'unknown' }));
     });
 
-    it('reports a taken-down countdown as an automatic skip', async () => {
-        loader.mockResolvedValue(unavailable('taken-down'));
+    it('reports a taken-down skip as an automatic skip', async () => {
+        loader.mockResolvedValueOnce(unavailable('taken-down')).mockReturnValueOnce(new Promise(() => undefined));
         const queue = controller();
         await queue.playSong(songs[1], songs);
         expect(notified).toHaveBeenCalledOnce();

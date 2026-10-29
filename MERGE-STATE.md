@@ -1,0 +1,118 @@
+# MERGE-STATE.md — folia-android 合并状态（会话间接力文档）
+
+> 本文件与 `scripts/` 一起提交在 origin 的 `meta` 孤儿分支上，沙箱重置后用
+> `git fetch origin meta && git checkout origin/meta -- MERGE-STATE.md scripts/` 恢复。
+> 未推送的本地提交会在重置后丢失 —— 每批做完立即 push。
+
+## 仓库关系
+
+- `origin` = https://github.com/SkyRoc-114/folia-android （Android 移植 fork，工作分支 `android-0.7.22`）
+- `upstream` = https://github.com/chthollyphile/folia-major （上游桌面版）
+- `whycfawa` = 父仓库参考（`https://github.com/whycfawa/folia.git`；2026-10-29 查询 404，可能已改名/转私有，用到时先 `ls-remote` 验证）
+- 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）
+- ⚠️ PAT 绝不能写进仓库任何被跟踪的文件
+
+## 当前进度（2026-10-29 16:00 +08 更新）
+
+- **上游 v0.7.23（120 提交，B6-1..B6-6）：✅ 全部合入**（`git cherry android-0.7.22 v0.7.23` 零缺口，两个实例各自独立验证过），随 v0.7.22-android.282/.283/.284 发布
+- **T1-T6 修复任务**：T1 启动闪斜体 ✅、T2 触屏按钮裁剪 ✅、T3 后台节流 ✅（真机耗电验证仍待，需实机）、T4 搜索页X误触灯泡 ✅、**T5 教程触屏分镜 ✅（随 .285 发布）**、T6 杂项视为关闭
+- **最新发布：v0.7.22-android.285**（T5 收尾批；tsc 0 错；全量回归分片 3×~351 文件、13018 用例 0 失败；**workflow completed/success，APK 已发布**）
+- fork 仓库 0 issue（开+关均 0）；上游 34 个开放 issue，已筛出 Android 相关角度（见下）
+
+## ⚠️ 并行实例协议（2026-10-29 15:00 触发实测）
+
+同一次 cron 触发出现过**两个 agent 实例并行**操作同一仓库（一个完成 T5 验证+发布 .285，另一个建 meta 分支+验证 cherry）。接力的会话**动手前必须**：
+
+1. `git fetch origin && git log origin/android-0.7.22 --oneline -3` + `git ls-remote --tags origin` —— 看 tip 和最新 tag，别重复发布、别基于旧 tip
+2. `ps aux | grep -E "vitest|tsc|npm exec"` —— 有残留进程先判断是谁的（reflog 看时间线），**不要贸然 reset --hard**；必要时先备份工作树文件
+3. `git reflog -10 --date=format:'%H:%M'` —— 理清 HEAD 移动史，识别另一实例的动作
+4. 推送/打 tag 遇到已存在就适配（读 origin 状态），不要 force
+
+### 实例互踩实例（教训）
+
+- 甲实例 `git checkout --orphan meta` 失败（乙实例已建）后，`&&` 链被 `| head` 吞掉退出码继续跑，`git rm -rf --cached . + commit` 把 android-0.7.22 本地 tip 污染成 2 文件树 → 靠 reflog 定位、`reset --hard <好提交>` 修复（origin 未受影响）。**教训：链式命令里别用管道吞关键命令的退出码；破坏性命令前先 `git branch --show-current`。**
+
+## 下一批从这里开始
+
+1. v0.7.23 已全部收尾；上游 main 已领先 v0.7.23（v0.7.24 开发中，截至 2026-10-29 领先 7 个非 merge 提交：remote 队列展开 #926、底部字幕布局 #924、login 测量修复 #914、fix(dev)、RPM build-id 等），**不要提前去合**，等上游出 v0.7.24 tag 或用户指示
+2. 待办：T3 真机耗电验证（需要实机，沙箱做不了）
+3. 上游 issue 里筛出的 Android 相关候选（见下文「fork issue 角度」），做之前先和用户确认优先级
+
+## T5 实现备忘（2026-10-29 完成）
+
+- 分流开关：`src/components/ponder/targets/basics/ponderOnboardingShared.ts` 的 `ONBOARDING_TOUCH`（模块级求值一次，`FINE_POINTER_QUERY` 取反；node 测试环境无 window → 桌面分支）
+- 触屏分镜：`helpPage.target.ts`（overview/commandPalette）+ `ponderBasics.target.ts`（insidePonder/wholePage），各自导出 `TOUCH_SCENE_STEPS`
+- 原则：触屏没有悬停/键盘，keypress 一律换成灯泡（touchBulb 锚点）或左下角命令面板按钮的演示；不硬凑等价物
+- 新增 i18n 键 ×4（`overviewCtrlGTouch`/`overviewCommandPaletteTouch`/`hereTouch`/`wholePageTouch`，四个语言文件都有）
+- 测试：`ponderRegistry.test.ts` 新增「触屏分镜与桌面分镜过同一道防线」（锚点/id/结果层/时间线编译 + 触屏禁止 keypress）
+- ⚠️ 已踩坑：`TOUCH_SCENE_STEPS` 不能引用 `scene.steps`（模块求值时已被三元定格成桌面分支），必须用具名触屏常量
+
+## sync-vi-to-en.cjs（重建版要点，两实例收敛为同一实现）
+
+- 行级 tokenizer：顺序 = 注释/空行 → export → 闭行（容忍 `} as const;`/`},`/`]`）→ 对象开 → 数组开 → **数组项（先于叶子）** → 叶子（最宽松放最后）
+- 旧版「括号未闭合(剩 1 层)」的死因：闭行没容忍 `} as const;`、数组项被宽松叶子规则吞掉
+- 数组项按数组内位置编号（`#N`），不能用行号（两文件行号天然错位）
+- 用法：无参=对齐+写回；`--check`=只校验（漂移退出 1）。en 有 vi 无的键 → en 原文占位插入 vi，待人工翻译
+- 副不变式：in.ts ↔ zh-CN.ts ↔ en.ts 键同步（missingTranslation.test.ts 把关）
+- 本文件所在 meta 分支与 `/home/z/my-project/scripts/` 各存一份
+
+## 全量回归的可靠跑法（沙箱实测结论）
+
+- 沙箱 3.9G RAM / cgroup 4G；tsc 峰值 2.7G+ 会 OOM（dmesg 可查 `Killed process ... tsc`）——跑 tsc 前先杀别的 node 大进程
+- **nohup 后台跑长任务会被沙箱驱动在 ~5 分钟回收**（实测两例），且 stdout 接管道结果丢失
+- **可靠做法：`--shard` 分片前台跑**，每片 ~3.5 分钟（在单命令 10 分钟时限内）：
+  `npx vitest run -c vitest.config.ts --silent=true --exclude "test/unit/ytm/**" --exclude "test/unit/discordPresence.test.ts" --shard=1/3`（再 2/3、3/3）
+- 全量基线：1052 文件 / 13018+ 用例；--silent 必须 =true 否则吃掉路径参数
+
+## 会话恢复速查
+
+```bash
+# 凭证（丢了才执行；PAT 在 cron job 2909151 的载荷里）
+printf 'https://SkyRoc-114:<PAT>@github.com\n' > /home/z/my-project/.gh-credentials
+chmod 600 /home/z/my-project/.gh-credentials && cp /home/z/my-project/.gh-credentials ~/.git-credentials
+git config --global credential.helper store && git config --global http.version HTTP/1.1
+
+# 克隆（网络抖动时用 HTTP/1.1 + blobless；GnuTLS recv error 就重试）
+git clone --filter=blob:none --single-branch --branch android-0.7.22 https://github.com/SkyRoc-114/folia-android.git /home/z/my-project/folia-android
+cd /home/z/my-project/folia-android
+git remote add upstream https://github.com/chthollyphile/folia-major.git
+git fetch --filter=blob:none upstream
+
+# 恢复接力文档与脚本
+git fetch origin meta && git checkout origin/meta -- MERGE-STATE.md scripts/
+mkdir -p /home/z/my-project/scripts && cp scripts/sync-vi-to-en.cjs /home/z/my-project/scripts/
+
+# 依赖（必须官方源 + ignore-scripts）
+npm install --registry=https://registry.npmjs.org --ignore-scripts --no-audit --no-fund
+
+# 每批验收
+npx tsc --noEmit && npx vitest run -c vitest.config.ts --silent=true --exclude "test/unit/ytm/**" --exclude "test/unit/discordPresence.test.ts"
+# 改了 en.ts / zh-CN.ts 后：
+node /home/z/my-project/scripts/sync-vi-to-en.cjs
+```
+
+## fork issue 角度（2026-10-29 从上游 34 个开放 issue 筛出；fork 自身 0 issue）
+
+**Android 直接相关（建议优先）：**
+- **#843** bravais 墙 180Hz 拖拽节奏抖动 → rAF 目标插值 + 像素吸附：触屏拖拽平滑度，Android 帧率/DPR 受限时更明显
+- **#929** 歌词画布渲染倍率/MSAA 成一等设置：Android 壳刻意关 MSAA、限帧率省电，这个设置应带 Android 默认值
+- **#866** M3U 跟源文件更新 / 本地文件夹自动重扫：Android 的 SAF/存储权限与桌面 inotify 不同，合并时要设计 Android 分支
+- **#889** 平台判放不了的曲目直接接下一首：移动网络/后台场景更痛
+- **#869** 在线音源进度上报系统媒体控制：SMTC 是 Windows 概念，Android 对应 MediaSession —— 检查 fork 的 MediaSession 是否同步在线音源进度，可作为 fork 自己的修复项
+
+**合并时顺带（上游先做）：**
+- **#834** Bravais 墙双击封面直接播放（触屏友好）、**#848** 海报歌词 ruby 注音、**#918** 歌手页无专辑单曲、**#867** 心动模式、**#840** 在线多类型搜索、**#919** 电视端（大屏/遥控器 UI，Android 系可借力）
+
+**跟踪即可：**
+- QR 登录失败系列（#925/#908/#883/#882/#873/#861/#826/#851，多为 needs-info；fork 已有自己的登录错误文案修复 7ae2ff05）
+- #928 声卡切换只切 audio（HiFi Web 引擎路线留意）、#870 遥控窗口美化（桌面向）、#850 模组只读接口、#901 酷狗每日推荐
+
+## 批次收尾清单（每批照抄）
+
+1. cherry-pick / 改动 → 冲突按「fork 的 nativeBridge/android 增量优先，上游语义不丢」解
+2. `node /home/z/my-project/scripts/sync-vi-to-en.cjs`（动了 en.ts / zh-CN.ts 时）
+3. `npm install --registry=https://registry.npmjs.org --ignore-scripts --no-audit --no-fund`（动了依赖时）
+4. `npx tsc --noEmit` 0 错 + 定向 vitest；大批次全量回归用 `--shard` 分片前台跑
+5. 更新本文件 → push `android-0.7.22` → 本文件+scripts 提交推 `meta` 分支
+6. 推 tag 前先查上次 workflow：`curl -H "Authorization: Bearer $PAT" .../actions/runs?per_page=2`，确认 success 再 `git tag v0.7.22-android.NNN && git push origin <tag>`
+7. 勿用 android-actions/setup-android@v3（runner 预装 sdkmanager 冲突）

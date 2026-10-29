@@ -47,6 +47,13 @@ export type PlaybackNavigationOptions = {
      * is showing (why the song left HiFi) stays. Only onPlayLocalSong and onPlayNavidromeSong read it.
      */
     quietLoadedToast?: boolean;
+    /**
+     * The 'loading' toast is not shown for this play either: an instant skip (a song the platform
+     * itself says cannot play, issue #889) starts this play right after showing why it skipped, and
+     * the failure toast stays visible for a moment - the play's own success or failure toast takes
+     * over when it lands. Only playSong reads it.
+     */
+    skipLoadingStatusToast?: boolean;
 };
 
 export type NextTrackOptions = PlaybackNavigationOptions & {

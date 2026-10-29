@@ -4,7 +4,7 @@ import { listOnlineMusicProviders } from '@/services/onlineMusic/providerRegistr
 import { OnlineProviderError } from '@/types/onlineMusic';
 import type { OnlineFailureDetail, ProviderErrorCode } from '@/types/onlineMusic';
 import {
-    ONLINE_FAILURE_CASE_IDS, autoRetryDelaysMs, logOnlineFailure, mediaFailureOf, noteOnlineFailure, offersRetry, onlineFailureOf, stopsPlayback,
+    ONLINE_FAILURE_CASE_IDS, autoRetryDelaysMs, logOnlineFailure, mediaFailureOf, noteOnlineFailure, offersRetry, onlineFailureOf, skipsInstantly, stopsPlayback,
 } from '@/services/onlineMusic/failure/onlineFailureCase';
 import { OnlineRequestTimeout } from '@/services/onlineMusic/failure/onlineRequestLimit';
 
@@ -109,6 +109,13 @@ describe('the table', () => {
     it('offers a retry where asking again may help', () => {
         const retrying = ONLINE_FAILURE_CASE_IDS.filter(id => offersRetry(audio({ case: id })));
         expect(retrying.sort()).toEqual(['local-service-stopped', 'refused', 'unknown', 'unreachable']);
+    });
+
+    it('skips at once, without a countdown, exactly the cases where this song itself cannot play and another song will', () => {
+        // 平台已经明确说这首没有可播地址（下架 / 没有音频 / 加密音源 / 不对外）：换一首就好，不用等倒数。
+        // 登录、会员、购买、地区、网络、平台拒绝不打这个标：换一首也许一样放不了，或者本人操作就能解决。
+        const instant = ONLINE_FAILURE_CASE_IDS.filter(id => skipsInstantly(audio({ case: id })));
+        expect(instant.sort()).toEqual(['audio-unplayable', 'no-audio', 'not-public', 'taken-down']);
     });
 });
 

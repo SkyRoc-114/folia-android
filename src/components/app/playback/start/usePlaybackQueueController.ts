@@ -55,7 +55,7 @@ import { setAudioSrc, setCachedCoverUrl, setCurrentLineIndex, setCurrentSong, se
 import { askedSongKeyRef, askForSong, playsDroppedSoFar, showSong, startOfAskedSong, startPlay, withdrawAsk } from '../currentSong';
 import { loadOnlineSongAudio } from '../source/songAudioSource';
 import { onlineFailureToast } from '../source/onlineFailureToast';
-import { offersRetry, onlineFailureOf, stopsPlayback, type OnlineFailure } from '../../../../services/onlineMusic/failure/onlineFailureCase';
+import { offersRetry, onlineFailureOf, skipsInstantly, stopsPlayback, type OnlineFailure } from '../../../../services/onlineMusic/failure/onlineFailureCase';
 import { openLoginWindow } from '../../../login/loginWindowStore';
 import { useTranslation } from 'react-i18next';
 import { currentTime } from '../../../../stores/motionSignals';
@@ -157,6 +157,9 @@ type UsePlaybackQueueControllerParams = {
 };
 
 const MAX_UNAVAILABLE_AUTO_SKIP_COUNT = 2;
+// 平台判死的曲目（下架 / 没有可播地址 / 加密音源 / 不对外）直接跳过时的连续上限：整队都放不了时也不能无休止地
+// 请求，但 82 首连发的死曲列表靠倒数路径的 2 次根本走不远（上游 issue #889）。
+const MAX_INSTANT_SKIP_COUNT = 20;
 const UNAVAILABLE_SKIP_CONFIRM_TIMEOUT_MS = 5000;
 const UNAVAILABLE_SKIP_CONFIRM_INTERVAL_MS = 1000;
 // The nonce of a skip prompt's toast: one toast for the whole count, and a new one for the next song's,
@@ -666,29 +669,44 @@ export function usePlaybackQueueController({
                 return;
             }
             const nextSong = getNextPlayableQueueSong(queueContext, song, isFmCall);
-            if (nextSong && skipCount < MAX_UNAVAILABLE_AUTO_SKIP_COUNT) {
-                showTimedSkipPrompt(said, () => {
-                    if (!isLatestPlaybackRequest()) return;
-                    // The queue was replaced whole meanwhile: the skip steps through the queue and FM of now
-                    // from this song (from the first entry when the new queue does not hold it), as a skip
-                    // after a failure mid-song does.
-                    if (queueRewritten()) {
-                        void latestQueueActionsRef.current.handleNextTrack({
-                            fromSong: song,
-                            allowStopOnMissing: true,
-                            unavailableSkipCount: skipCount + 1,
-                            shouldNavigateToPlayer: deferredPlayOptions.shouldNavigateToPlayer,
-                        });
-                        return;
-                    }
-                    // A queue given here and not yet in the store is the one kept; else the queue of now,
-                    // so that edits made meanwhile are not undone.
-                    const targetQueue = readClickTimeQueue() ?? newQueue;
-                    void latestQueueActionsRef.current.playSong(getNextPlayableQueueSong(targetQueue, song, isFmCall) ?? nextSong, targetQueue, isFmCall, {
-                        ...deferredPlayOptions,
+            // 倒数跳过与即时跳过共用的切歌体：按跳的那一瞬间的队列与 FM 往下走。extra 带上即时跳过给
+            // 下一首播放的额外选项（不发 loading 提示，让刚才那条失败提示短暂可见）。
+            const skipToNextPlayable = (extra: PlaybackNavigationOptions = {}) => {
+                if (!isLatestPlaybackRequest()) return;
+                // The queue was replaced whole meanwhile: the skip steps through the queue and FM of now
+                // from this song (from the first entry when the new queue does not hold it), as a skip
+                // after a failure mid-song does.
+                if (queueRewritten()) {
+                    void latestQueueActionsRef.current.handleNextTrack({
+                        fromSong: song,
+                        allowStopOnMissing: true,
                         unavailableSkipCount: skipCount + 1,
+                        shouldNavigateToPlayer: deferredPlayOptions.shouldNavigateToPlayer,
+                        ...extra,
                     });
-                }, stopsPlayback(shown) ? () => { if (isLatestPlaybackRequest()) stopHere(); } : undefined);
+                    return;
+                }
+                // A queue given here and not yet in the store is the one kept; else the queue of now,
+                // so that edits made meanwhile are not undone.
+                const targetQueue = readClickTimeQueue() ?? newQueue;
+                void latestQueueActionsRef.current.playSong(getNextPlayableQueueSong(targetQueue, song, isFmCall) ?? nextSong, targetQueue, isFmCall, {
+                    ...deferredPlayOptions,
+                    unavailableSkipCount: skipCount + 1,
+                    ...extra,
+                });
+            };
+            // 这首自己放不了（下架 / 没有可播地址 / 加密音源 / 不对外）时不倒数：提示条普通弹出、自动收起，
+            // 直接接下一首；连续上限放宽到 20（issue #889）。下一首的 loading 提示不发，失败提示短暂可见；
+            // 登录、会员、地区、网络仍走原逻辑。
+            if (nextSong && skipsInstantly(shown) && skipCount < MAX_INSTANT_SKIP_COUNT) {
+                clearPendingUnavailableSkip();
+                setStatusMsg(said);
+                tellFailure(shown, true);
+                skipToNextPlayable({ skipLoadingStatusToast: true });
+                return;
+            }
+            if (nextSong && skipCount < MAX_UNAVAILABLE_AUTO_SKIP_COUNT) {
+                showTimedSkipPrompt(said, skipToNextPlayable, stopsPlayback(shown) ? () => { if (isLatestPlaybackRequest()) stopHere(); } : undefined);
                 tellFailure(shown, true);
                 return;
             }
@@ -845,7 +863,7 @@ export function usePlaybackQueueController({
             return;
         }
 
-        if (!hasImmediatePrefetchedAudio && !hasCachedAudioBlob) {
+        if (!hasImmediatePrefetchedAudio && !hasCachedAudioBlob && !options.skipLoadingStatusToast) {
             setStatusMsg({ type: 'info', text: t('status.loadingSong') });
         }
 
@@ -1284,6 +1302,7 @@ export function usePlaybackQueueController({
                     shouldNavigateToPlayer,
                     unavailableSkipCount: options?.unavailableSkipCount,
                     isAutomixAdvance: options?.isAutomixAdvance,
+                    skipLoadingStatusToast: options?.skipLoadingStatusToast,
                 });
             } else if (options?.allowStopOnMissing) {
                 stopAtQueueEnd();
@@ -1298,6 +1317,7 @@ export function usePlaybackQueueController({
                 shouldNavigateToPlayer,
                 unavailableSkipCount: options?.unavailableSkipCount,
                 isAutomixAdvance: options?.isAutomixAdvance,
+                skipLoadingStatusToast: options?.skipLoadingStatusToast,
             });
         } else if (options?.allowStopOnMissing) {
             stopAtQueueEnd();
@@ -1388,6 +1408,24 @@ export function usePlaybackQueueController({
         }
 
         const nextSkipCount = skipCount + 1;
+        // 这首自己放不了（下架 / 没有可播地址 / 加密音源 / 不对外）时不倒数：提示条普通弹出、自动收起，
+        // 直接接下一首；连续上限放宽到 20（issue #889）。登录、会员、地区、网络仍走原逻辑。
+        if (shown && skipsInstantly(shown) && skipCount < MAX_INSTANT_SKIP_COUNT) {
+            clearPendingUnavailableSkip();
+            setStatusMsg(said);
+            playbackAutoSkipCountRef.current = nextSkipCount;
+            void latestQueueActionsRef.current.handleNextTrack({
+                allowStopOnMissing: true,
+                shouldNavigateToPlayer: false,
+                unavailableSkipCount: nextSkipCount,
+                skipLoadingStatusToast: true,
+                // The track that failed is the one on the active deck, which mid-blend is NOT the
+                // one on screen. Skipping from the displayed track would step onto the broken one.
+                fromSong: currentSong ?? undefined,
+            });
+            tell(true);
+            return;
+        }
         showTimedSkipPrompt(said, () => {
             playbackAutoSkipCountRef.current = nextSkipCount;
             // The newest handleNextTrack: the queue as it is when the skip comes, edits made meanwhile kept.
