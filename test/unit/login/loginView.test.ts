@@ -344,7 +344,7 @@ describe('the texts the window can ask for', () => {
             netease: null, kugou: null, bodian: null, qishui: null,
             // 扫错 App 的那一句按后端有没有 QQ 音乐 App 扫码说（这里还没问到后端）。
             qq: { 'local-service-unavailable': 'home.loginCaseQqRestart', 'wrong-scan-app': 'home.loginCaseQqWrongScanAppMobileOnly', 'device-limit': 'home.loginCaseQqDeviceLimit' },
-            ytm: { 'browser-unfinished': 'home.loginCaseYtmUnfinished', 'no-browser': 'home.loginNoBrowserYtm' },
+            ytm: { 'browser-unfinished': 'home.loginCaseYtmUnfinished', 'no-browser': 'home.loginNoBrowserYtm', 'unsupported-platform': 'home.loginNoteYtmAndroid' },
             spotify: { 'browser-unfinished': 'home.loginCaseSpotifyUnfinished', 'not-authorized': 'home.loginCaseSpotifyDenied', 'cannot-listen': 'home.loginCaseSpotifyPort' },
         });
     });

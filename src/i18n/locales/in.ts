@@ -1402,6 +1402,8 @@ export default {
     "caseBrowserNotOpened": "Tidak dapat membuka browser",
     "caseAccountNotRead": "Gagal membaca akun",
     "caseUnknown": "Proses masuk gagal",
+    "caseUnsupportedPlatform": "Masuk belum didukung di platform ini",
+    "noteUnsupportedPlatform": "Build ini belum bisa masuk ke platform tersebut; akun Anda tidak bermasalah.",
     "noteCheckNetwork": "Periksa jaringan, lalu coba lagi",
     "noteRetryLater": "Coba lagi nanti",
     "noteDeviceLimit": "Keluar dari perangkat yang tidak dipakai di ponsel, lalu coba lagi",

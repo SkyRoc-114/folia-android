@@ -34,6 +34,9 @@ const CASES: Record<LoginCaseId, { kind: LoginCaseKind; action: LoginCaseAction 
     'browser-unread': { kind: 'E', action: 'retry', details: true },
     'browser-not-opened': { kind: 'E', action: 'reopen-browser', details: true },
     'account-not-read': { kind: 'F', action: 'retry', details: true },
+    // 这个构建还没实现该平台的登录（如安卓版的某个入口）：不是用的人的问题，重试也不会变好，
+    // 把「哪里不支持」说清楚（平台自己的 caseNotes 会带那句说明）。
+    'unsupported-platform': { kind: 'C', action: 'retry', details: true },
     unknown: { kind: 'G', action: 'retry', details: true },
 };
 

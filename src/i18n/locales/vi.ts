@@ -1402,6 +1402,8 @@ export default {
     "caseBrowserNotOpened": "Không thể mở trình duyệt",
     "caseAccountNotRead": "Đọc thông tin tài khoản thất bại",
     "caseUnknown": "Đăng nhập thất bại",
+    "caseUnsupportedPlatform": "Chưa hỗ trợ đăng nhập trên nền tảng này",
+    "noteUnsupportedPlatform": "Bản dựng này chưa đăng nhập được vào nền tảng đó; tài khoản của bạn không có vấn đề gì.",
     "noteCheckNetwork": "Vui lòng kiểm tra kết nối mạng rồi thử lại",
     "noteRetryLater": "Vui lòng thử lại sau",
     "noteDeviceLimit": "Vui lòng đăng xuất khỏi các thiết bị không dùng trên điện thoại rồi thử lại",

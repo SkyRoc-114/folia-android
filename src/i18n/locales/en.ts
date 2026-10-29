@@ -1402,6 +1402,8 @@ export default {
     "caseBrowserNotOpened": "Cannot open the browser",
     "caseAccountNotRead": "Failed to read the account",
     "caseUnknown": "Sign-in failed",
+    "caseUnsupportedPlatform": "Signing in is not supported here yet",
+    "noteUnsupportedPlatform": "This build cannot sign in to that platform yet; nothing is wrong with your account.",
     "noteCheckNetwork": "Check your network, then try again",
     "noteRetryLater": "Try again later",
     "noteDeviceLimit": "Sign out of a device you no longer use on your phone, then try again",

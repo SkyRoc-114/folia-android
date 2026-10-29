@@ -46,6 +46,7 @@ describe('the table of sign-in cases', () => {
             'browser-unread': 'E refresh-code|sign-in-again details',
             'browser-not-opened': 'E reopen-browser details',
             'account-not-read': 'F refresh-code|sign-in-again details',
+            'unsupported-platform': 'C refresh-code|sign-in-again details',
             unknown: 'G refresh-code|sign-in-again details',
         });
     });

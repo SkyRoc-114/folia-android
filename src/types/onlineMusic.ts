@@ -255,6 +255,7 @@ export type LoginCaseId =
     | 'local-service-stopped' | 'local-service-unavailable' | 'cannot-listen'
     | 'no-browser' | 'browser-still-open' | 'browser-closed-early' | 'browser-unread' | 'browser-not-opened'
     | 'account-not-read'
+    | 'unsupported-platform'
     | 'unknown';
 
 // provider 对一次登录失败知道的事实。只放可以公开贴出来的内容：不含 cookie、token、IP 或账号信息。

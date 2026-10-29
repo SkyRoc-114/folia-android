@@ -148,7 +148,13 @@ export const ytmProvider: OnlineMusicProvider = {
         note: IS_ANDROID_WEBVIEW ? 'home.loginNoteYtmAndroid'
             : isMacPlatform ? 'home.loginNoteYtmBrowserMac' : 'home.loginNoteYtmBrowser',
             // The desktop side found none of the browsers it opens: the window then says which ones the sign-in needs.
-            caseNotes: { 'browser-unfinished': 'home.loginCaseYtmUnfinished', 'no-browser': 'home.loginNoBrowserYtm' },
+            // Android 版点登录时 transport 报 unsupported → 映射为 unsupported-platform（ytmLoginFailure.ts），
+            // 那个 case 的那一句讲清楚「仅入口」，不再当成「原因不明」。(#3)
+            caseNotes: {
+                'browser-unfinished': 'home.loginCaseYtmUnfinished',
+                'no-browser': 'home.loginNoBrowserYtm',
+                'unsupported-platform': 'home.loginNoteYtmAndroid',
+            },
         }),
         async getLoginStatus() {
             const user = await requestYtm<ProviderUser | null>('login_status');

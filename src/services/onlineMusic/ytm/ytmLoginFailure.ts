@@ -28,6 +28,9 @@ const CASE_OF = new Map<string, LoginCaseId>([
 export const ytmLoginFailure = (code: ProviderErrorCode | undefined, reason: unknown, message?: unknown): LoginFailureDetail | undefined => {
     const mainCode = typeof reason === 'string' && reason ? reason : undefined;
     if (!mainCode && code === 'network' && message === YTM_ASKED_TO_WAIT) return { case: 'retry-later', httpStatus: 429 };
+    // Android 版的入口限制（ytmTransport.ts 报的 unsupported）：说清楚是平台没实现，而不是把人丢给
+    // 「原因不明」。桌面侧同码但带着 reason 的会走 CASE_OF，不受影响。
+    if (!mainCode && code === 'unsupported') return { case: 'unsupported-platform' };
     const named = (mainCode && CASE_OF.get(mainCode)) || (code === 'network' ? 'unreachable' as const : undefined);
     return mainCode || named ? { ...(mainCode ? { mainCode } : {}), ...(named ? { case: named } : {}) } : undefined;
 };

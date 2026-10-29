@@ -101,6 +101,7 @@ const CASES: Record<LoginCaseId, { on: string; step: LoginStep; scanned?: boolea
     'browser-unread': { on: 'ytm', step: 'check', detail: { case: 'browser-unread', mainCode: 'timeout' } },
     'browser-not-opened': { on: 'spotify', step: 'open' },
     'account-not-read': { on: 'netease', step: 'account', scanned: true },
+    'unsupported-platform': { on: 'ytm', step: 'start', detail: { case: 'unsupported-platform' } },
     unknown: { on: 'kugou', step: 'check' },
 };
 

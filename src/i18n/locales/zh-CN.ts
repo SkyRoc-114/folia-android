@@ -1402,6 +1402,8 @@ export default {
     "caseBrowserNotOpened": "无法打开浏览器",
     "caseAccountNotRead": "读取账号失败",
     "caseUnknown": "登录失败",
+    "caseUnsupportedPlatform": "此平台暂不支持登录",
+    "noteUnsupportedPlatform": "这个版本还不能在该平台上登录，账号本身没有问题。",
     "noteCheckNetwork": "请检查网络后重试",
     "noteRetryLater": "请稍后重试",
     "noteDeviceLimit": "请在手机上退出不用的设备后重试",
