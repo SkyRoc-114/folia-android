@@ -1,6 +1,7 @@
 // Vietnamese (vi) interface text, laid out line for line like en.ts.
 
 
+
 export default {
   "libraryBravais": {
     "suiteName": "Không gian Bravais",
@@ -609,6 +610,7 @@ export default {
       "ponder-current-page": { "title": "Khám phá trang này", "description": "Mở hướng dẫn tương tác cho trang hiện tại" },
       "settings-options": { "title": "Mở Tùy chọn", "description": "Mở trung tâm tùy chọn" },
       "settings-ai-provider": { "title": "Cài đặt nhà cung cấp AI", "description": "Chọn nhà cung cấp AI và mô hình" },
+      "settings-now-playing-card-position": { "title": "Đổi vị trí thẻ bài hát", "description": "Kéo thẻ bài hát đang phát đến vị trí mới" },
       "settings-appearance": { "title": "Cài đặt giao diện", "description": "Mở cài đặt thị giác và giao diện" },
       "settings-general": { "title": "Cài đặt chung", "description": "Mở tùy chọn chung của ứng dụng" },
       "settings-playback": { "title": "Cài đặt phát nhạc", "description": "Mở cài đặt hành vi phát nhạc" },
@@ -710,6 +712,7 @@ export default {
       "grid-organize-song-info": { "title": "Sắp xếp thông tin bài hát", "description": "Dọn dẹp tiêu đề, nghệ sĩ và album của thư mục này" },
       "grid-export-playlist": { "title": "Xuất danh sách phát này", "description": "Lưu danh sách phát nội bộ này thành tệp m3u8" },
       "grid-edit-entity": { "title": "Chỉnh sửa album hoặc nghệ sĩ này", "description": "Mở trình chỉnh sửa thực thể thư viện nội bộ cho bộ sưu tập này" },
+      "grid-set-cover": { "title": "Đặt ảnh bìa bộ sưu tập", "description": "Chọn ảnh bìa cố định cho thư mục, album hoặc danh sách phát cục bộ này" },
       "grid-toggle-edit-mode": { "title": "Bật/tắt chế độ chỉnh sửa", "description": "Vào hoặc thoát chế độ cho phép xóa bài hát khỏi bộ sưu tập này" },
       "grid-reload-online-collection": { "title": "Tải lại bộ sưu tập này", "description": "Bỏ qua bộ nhớ đệm và tải lại mọi bài hát của bộ sưu tập trực tuyến này" },
       "grid-toggle-subscribe": { "title": "Đăng ký hoặc hủy đăng ký", "description": "Lưu danh sách phát hoặc album trực tuyến này vào thư viện, hoặc xóa nếu đã có" },
@@ -1910,6 +1913,11 @@ export default {
     "daylightModeLight": "Sáng",
     "daylightModeDark": "Tối",
     "daylightModeSystem": "Theo hệ thống",
+    "stageTrackPillReposition": "Đổi vị trí thẻ bài hát",
+    "stageTrackPillRepositionUnavailable": "Hãy phát một bài trước — thẻ bài hát phải hiện trên màn hình mới di chuyển được",
+    "stageTrackPillPosition": "Vị trí thẻ bài hát",
+    "stageTrackPillResetPosition": "Đặt lại vị trí",
+    "stageTrackPillPositioningHint": "Kéo thẻ để di chuyển. Dùng phím mũi tên để tinh chỉnh.",
     "stageTrackPillMode": "Cách hiển thị",
     "visualSettingsCardDesc": "Chủ đề, chế độ hiển thị lời, tùy chỉnh kiểu dáng và độ mờ nền.",
     "playbackSettingsDesc": "Hành vi phát, nguồn lời bài hát và âm thanh.",
@@ -3921,6 +3929,34 @@ export default {
     "useLocalInfoForSelected": "Dùng thông tin nội bộ ({{count}})",
     "coverCacheFailed": "Đã lưu siêu dữ liệu nhưng không thể lưu đệm ảnh bìa. URL trực tuyến vẫn sẽ được dùng khi khả dụng.",
     "lyricsNotAppliedOtherSaved": "Chưa áp dụng lời bài hát; các lựa chọn khác đã được lưu.",
+  },
+  "localCollectionCover": {
+    "menuLabel": "Đặt ảnh bìa",
+    "title": "Ảnh bìa của “{{name}}”",
+    "description": "Ảnh này chỉ là ảnh bìa của {{kind}} này trong thư viện. Ảnh không được ghi vào tệp bài hát nào, và các bài hát bên trong sẽ không làm thay đổi nó. Ảnh được giữ cố định cho đến khi bạn đặt ảnh khác hoặc khôi phục mặc định.",
+    "kindFolder": "thư mục",
+    "kindAlbum": "album",
+    "kindPlaylist": "danh sách phát",
+    "currentCustom": "Ảnh bìa tùy chỉnh",
+    "currentAutomatic": "Ảnh bìa tự động, lấy từ các bài hát bên trong",
+    "noCover": "Không có ảnh bìa",
+    "usePoster": "Dùng poster.png",
+    "posterChecking": "Đang tìm poster.png trong thư mục…",
+    "posterFound": "Đã tìm thấy {{name}} trong thư mục",
+    "posterMissing": "Không có poster.png trong thư mục này",
+    "posterNoAccess": "Cho phép Folia đọc thư mục này để dùng poster.png của nó",
+    "posterUnavailable": "Không thể đọc thư mục này",
+    "upload": "Tải ảnh lên",
+    "restore": "Khôi phục mặc định",
+    "pickSong": "Hoặc dùng ảnh bìa của một bài hát",
+    "songCount_one": "{{count}} bài hát dùng ảnh bìa này",
+    "songCount_other": "{{count}} bài hát dùng ảnh bìa này",
+    "noSongCovers": "Không bài hát nào ở đây có ảnh bìa",
+    "saving": "Đang lưu ảnh bìa…",
+    "saved": "Đã đặt ảnh bìa",
+    "restored": "Đã khôi phục ảnh bìa tự động",
+    "failed": "Chưa đặt được ảnh bìa: {{error}}",
+    "notImage": "Tệp đó không phải ảnh mà Folia đọc được"
   },
   "navidrome": {
     "title": "Navi",
