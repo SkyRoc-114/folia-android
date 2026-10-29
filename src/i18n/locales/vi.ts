@@ -1,5 +1,6 @@
 // Vietnamese (vi) interface text, laid out line for line like en.ts.
 
+
 export default {
   "libraryBravais": {
     "suiteName": "Không gian Bravais",
@@ -1479,6 +1480,7 @@ export default {
     "loginCodeWaiting": "Đang chờ xác nhận trên trình duyệt",
     "loginTitleSpotify": "Đăng nhập Spotify",
     "loginNoteYtmAndroid": "YouTube Music trên bản Android hiện chỉ là điểm vào: đăng nhập, duyệt và phát nhạc chưa được triển khai.",
+
     "loginNoteSpotify": "Chọn “Đồng ý” trên trang Spotify mở trong trình duyệt của bạn",
     "loginCaseSpotifyUnfinished": "Không xác nhận trong vòng 10 phút",
     "loginCaseSpotifyDenied": "Vui lòng chọn “Đồng ý” trên trang Spotify",
@@ -1708,12 +1710,14 @@ export default {
     "qqGroupNumberCopied": "Đã sao chép số nhóm",
       "copyDiagnostics": "Sao chép chẩn đoán",
       "copyDiagnosticsDescription": "Tạo báo cáo về phiên bản hiện tại và trạng thái runtime để kèm theo khi báo lỗi.",
+
       "exportDiagnostics": "Xuất chẩn đoán",
       "exportDiagnosticsDescription": "Ghi thành tệp txt và mở bảng chia sẻ của hệ thống",
       "exportDiagnosticsShared": "Đã mở bảng chia sẻ",
       "exportDiagnosticsDownloaded": "Đã lưu thành tệp",
       "exportDiagnosticsFailed": "Xuất thất bại",
       "copyDiagnosticsCopied": "Đã sao chép chẩn đoán",
+
       "deleteDiagnostics": "Xóa báo cáo chẩn đoán",
       "deleteDiagnosticsDescription": "Dọn các tệp chẩn đoán đã xuất trước đó",
       "deleteDiagnosticsDone": "Đã xóa {{count}} tệp chẩn đoán",
@@ -2276,6 +2280,7 @@ export default {
     "latticeSettings": "Giao diện Lattice & Thư viện",
     "latticePerformanceMode": "Ưu tiên hiệu năng",
       "latticePerformanceModeDesc": "Bật theo mặc định: bỏ lớp vân tường, hiệu ứng tối góc, xếp chồng poster và bộ lọc hover, giảm một bậc độ phân giải ảnh bìa.",
+
     "latticeVignette": "Viền tối cạnh",
     "latticeVignetteDesc": "Làm tối viền xung quanh hàng đợi Lattice và thư viện album để tập trung ánh nhìn vào giữa.",
     "latticePosterTint": "Màu phủ làm nổi poster",
@@ -2364,6 +2369,7 @@ export default {
     "playerCapIgnoreClearHint": "Giữ lời bài hát khi tạm dừng, rảnh hoặc đóng cửa sổ; chỉ làm mới khi thực sự đổi trình phát.",
     "playerCapWaitingLyrics": "Đã kết nối, chờ lời bài hát",
     "playerCapConnecting": "Đang kết nối Nexus PlayerCap…",
+
     "stageAddress": "Địa chỉ Stage",
     "stageSession": "Phiên hiện tại",
     "stageSessionReady": "Phiên đã sẵn sàng",
@@ -3133,6 +3139,7 @@ export default {
       "localVideoCacheEmpty": "Chưa có video cục bộ nào trong bộ nhớ",
       "localVideoCacheCleared": "Đã xóa video cục bộ",
       "localVideoCacheClearFailed": "Không xóa được video cục bộ",
+
     "videoLayerClearFile": "Xóa video nội bộ",
     "videoLayerPickFailed": "Không thể mở video",
     "videoLayerUrl": "URL video",
@@ -3162,6 +3169,7 @@ export default {
       "colorOsLyricsActiveDesc": "Lời bài hát đang được đăng lên MediaSession của hệ thống.",
       "colorOsLyricsInactive": "Đang tắt",
       "colorOsLyricsInactiveDesc": "Thiết bị này không được nhận ra là ColorOS 16+, nên kênh này giữ tắt.",
+
     "neteaseScrobble": "Báo cáo lượt nghe (chỉ NetEase)",
     "neteaseScrobbleDesc": "Gửi báo cáo nghe tới tài khoản NetEase sau khi nghe thực tế tối thiểu 30 giây nhạc NetEase trực tuyến. Tệp nội bộ, nhạc tải lên đám mây và nguồn khác sẽ không ghi nhận. Tính năng này tiềm ẩn rủi ro - hãy thận trọng.",
     "neteaseScrobbleSignInHint": "Đăng nhập NetEase Cloud Music để sử dụng.",
