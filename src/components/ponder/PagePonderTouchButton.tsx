@@ -5,6 +5,7 @@ import { useReducedMotionFor } from '../../hooks/useReducedMotionFor';
 import { useSupportsFinePointer } from '../../hooks/useSupportsFinePointer';
 import { useAppViewStore } from '../../stores/useAppViewStore';
 import { usePonderStore } from '../../stores/usePonderStore';
+import { useSearchNavigationStore } from '../../stores/useSearchNavigationStore';
 import { useSettingsModalStore } from '../../stores/useSettingsModalStore';
 import { openCurrentPagePonder } from '../../services/ponder/pagePonderTarget';
 import type { Theme } from '../../types';
@@ -44,9 +45,14 @@ const PagePonderTouchButton: React.FC<PagePonderTouchButtonProps> = ({ theme, is
     const isOnboardingOpen = useSettingsModalStore(state => state.isUserGuideModalOpen);
     const showTouchButton = usePonderStore(state => state.showPonderTouchButton);
     const view = useAppViewStore(state => state.view);
+    // 搜索浮层打开时整体让位：右上角 X 和这颗灯泡占据同一片角落，热区会把每一次对 X 的
+    // 按压都当成「唤出灯泡」（搜索页关闭后同一位置淡入💡，正是已报告的 bug）。让位期间
+    // 热区不监听、按钮不渲染，X 的点击才能干净落到 X 上。
+    const isSearchOpen = useSearchNavigationStore(state => state.isSearchOpen);
 
     const [isRevealed, setIsRevealed] = useState(true);
     const hideTimerRef = useRef<number | null>(null);
+    const buttonRef = useRef<HTMLButtonElement>(null);
     // 监听器里要读当前的显隐，但它不该因为显隐变化就解绑重绑。
     const isRevealedRef = useRef(isRevealed);
     isRevealedRef.current = isRevealed;
@@ -72,7 +78,7 @@ const PagePonderTouchButton: React.FC<PagePonderTouchButtonProps> = ({ theme, is
 
     // 换页时重新露一次：这颗按钮讲的是「思索当前页面」，页面换了就值得再说一遍自己在。
     useEffect(() => {
-        if (!isCoarsePointer || !showTouchButton) {
+        if (!isCoarsePointer || !showTouchButton || isSearchOpen) {
             return undefined;
         }
         reveal();
@@ -82,12 +88,12 @@ const PagePonderTouchButton: React.FC<PagePonderTouchButtonProps> = ({ theme, is
                 hideTimerRef.current = null;
             }
         };
-    }, [isCoarsePointer, reveal, showTouchButton, view]);
+    }, [isCoarsePointer, isSearchOpen, reveal, showTouchButton, view]);
 
     // 右上角热区。按坐标判而不是摆一个元素：摆元素就会挡住底下的东西，
     // 而「不挡路」正是这颗按钮从右下角搬过来的全部理由。
     useEffect(() => {
-        if (!isCoarsePointer || !showTouchButton || typeof window === 'undefined') {
+        if (!isCoarsePointer || !showTouchButton || isSearchOpen || typeof window === 'undefined') {
             return undefined;
         }
 
@@ -104,6 +110,22 @@ const PagePonderTouchButton: React.FC<PagePonderTouchButtonProps> = ({ theme, is
                 return;
             }
 
+            // 热区是纯坐标判定，会“听见”落在同一角落里别的控件上的按压：搜索页的 X、
+            // 设置入口……那些按压实属它们的目标，不该把灯泡叫出来。落点若命中交互元素
+            // （且不是本按钮自己的表面），就把这次按压还给那个控件。按钮收起时是
+            // pointer-events-none，elementFromPoint 会穿透到真正的落点，「点空角落唤出」
+            // 的原设计不受影响。
+            const hit = document.elementFromPoint(event.clientX, event.clientY);
+            if (hit) {
+                const interactive = hit.closest('button, a, input, textarea, select, [role="button"], summary');
+                const isOwnSurface = buttonRef.current !== null
+                    && (buttonRef.current === hit || buttonRef.current.contains(hit));
+                if (interactive && !isOwnSurface) {
+                    suppressNextClickRef.current = false;
+                    return;
+                }
+            }
+
             // 按钮已经露着的时候，这一下就是在按它，不该吃掉。
             suppressNextClickRef.current = !isRevealedRef.current;
             reveal();
@@ -111,14 +133,15 @@ const PagePonderTouchButton: React.FC<PagePonderTouchButtonProps> = ({ theme, is
 
         window.addEventListener('pointerdown', handlePointerDown, { passive: true, capture: true });
         return () => window.removeEventListener('pointerdown', handlePointerDown, { capture: true });
-    }, [isCoarsePointer, reveal, showTouchButton]);
+    }, [isCoarsePointer, isSearchOpen, reveal, showTouchButton]);
 
-    if (!isCoarsePointer || !showTouchButton || hasSession || isOnboardingOpen) {
+    if (!isCoarsePointer || !showTouchButton || hasSession || isOnboardingOpen || isSearchOpen) {
         return null;
     }
 
     return (
         <button
+            ref={buttonRef}
             type="button"
             data-testid="page-ponder-touch-button"
             data-ponder-touch-revealed={isRevealed || undefined}
