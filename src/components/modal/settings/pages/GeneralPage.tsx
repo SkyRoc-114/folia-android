@@ -39,6 +39,7 @@ const O = {
     androidKeepScreenOn: option(ANDROID_SHELL, 'keepScreenOn', 'options.keepScreenOn'),
     androidPhoneFit: option(ANDROID_SHELL, 'phoneFit', 'options.phoneFit'),
     androidOrientation: option(ANDROID_SHELL, 'orientationFit', 'options.orientationFit'),
+    androidLiteMode: option(ANDROID_SHELL, 'liteMode', 'options.liteMode'),
     androidCommandPaletteAutoHide: option(ANDROID_SHELL, 'autoHideCommandPaletteButton', 'options.autoHideCommandPaletteButton'),
 };
 
@@ -55,6 +56,8 @@ const GeneralPage: React.FC = () => {
 
     const keepScreenOnEnabled = useAndroidLayoutSettingsStore(state => state.keepScreenOnEnabled);
     const setKeepScreenOnEnabled = useAndroidLayoutSettingsStore(state => state.setKeepScreenOnEnabled);
+    const liteModeEnabled = useAndroidLayoutSettingsStore(state => state.liteModeEnabled);
+    const setLiteModeEnabled = useAndroidLayoutSettingsStore(state => state.setLiteModeEnabled);
     const phoneFitEnabled = useAndroidLayoutSettingsStore(state => state.phoneFitEnabled);
     const setPhoneFitEnabled = useAndroidLayoutSettingsStore(state => state.setPhoneFitEnabled);
     const phoneFitOrientation = useAndroidLayoutSettingsStore(state => state.phoneFitOrientation);
@@ -140,6 +143,10 @@ const GeneralPage: React.FC = () => {
             {/* Android 外壳：与上游设置页同一套 Group/Row 控件，桌面上整组不渲染。 */}
             {IS_ANDROID_WEBVIEW && (
                 <Group def={ANDROID_SHELL}>
+                    <Row option={O.androidLiteMode} hint={t('options.liteModeDesc')}>
+                        <Toggle checked={liteModeEnabled} onChange={setLiteModeEnabled} />
+                    </Row>
+
                     <Row option={O.androidAdaptiveDisplay} hint={t('options.adaptiveDisplayDesc')}>
                         <Toggle checked={adaptiveDisplayEnabled} onChange={next => void toggleAdaptiveDisplay(next)} />
                     </Row>

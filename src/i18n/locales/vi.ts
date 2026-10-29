@@ -3293,6 +3293,8 @@ export default {
     "settingsHeadingAndroid": "Vỏ Android",
     "adaptiveDisplay": "Độ phân giải màn hình thích ứng",
     "adaptiveDisplayDesc": "Khi bật, thanh hệ thống bị ẩn và giao diện phủ kín màn hình; khi tắt, giữ nguyên bố cục gốc. Nếu thiết bị ép tỷ lệ khung hình cố định, hãy tắt chế độ tương thích ứng dụng trong cài đặt hệ thống.",
+    "liteMode": "Chế độ nhẹ",
+    "liteModeDesc": "Tắt các hiệu ứng WebGL nặng nhất (như lớp hậu kỳ/khúc xạ tempera) để tiết kiệm pin điện thoại. Không đổi giá trị tinh chỉnh trực quan đã lưu - tắt đi để khôi phục.",
     "keepScreenOn": "Giữ màn hình luôn sáng",
     "keepScreenOnDesc": "Ngăn màn hình tự tắt khi ứng dụng đang mở, để lời bài hát vẫn đọc được trên giá đỡ hoặc khi bạn chép chúng. Tắt đi để khôi phục chế độ tự tắt màn hình của hệ thống.",
     "orientationFit": "Vừa khung dọc / ngang",

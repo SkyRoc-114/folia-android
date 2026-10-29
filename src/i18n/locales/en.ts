@@ -3292,6 +3292,8 @@ export default {
     "settingsHeadingAndroid": "Android shell",
     "adaptiveDisplay": "Adaptive screen resolution",
     "adaptiveDisplayDesc": "When on, the system bars are hidden and the interface fills the whole screen; when off, the native layout is kept. If the device forces a fixed aspect ratio, turn off its app compatibility mode in the system settings.",
+    "liteMode": "Lite mode",
+    "liteModeDesc": "Turns down the heaviest WebGL effects (like the tempera post-processing/refraction layer) to save battery on phones. The stored visualizer tuning is untouched - flip it off to get everything back.",
     "keepScreenOn": "Keep screen on",
     "keepScreenOnDesc": "Stops the screen from sleeping while the app is open, so lyrics stay readable on a stand or while you copy them. Turn it off to restore the system auto-sleep.",
     "orientationFit": "Portrait / landscape fit",

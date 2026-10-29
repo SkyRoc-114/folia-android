@@ -3292,6 +3292,8 @@ export default {
     "settingsHeadingAndroid": "安卓外壳",
     "adaptiveDisplay": "自适应屏幕分辨率",
     "adaptiveDisplayDesc": "打开后隐藏系统栏、画面铺满整屏；关闭则跟随系统原生布局。若设备强制按固定比例显示，需要到系统的应用显示比例设置里关闭兼容模式。",
+    "liteMode": "轻量模式",
+    "liteModeDesc": "关掉最重的 WebGL 特效（如 tempera 后处理/折射层）为手机省电。不改可视化调谐的存储值，关掉即恢复。",
     "keepScreenOn": "屏幕常亮",
     "keepScreenOnDesc": "打开后不再自动息屏，看歌词、抄歌词或放在桌上时屏幕保持点亮。关掉就恢复系统的自动息屏。",
     "orientationFit": "横竖屏兼容",

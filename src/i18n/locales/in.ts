@@ -3296,6 +3296,8 @@ export default {
     "orientationFitDesc": "Nonaktif mengunci kompatibilitas potret; aktif beralih ke dan mengunci kompatibilitas lanskap. Hanya berlaku saat Tata letak ponsel aktif.",
     "orientationLandscape": "Saat ini: lanskap",
     "orientationPortrait": "Saat ini: potret",
+    "liteMode": "Mode ringan",
+    "liteModeDesc": "Mematikan efek WebGL terberat (seperti lapisan pasca-proses/refraksi tempera) untuk menghemat baterai ponsel. Penyetelan visualizer tersimpan tidak diubah - matikan untuk memulihkan semuanya.",
     "keepScreenOn": "Layar tetap menyala",
     "keepScreenOnDesc": "Saat aktif layar tidak otomatis mati, jadi lirik tetap terlihat saat menyalin atau meletakkan ponsel; matikan untuk kembali ke pengaturan mati otomatis sistem.",
     "phoneFit": "Tata letak ponsel",

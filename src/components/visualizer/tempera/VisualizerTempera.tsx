@@ -12,6 +12,7 @@ import { useVisualizerRuntime } from '../runtime';
 import { useVisualizerSongCommit } from '../songHandover';
 import VisualizerShell from '../VisualizerShell';
 import VisualizerSubtitleOverlay from '../VisualizerSubtitleOverlay';
+import { useAndroidLayoutSettingsStore } from '../../../stores/useAndroidLayoutSettingsStore';
 import type {
     TemperaPixiRuntime,
     TemperaSongContext,
@@ -56,8 +57,18 @@ const VisualizerTempera: React.FC<VisualizerSharedProps> = (props) => {
     const hostRef = useRef<HTMLDivElement>(null);
     const pausedRef = useRef(paused);
     pausedRef.current = paused;
-    const temperaTuningRef = useRef(temperaTuning);
-    temperaTuningRef.current = temperaTuning;
+    // 轻量模式（Android 默认开）：关 tempera 后处理/折射层这类重 WebGL 特效（Sakurakilove
+    // 同款取舍）。只改生效值不改用户存储的 tuning，开关一关立刻回来；后处理决定画布是否
+    // 抗锯齿（定格于 context 创建），所以生效值变化会经 rebuildKey 触发整体重建。
+    const liteModeEnabled = useAndroidLayoutSettingsStore(state => state.liteModeEnabled);
+    const effectiveTemperaTuning = useMemo(
+        () => (liteModeEnabled && temperaTuning.postProcessEnabled
+            ? { ...temperaTuning, postProcessEnabled: false }
+            : temperaTuning),
+        [temperaTuning, liteModeEnabled],
+    );
+    const temperaTuningRef = useRef(effectiveTemperaTuning);
+    temperaTuningRef.current = effectiveTemperaTuning;
     const latestSongMetadataRef = useRef<TemperaSongMetadata>({
         title: songTitle,
         artist: songArtist,
@@ -186,7 +197,7 @@ const VisualizerTempera: React.FC<VisualizerSharedProps> = (props) => {
         // Only inputs that genuinely need a new WebGL context and texture pool. The song is
         // handed to the live runtime instead - see TemperaPixiRuntime.swapSong. Post-processing
         // decides whether the canvas is antialiased, which is fixed when the context is made.
-        rebuildKey: [currentTime, imageBlobs, lyricsFontScale, staticMode, temperaTuning.postProcessEnabled],
+        rebuildKey: [currentTime, imageBlobs, lyricsFontScale, staticMode, effectiveTemperaTuning.postProcessEnabled],
         song: songContext,
         create: async (host, song, signal) => {
             const { TemperaPixiRuntime } = await import('./createTemperaPixiRuntime');
@@ -223,8 +234,8 @@ const VisualizerTempera: React.FC<VisualizerSharedProps> = (props) => {
     // Tuning is pushed into the live renderer rather than rebuilding it. A rebuild per pointer
     // move re-initialises WebGL, re-decodes every placed image and re-measures every line.
     useEffect(() => {
-        runtimeRef.current?.setTuning(temperaTuning);
-    }, [temperaTuning, runtimeRef]);
+        runtimeRef.current?.setTuning(effectiveTemperaTuning);
+    }, [effectiveTemperaTuning, runtimeRef]);
 
     useEffect(() => {
         runtimeRef.current?.setSongMetadata(latestSongMetadataRef.current);
