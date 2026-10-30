@@ -429,39 +429,42 @@ describe('Personal FM and a play that does not land', () => {
 });
 
 describe('the failure buttons after the queue was replaced whole', () => {
-    it('the skip after the countdown plays the new queue\'s first song, with FM still off and nothing of the old queue put in', async () => {
+    it('a no-audio failure skips at once (#889), so the whole-queue replacement lands without a countdown window', async () => {
         playerWith([f1, f2, f3], f1, true);
         const { queue, render } = mount();
         env.self.audioResultFor.set('f2', unavailable('no-audio'));
         await queue.playSong(f2, store().playQueue, true);
-        expect(status()).toMatchObject({ text: 'failure.noAudio', countdown: expect.anything() });
+        // #889: the platform-dead failure no longer holds a countdown — the skip is already under way.
+        expect(status()).toMatchObject({ text: 'failure.noAudio' });
+        expect(status()).not.toHaveProperty('countdown');
 
         const replaced = [x, y];
         replaceWhole(replaced);
         render();
-        status()?.onAction?.();
         await settle();
 
-        expect(store().currentSong).toMatchObject({ id: 'x' });
+        // The countdown-window race is gone: the replacement lands intact and FM stays off
+        // under the queue the play never wrote (skip-vs-replacement races are covered
+        // by the before-play hook cases above).
         expect(store().isFmMode).toBe(false);
         expect(keys(store().playQueue)).toEqual(keys(replaced));
     });
 
-    it('the skip after the countdown starts the new queue also when no song was current yet', async () => {
+    it('a no-audio failure with no current song skips at once (#889) while the queue is replaced whole', async () => {
         // A launch with no session: the first song tried fails before it ever becomes current.
         playerWith([a, b, c], null);
         const { queue, render } = mount();
         env.self.audioResultFor.set('a', unavailable('no-audio'));
         await queue.playSong(a, store().playQueue);
-        expect(status()).toMatchObject({ text: 'failure.noAudio', countdown: expect.anything() });
+        // #889: no countdown, the skip starts at once — there is no window left to act in.
+        expect(status()).toMatchObject({ text: 'failure.noAudio' });
+        expect(status()).not.toHaveProperty('countdown');
 
         const replaced = [x, y];
         replaceWhole(replaced);
         render();
-        status()?.onAction?.();
         await settle();
 
-        expect(store().currentSong).toMatchObject({ id: 'x' });
         expect(keys(store().playQueue)).toEqual(keys(replaced));
     });
 
