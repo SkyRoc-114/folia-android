@@ -123,9 +123,13 @@ const readStoredLyricStaffAbsorbMode = (): LyricStaffAbsorbMode => {
 };
 
 const readStoredLyricRenderQuality = (): LyricRenderQuality => {
-    const saved = localStorage.getItem('lyrics_render_quality');
+    const saved = localStorage.getItem(LYRIC_RENDER_QUALITY_STORAGE_KEY);
     return isLyricRenderQuality(saved) ? saved : DEFAULT_LYRIC_RENDER_QUALITY;
 };
+
+// storeContract 契约靠模块级 XXX_KEY 常量声明登记 key，别用裸字面量。
+const LYRIC_RENDER_QUALITY_STORAGE_KEY = 'lyrics_render_quality';
+const LYRIC_ANTIALIAS_STORAGE_KEY = 'lyrics_antialias';
 
 export type LyricSettingsState = {
     autoUseBestLyric: boolean;
@@ -169,7 +173,7 @@ export const useLyricSettingsStore = create<LyricSettingsState>((set, get) => ({
     lyricStaffAbsorbMode: readStoredLyricStaffAbsorbMode(),
     lyricStaffPattern: getStoredString('lyrics_staff_pattern', ''),
     lyricRenderQuality: typeof window === 'undefined' ? DEFAULT_LYRIC_RENDER_QUALITY : readStoredLyricRenderQuality(),
-    lyricAntialias: getStoredBoolean('lyrics_antialias', false),
+    lyricAntialias: getStoredBoolean(LYRIC_ANTIALIAS_STORAGE_KEY, false),
     handleToggleAutoUseBestLyric: (enable) => {
         setStoredBoolean('auto_use_best_lyric', enable);
         set({ autoUseBestLyric: enable });
@@ -179,11 +183,11 @@ export const useLyricSettingsStore = create<LyricSettingsState>((set, get) => ({
         });
     },
     handleSetLyricRenderQuality: (quality) => {
-        setStoredString('lyrics_render_quality', quality);
+        setStoredString(LYRIC_RENDER_QUALITY_STORAGE_KEY, quality);
         set({ lyricRenderQuality: quality });
     },
     handleToggleLyricAntialias: (enable) => {
-        setStoredBoolean('lyrics_antialias', enable);
+        setStoredBoolean(LYRIC_ANTIALIAS_STORAGE_KEY, enable);
         set({ lyricAntialias: enable });
     },
     handleSetPreferredAlternativeLyricSource: (source) => {
