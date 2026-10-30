@@ -523,15 +523,19 @@ describe('playSong and the audio address (online)', () => {
         expect(refs.shouldAutoPlay.current).toBe(false);
     });
 
-    it('an address that cannot be had: with no song to skip to it says so, with one it asks before skipping', async () => {
+    it('an address that cannot be had: with no song to skip to it says so, with one it skips at once (#889)', async () => {
         const { watch, queue } = mount({ address: true });
         env.audioResultFor.set('1', unavailable('no-audio'));
 
         await queue.playSong(songA, [songA]);
         expect(status()).toMatchObject({ type: 'error', text: 'failure.noAudio' });
 
+        // #889：有下一首时不再倒数询问，直接提示（无 countdown）并接下一首——
+        // songB 的音频请求已经发出（旧行为倒数期间不会有）。
         await queue.playSong(songA, [songA, songB]);
-        expect(status()).toMatchObject({ type: 'error', text: 'failure.noAudio', countdown: { text: 'failure.skipCountdown' }, persistent: true });
-        expect(watch.take().filter(line => !line.startsWith('wait audio source 1'))).toEqual([]);
+        expect(status()).toMatchObject({ type: 'error', text: 'failure.noAudio' });
+        expect(status()).not.toHaveProperty('countdown');
+        const lines = watch.take().filter(line => !line.startsWith('wait audio source 1'));
+        expect(lines.some(line => line.startsWith('wait audio source 2'))).toBe(true);
     });
 });

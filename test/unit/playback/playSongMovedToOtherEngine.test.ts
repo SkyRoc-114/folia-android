@@ -276,7 +276,7 @@ describe('a song the HiFi bridge replays through playSong on the other engine', 
         expect(refs.shouldAutoPlay.current).toBe(true);
     });
 
-    it('a play this one defers (the timed skip after a failure) starts at the beginning, plays, and says it loaded', async () => {
+    it('a play this one defers (no-audio skips at once per #889) lands on the next song and says it loaded', async () => {
         const { refs, queue } = mount();
         env.audioResultFor.set('x', {
             kind: 'unavailable', failure: onlineFailureOf({ operation: 'audio', providerId: 'bodian' }, { detail: { case: 'no-audio' } }),
@@ -285,10 +285,10 @@ describe('a song the HiFi bridge replays through playSong on the other engine', 
 
         // Given the moved song's options, as a mod's before-play hook that redirects the replay would leave them.
         await queue.playSong(x, store().playQueue, false, movedPaused);
-        expect(status()).toMatchObject({ text: 'failure.noAudio', countdown: expect.anything() });
+        // #889：平台判死不再倒数停留，提示条直接弹出（无 countdown），队列立刻接下一首。
+        expect(status()).toMatchObject({ text: 'failure.noAudio' });
+        expect(status()).not.toHaveProperty('countdown');
 
-        // The listener skips at once instead of waiting for the countdown.
-        status()?.onAction?.();
         await settle();
         await settle();
 

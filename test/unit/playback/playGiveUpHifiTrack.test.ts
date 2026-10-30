@@ -285,7 +285,7 @@ describe('a play that gives up before it shows its song, and the song playing on
         expect(stillWanted()).toBe(true);
     });
 
-    it('an online song refused for a reason the listener must act on, and one that counts down to the next song', async () => {
+    it('an online song refused for a reason the listener must act on, and one the player skips at once (#889)', async () => {
         const { queue } = mount();
         const stillWanted = await playL1OnHifi(queue);
 
@@ -294,10 +294,13 @@ describe('a play that gives up before it shows its song, and the song playing on
         expect(status()).toMatchObject({ type: 'error', text: 'failure.signInNeeded' });
         expect(stillWanted()).toBe(true);
 
+        // #889：no-audio 属平台判死，不再倒数停留——提示直接弹出（无 countdown），自动接下一首。
         env.audioResultFor.set('y', unavailable('no-audio'));
         await queue.playSong(online('y'), [q1, online('y'), q2]);
-        expect(status()).toMatchObject({ countdown: expect.anything() });
-        expect(stillWanted()).toBe(true);
+        expect(status()).toMatchObject({ type: 'error', text: 'failure.noAudio' });
+        expect(status()).not.toHaveProperty('countdown');
+        // L1 的 HiFi 轨道已被自动跳转结束——这正是「不停留、接下一首」的新语义。
+        expect(stillWanted()).toBe(false);
     });
 
     it('a taken-down song whose dialog of another version opens', async () => {
