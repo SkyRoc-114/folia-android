@@ -1,5 +1,6 @@
 import { useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { LucideIcon } from 'lucide-react';
+import { useShortcutHintsVisible } from '../../hooks/useShortcutHintsVisible';
 
 // src/components/wall/WallToolsRows.tsx
 // 墙面工具面板（WallToolsButton）里的各种行：条目（动作 / 开关 / 滑条 / 分组小标题）与顶部那排纯图标快捷格。
@@ -196,6 +197,8 @@ export function WallToolsQuickRow({ actions, onDone }: { actions: readonly WallT
 
 /** 一行条目。 */
 export function WallToolsRow({ entry, onDone }: { entry: WallToolsEntry; onDone: () => void }) {
+    // 生效值在组件顶上取（hooks 规则：早退分支之前）；滑条/小标题行用不到它，但取一次无妨。
+    const shortcutHintsVisible = useShortcutHintsVisible();
     if (entry.kind === 'slider') return <WallToolsSliderRow entry={entry} />;
     if (entry.kind === 'heading') {
         return (
@@ -236,7 +239,8 @@ export function WallToolsRow({ entry, onDone }: { entry: WallToolsEntry; onDone:
             <Icon aria-hidden="true" />
             <span>{entry.label}</span>
             {entry.value !== undefined && <span className="lattice-tools-value">{entry.value}</span>}
-            {entry.kbd !== undefined && (entry.kbdHidden ? <kbd aria-hidden="true">{entry.kbd}</kbd> : <kbd>{entry.kbd}</kbd>)}
+            {/* 键位徽章跟「快捷键显示」生效值走：触屏默认不画（一个空 kbd 都不留）；kbdHidden 只是读屏降噪，显隐在闸口统一管。 */}
+            {entry.kbd !== undefined && shortcutHintsVisible && (entry.kbdHidden ? <kbd aria-hidden="true">{entry.kbd}</kbd> : <kbd>{entry.kbd}</kbd>)}
         </button>
     );
 }

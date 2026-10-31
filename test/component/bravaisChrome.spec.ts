@@ -140,7 +140,9 @@ test.describe('[bravais-only] wall chrome and shared appearance settings', () =>
         await tools(page).click();
         const menu = panel(page);
         await expect(menu).toBeVisible();
-        await expect(menu.getByRole('menuitem', { name: 'Locate the playing song', exact: true })).toBeVisible();
+        // 定位入口是面板上方的 GridLocateButton（不在菜单行里）：要求播放 store 有歌且在墙上有卡才画；
+        // 探针的在线歌不在墙上，这里只锁面板内容本身。
+        await expect(menu.getByRole('menuitem', { name: 'Wall transparency Partly see-through', exact: true })).toBeVisible();
         await expect(menu.getByRole('menuitemcheckbox', { name: 'Poster lighting', exact: true })).toBeChecked();
         await expect(menu.getByRole('menuitemcheckbox', { name: 'Poster focus tint', exact: true })).toBeChecked();
 
@@ -199,6 +201,26 @@ test.describe('[bravais-only] wall chrome and shared appearance settings', () =>
         await page.mouse.up();
         await expect.poll(() => page.evaluate(() => window.__homeProbe!.paletteRequest())).toEqual({ seq: before + 1, kind: 'root' });
         await expect(panel(page)).toHaveCount(0);
+    });
+
+    test('shortcut hint badges follow the shortcut-hints setting (off hides every kbd)', async ({ mount, page }) => {
+        // 触屏默认（auto + 无键鼠）与强制 off 一样一个键位徽章都不画；浏览器有细指针，
+        // 这里用 seedStorage 把 mode 钉成 off 来锁住「不显示」这一侧。
+        await seedStorage(page, [['library_wall_look', 'partial'], ['shortcut_hints_mode', 'off']]);
+        await mountBravais(mount, page);
+        await tools(page).click();
+        const menu = panel(page);
+        await expect(menu).toBeVisible();
+        await expect(menu.locator('kbd')).toHaveCount(0);
+
+        // 帮助列表同样一行一个说明，没有键位格。
+        await menu.getByRole('menuitem', { name: 'Operation guide', exact: true }).click();
+        const help = menu.getByRole('note');
+        await expect(help).toBeVisible();
+        const rows = await help.locator('li').evaluateAll(items => items.map(item => (
+            [...item.children].map(child => child.tagName.toLowerCase())
+        )));
+        expect(rows).toEqual(Array.from({ length: 13 }, () => ['span']));
     });
 
     test('the tools panel groups one-shot actions on top, the volume below them and the wall appearance last', async ({ mount, page }) => {

@@ -8,6 +8,7 @@ import type { WallToolsEntry, WallToolsQuickAction } from '../../../components/w
 import { useLibraryWallLookStore } from '../../../stores/useLibraryWallLookStore';
 import { usePlaybackStore } from '../../../stores/usePlaybackStore';
 import { usePlayingSongLocatorStore } from '../../../stores/usePlayingSongLocatorStore';
+import { useShortcutHintsVisible } from '../../../hooks/useShortcutHintsVisible';
 import { PRIMARY_MODIFIER_LABEL } from '../../../utils/platform';
 import type { LibraryWallLook } from '../../../utils/libraryWallLook';
 import { BRAVAIS_HELP_ROWS } from './bravaisHelp';
@@ -61,6 +62,8 @@ const BravaisStageChrome: React.FC<BravaisStageChromeProps> = ({
     const look = useLibraryWallLookStore(state => state.look);
     const setLook = useLibraryWallLookStore(state => state.setLook);
     const isFmMode = usePlaybackStore(state => state.isFmMode);
+    // 键位徽章跟「快捷键显示」生效值走：触屏默认不画，键鼠接入或强制开才画。
+    const shortcutHintsVisible = useShortcutHintsVisible();
 
     // 定位器正在问这一层（按钮转圈，与网格定位按钮的「正在找」同一个意思）。
     const isLocateAsked = usePlayingSongLocatorStore(state => (
@@ -120,7 +123,7 @@ const BravaisStageChrome: React.FC<BravaisStageChromeProps> = ({
                 help={BRAVAIS_HELP_ROWS.map(row => (
                     <li key={row.id} data-bravais-help={row.id}>
                         <span>{t(row.labelKey)}</span>
-                        <kbd>{row.kbd(PRIMARY_MODIFIER_LABEL)}</kbd>
+                        {shortcutHintsVisible && <kbd>{row.kbd(PRIMARY_MODIFIER_LABEL)}</kbd>}
                     </li>
                 ))}
             />

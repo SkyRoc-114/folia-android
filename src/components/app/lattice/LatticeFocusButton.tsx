@@ -3,6 +3,7 @@ import { House } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { usePlaybackStore } from '../../../stores/usePlaybackStore';
 import { usePlayingSongLocatorStore } from '../../../stores/usePlayingSongLocatorStore';
+import { useShortcutHintsVisible } from '../../../hooks/useShortcutHintsVisible';
 import { getPlaybackSongKey } from '../../../utils/appPlaybackGuards';
 import { PRIMARY_MODIFIER_LABEL } from '../../../utils/platform';
 import WallToolsButton from '../../wall/WallToolsButton';
@@ -29,6 +30,8 @@ export default function LatticeFocusButton({ isDaylight, tiles, onGoHome }: { is
     const isPlayingSongHere = useMemo(() => (
         playingSongKey !== null && tiles.some(tile => tile.id === playingSongKey)
     ), [playingSongKey, tiles]);
+    // 帮助里的键位徽章跟「快捷键显示」生效值走：触屏默认不画，键鼠接入或强制开才画。
+    const shortcutHintsVisible = useShortcutHintsVisible();
 
     const destination: WallToolsQuickAction | undefined = onGoHome ? {
         id: 'go-home',
@@ -58,16 +61,16 @@ export default function LatticeFocusButton({ isDaylight, tiles, onGoHome }: { is
                 <>
                     <li>
                         <span>{t('home.latticeHelpPoster')}</span>
-                        <span className="lattice-tools-help-key"><kbd>ESC</kbd>{t('home.latticeHelpReturn')}</span>
+                        {shortcutHintsVisible && <span className="lattice-tools-help-key"><kbd>ESC</kbd>{t('home.latticeHelpReturn')}</span>}
                     </li>
                     <li><span>{t('home.latticeHelpMove')}</span></li>
                     <li>
                         <span>{t('home.latticeHelpCommands')}</span>
-                        <kbd>S</kbd>
+                        {shortcutHintsVisible && <kbd>S</kbd>}
                     </li>
                     <li>
                         <span>{t('home.latticeHelpOpen')}</span>
-                        <kbd>{PRIMARY_MODIFIER_LABEL} + B</kbd>
+                        {shortcutHintsVisible && <kbd>{PRIMARY_MODIFIER_LABEL} + B</kbd>}
                     </li>
                 </>
             )}
