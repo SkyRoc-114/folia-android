@@ -18,7 +18,7 @@ import type { MachiRuntime, MachiSongContext } from './createMachiRuntime';
 import MachiCameraBar from './MachiCameraBar';
 import { pinMachiQualityForExport } from './machiTuning';
 import type { MachiSceneId, MachiTuning } from './types';
-import { capMachiTuningForAndroid } from '../../../utils/androidVisualizerPerfCap';
+import { capMachiQualityForAndroid, capMachiTuningForAndroid } from '../../../utils/androidVisualizerPerfCap';
 import { IS_ANDROID_WEBVIEW } from '../../../utils/platform';
 
 // src/components/visualizer/machi/VisualizerMachi.tsx
@@ -95,7 +95,7 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
     const shownTuning = useMemo(() => {
         const tuning = barDraft ? { ...effectiveTuning, ...barDraft } : effectiveTuning;
         if (!renderPinned) return tuning;
-        const quality = capMachiQualityForAndroid(pinMachiQualityForExport(tuning.quality), IS_ANDROID_WEBVIEW);
+        const quality = capMachiQualityForAndroid(pinMachiQualityForExport(tuning.quality), renderQuality);
         return quality === tuning.quality ? tuning : { ...tuning, quality };
     }, [effectiveTuning, barDraft, renderPinned]);
 
