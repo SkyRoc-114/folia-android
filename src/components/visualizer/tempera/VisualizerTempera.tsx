@@ -44,8 +44,7 @@ const VisualizerTempera: React.FC<VisualizerSharedProps> = (props) => {
         songAlbum,
         isPlayerChromeHidden = false,
         hideTranslationSubtitle = false,
-        showSubtitleTranslation = true,
-        subtitleContentMode,
+        subtitleOverlayLayout,
         subtitleTheme,
         subtitleFontScale,
         subtitleOverlayOpacity,
@@ -295,8 +294,7 @@ const VisualizerTempera: React.FC<VisualizerSharedProps> = (props) => {
                 subtitleUpcomingLyricsBlur={subtitleUpcomingLyricsBlur}
                 isPlayerChromeHidden={isPlayerChromeHidden}
                 hideTranslationSubtitle={hideTranslationSubtitle}
-                showSubtitleTranslation={showSubtitleTranslation}
-                subtitleContentMode={subtitleContentMode}
+                subtitleOverlayLayout={subtitleOverlayLayout}
             />
         </VisualizerShell>
     );

@@ -45,8 +45,7 @@ const VisualizerHanabi: React.FC<VisualizerSharedProps & { hanabiTuning: HanabiT
         songAlbum,
         isPlayerChromeHidden = false,
         hideTranslationSubtitle = false,
-        showSubtitleTranslation = true,
-        subtitleContentMode,
+        subtitleOverlayLayout,
         subtitleTheme,
         subtitleFontScale,
         subtitleOverlayOpacity,
@@ -207,8 +206,7 @@ const VisualizerHanabi: React.FC<VisualizerSharedProps & { hanabiTuning: HanabiT
                 subtitleUpcomingLyricsBlur={subtitleUpcomingLyricsBlur}
                 isPlayerChromeHidden={isPlayerChromeHidden}
                 hideTranslationSubtitle={hideTranslationSubtitle}
-                showSubtitleTranslation={showSubtitleTranslation}
-                subtitleContentMode={subtitleContentMode}
+                subtitleOverlayLayout={subtitleOverlayLayout}
             />
         </VisualizerShell>
     );
