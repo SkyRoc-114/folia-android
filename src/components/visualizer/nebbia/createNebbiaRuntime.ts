@@ -195,11 +195,13 @@ export class NebbiaRuntime {
         this.gl.setPalette(p.sky0, p.sky1, p.la, p.lb, p.lc);
     }
 
-    // 宿主的 CSS 尺寸（取整）；还没尺寸（隐藏、0 大小）时是 null
+    // 宿主内容尺寸：量排版尺寸，不量 getBoundingClientRect——样式小图和样式窗口的大样张把窗口大的舞台缩小了画（preview/previewScale.ts），
+    // 量到缩小后的尺寸，整首就排在小画布上，字小到笔画宽度被 8 像素的下限盖过，调笔画粗细看不出变化（#963）。
+    // clientWidth/clientHeight 不受 transform 影响，本来就是整数 CSS 像素；还没尺寸（隐藏、0 大小）时是 null。
     private hostSize(): { W: number; H: number } | null {
-        const rect = this.input.host.getBoundingClientRect();
-        if (rect.width < 1 || rect.height < 1) return null;
-        return { W: Math.round(rect.width), H: Math.round(rect.height) };
+        const { clientWidth: width, clientHeight: height } = this.input.host;
+        if (width < 1 || height < 1) return null;
+        return { W: width, H: height };
     }
 
     private dpr() {
