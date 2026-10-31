@@ -9,11 +9,13 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.UriPermission;
 import android.database.Cursor;
+import android.hardware.input.InputManager;
 import android.os.Build;
 import android.os.PowerManager;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 import android.provider.MediaStore;
+import android.view.InputDevice;
 import android.webkit.CookieManager;
 import android.webkit.WebView;
 import android.view.WindowManager;
@@ -95,16 +97,88 @@ public class FoliaNativePlugin extends Plugin {
         .build();
     private LocalAudioServer localAudioServer;
     private boolean isAudioPickerOpen = false;
+    private InputManager.InputDeviceListener hidDeviceListener;
 
     @Override
     public void load() {
         instance = this;
+        registerHidDeviceListener();
     }
 
     @Override
     protected void handleOnDestroy() {
+        unregisterHidDeviceListener();
         if (instance == this) instance = null;
         super.handleOnDestroy();
+    }
+
+    /** 键盘：物理键盘（软键盘不报）。鼠标：任一鼠标源（含触控板聚合源）。 */
+    private static boolean isKeyboardDevice(InputDevice device) {
+        return (device.getSources() & InputDevice.SOURCE_KEYBOARD) != 0;
+    }
+
+    private static boolean isMouseDevice(InputDevice device) {
+        return (device.getSources() & InputDevice.SOURCE_MOUSE) != 0;
+    }
+
+    /** 扫一遍当前设备表，聚合成 { keyboard, mouse }（无状态，每次事件重扫，不怕漏更）。 */
+    private JSObject currentHidDevices() {
+        boolean keyboard = false;
+        boolean mouse = false;
+        int[] ids = InputDevice.getDeviceIds();
+        for (int id : ids) {
+            InputDevice device = InputDevice.getDevice(id);
+            if (device == null || device.isVirtual()) continue;
+            keyboard |= isKeyboardDevice(device);
+            mouse |= isMouseDevice(device);
+        }
+        JSObject payload = new JSObject();
+        payload.put("keyboard", keyboard);
+        payload.put("mouse", mouse);
+        return payload;
+    }
+
+    private void emitHidDevicesChanged() {
+        Activity activity = getActivity();
+        if (activity == null) return;
+        final JSObject payload = currentHidDevices();
+        activity.runOnUiThread(() -> notifyListeners("onHidDevicesChanged", payload));
+    }
+
+    /** 注册即回调的能力方在 load 里订好；接入/拔出都重扫设备表后广播。 */
+    private void registerHidDeviceListener() {
+        if (hidDeviceListener != null) return;
+        InputManager manager = (InputManager) getContext().getSystemService(Context.INPUT_SERVICE);
+        if (manager == null) return;
+        hidDeviceListener = new InputManager.InputDeviceListener() {
+            @Override
+            public void onInputDeviceAdded(int deviceId) {
+                emitHidDevicesChanged();
+            }
+
+            @Override
+            public void onInputDeviceRemoved(int deviceId) {
+                emitHidDevicesChanged();
+            }
+
+            @Override
+            public void onInputDeviceChanged(int deviceId) {
+                emitHidDevicesChanged();
+            }
+        };
+        manager.registerInputDeviceListener(hidDeviceListener, null);
+    }
+
+    private void unregisterHidDeviceListener() {
+        if (hidDeviceListener == null) return;
+        InputManager manager = (InputManager) getContext().getSystemService(Context.INPUT_SERVICE);
+        if (manager != null) manager.unregisterInputDeviceListener(hidDeviceListener);
+        hidDeviceListener = null;
+    }
+
+    @PluginMethod
+    public void getConnectedHidDevices(PluginCall call) {
+        call.resolve(currentHidDevices());
     }
 
     static void emitMediaAction(String action) {
