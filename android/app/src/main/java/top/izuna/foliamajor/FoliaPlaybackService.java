@@ -302,7 +302,15 @@ public class FoliaPlaybackService extends Service {
             new Intent(this, PlaybackActionReceiver.class).setAction("next"),
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
-        Notification.Builder builder = new Notification.Builder(this, CHANNEL_ID)
+        // 带 channelId 的 Notification.Builder 构造器是 API 26 才加入的；Android 7（API 24/25）
+        // 上调用它会抛 NoSuchMethodError，而这条路径恰好是「打开歌曲 → JS 推送播放状态 → 前台服务
+        // 第一次构建通知」，在 Android 7 上表现就是选歌后闪退。低版本退回单参构造器——本来也
+        // 没有通知渠道可注册（上面的 createNotificationChannel 已经按版本守卫过了）。
+        // 下面的 setter 链两个分支都要走，且它们全部自 API 21 起就存在，可以安全共用。
+        Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+            ? new Notification.Builder(this, CHANNEL_ID)
+            : new Notification.Builder(this);
+        builder
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(title == null ? "Folia" : title)
             .setContentText(artist == null ? "" : artist)
