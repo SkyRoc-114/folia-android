@@ -9,12 +9,19 @@
 - `origin` = https://github.com/SkyRoc-114/folia-android （Android 移植 fork，工作分支 `android-0.7.22`）
 - `upstream` = https://github.com/chthollyphile/folia-major （上游桌面版）
 - `whycfawa` = 父仓库参考（`https://github.com/whycfawa/folia.git`；2026-10-29 查询 404，可能已改名/转私有，用到时先 `ls-remote` 验证）
-- 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）——**2026-10-31 20:30 沙箱重置后已丢失，待用户重发新 PAT（旧 ghp_kpr8... 已建议撤销）**
+- 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）——**2026-11-01 用户重发 PAT（ghp_kpr8...，用户拍板复用）并已持久化，沙箱重置后从 `git clone https://@github.com/...` 自动走 credential.helper 恢复**
 - ⚠️ PAT 绝不能写进仓库任何被跟踪的文件
 
-## 当前进度（2026-10-31 +08 更新）
+## 当前进度（2026-11-01 +08 更新）
 
-- **最新批次：Folium 1.8 跟进——町景性能 + 歌词画布渲染质量 + mod API（2026-10-31 23:00+08，用户指令「查看它干什么的再合理迁移（注意android背景）」放行，随 v0.7.22-android.292 发布）**；设计 `docs/plans/2026-10-31-folium-1-8-render-quality-design.md`（三提交拆解/交互分析）、计划 `…-render-quality.md`（6 任务）
+- **最新批次：实机三 bug 修复——签名稳定化 + 返回手势 + 透明开关（2026-11-01，用户报障截图两张，随 v0.7.22-android.293 发布）**；设计 `docs/plans/2026-11-01-android-signing-backgesture-design.md`、计划 `…-backgesture.md`
+  - **①签名断签（无法升级，结构性缺陷非单次改错）**：CI `assembleDebug` 用 runner 现场生成的 debug keystore，一次一命 → 六版六证（.282/.286/.288/.290/.291/.292 armv8 APK v2 签名块实测指纹全不同，`scripts/apk_cert.py` 纯 Python 解析无需 JDK）→ **.281 起任何两版都无法覆盖安装**。修复=入库稳定 keystore `android/app/folia-release.p12`（PKCS12/RSA-2048/CN=folia-android，有效期 2056-10-23，指纹 A8ED29C8…FB9541）+ `android/keystore.properties`（`git add -f`，公开入库取舍见文件头注释：可安装性>防伪，fork 无商店渠道）；`build.gradle` debug buildType 也走 signingConfigs.release（+可选 storeType 透传）；workflow 加**指纹门禁**（构建后 keytool/apksigner 比对，漂移 fail fast）。⚠️ **一次性迁移公告：.292 及更早用户升级 .293 必须卸载重装（旧随机证书不可恢复），此后覆盖安装永久正常**
+  - **②返回键/边缘滑动不关登录窗（殃及全部 Sheet）**：`useNativeBackButton` 合成 Escape 派发到 `window`——target=window 传播路径不含 document，而 Sheet（18 处对话框共用框）keydown 监听在 document → 返回键对所有 Sheet 失效。修复=派发到 `document.activeElement`（Sheet 打开自动聚焦面板=真实 Escape 落点）兜底 body（`nativeEscapeTarget` 纯函数 TDD 3 例）。**多页返回**：Sheet 新增 `onEscape?: () => boolean`（最顶层 sheet 才问，true=消费不关窗）；`loginHostState.backOut()`（TDD 5 例：未选/未开/动画中=false，已选=结束一轮停登录清回列表=true）；接线 LoginHost→LoginScreen→LoginWindow→Sheet——二维码页返回→平台列表→再返回→关窗。边缘滑动=系统返回=同路径一并修复
+  - **③播放页透明开关删除（Android 死开关）**：透明窗口是 Electron 能力（OBS/抠像），Android WebView 合成器不透明。IntegrationPage 透明行 `isElectron` 门控 + 命令面板 `settings-toggle-transparent` 加 `platform: ['electron']`（availability.ts 现成机制）；底层链路保留降合并冲突
+  - **fork 侦察**：EasonLai96（Capacitor 移植，MainActivity 无返回键定制）、hejunlin1755（pc-for-android，CI 同样裸 assembleDebug=同样断签）——两问题无现成借鉴，本仓首发修复；上游 scratchpad 批次（b54f3681 等）留下一轮迁移
+  - ⚠️ 显示层教训补充：本轮工具输出会吞 `[h` 序列（`[host]` 显示成 `ost`、`a[href]` 显示成 `aref]`），两处疑似 typo 均为伪影——**od -c 字节级验证才可信**（与上批 ANSI 教训同源）
+  - 验证：tsc --noEmit --skipLibCheck EXIT=0；定向测试 nativeBackButton 8 例 + loginHostState 23 例 + command-palette 313 例绿；全量回归见发版提交
+- **上一批：Folium 1.8 跟进——町景性能 + 歌词画布渲染质量 + mod API（2026-10-31 23:00+08，用户指令「查看它干什么的再合理迁移（注意android背景）」放行，随 v0.7.22-android.292 发布）**；设计 `docs/plans/2026-10-31-folium-1-8-render-quality-design.md`（三提交拆解/交互分析）、计划 `…-render-quality.md`（6 任务）
   - 上游范围（v0.7.25 之上 main 合入 3 有效提交）：3b4f01a7 Folium 1.8（111 文件 +3470/-788）+ a390a45b（导出 1×/心象默认）+ c56bf8ec（雾笺排版画布 #963）；fa9522d4/d695db52 代码地图 chore 跳过（惯例）
   - 逐笔 cherry-pick -x 落地：
     - ebad05ab ← 3b4f01a7：町景切换不卡主线程（engine/programWarmup 按真实渲染目标预编 + KHR_parallel_shader_compile 后台编 + 分段建场景；降级顺序改：先景深/超采样/MSAA 再倒影/辉光/分辨率/后期抗锯齿，阴影最后；degradeStatus 面板显示降了几档）+ 歌词画布全局渲染质量挡位 lyric_render_quality（分辨率 0.5×-2× + 抗锯齿 auto/on/off，10 样式「渲染」组）+ Folium mod API 7 文件随树全收（Android 无 Electron，零行为）
