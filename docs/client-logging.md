@@ -101,3 +101,24 @@ app later shows up on its own rather than being silently filtered out by an old 
 
 `installConsoleLogCapture()` is called once from `src/index.tsx`, as early as possible — anything
 logged before it is not recorded.
+
+## Writing to a file
+
+Two shells, two transports, one sink shape each:
+
+- **Desktop (Electron)** — the debug module (`src/services/debug/debugModule.ts`) takes the
+  `setConsoleLogSink` seat and ships lines over IPC to the main process, which owns the switches
+  and the `folia-runtime.log` file.
+- **Android (Capacitor)** — `src/services/debug/androidLogFileSink.ts` registers itself *beside*
+  the desktop pipe via `addConsoleLogSink` (the buffer supports several sinks for exactly this
+  reason). The receiving end is `FoliaNativePlugin`: the user picks a folder once through SAF
+  (`ACTION_OPEN_DOCUMENT_TREE`, persisted grant), every launch creates a fresh
+  `folia-log-<timestamp>.txt` there (the newest 8 are kept, and only files with that prefix are
+  ever deleted), and lines stream over the bridge in 500ms batches with a flush after each write —
+  so the last line before a process death is in the file. On session start the current in-memory
+  buffer is replayed under a header, which is what makes "switch it on after the problem" useful.
+
+The Android card in the developer settings only renders on the Android shell; enabling without a
+folder goes straight to the folder picker, and a revoked grant is shown as a state ("choose it
+again") rather than silently switching itself off.
+

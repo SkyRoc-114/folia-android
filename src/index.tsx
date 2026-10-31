@@ -2,6 +2,7 @@ import { Buffer } from 'buffer';
 import { installGlobalVisualizerFrameRateLimiter } from './utils/frameRateLimiter';
 import { installConsoleLogCapture } from './utils/consoleLogBuffer';
 import { installDebugModule } from './services/debug/debugModule';
+import { installAndroidLogFileSink } from './services/debug/androidLogFileSink';
 import { installMemorySampleFeed } from './services/debug/memorySamples';
 import { installCrashDiagnostics } from './utils/crashDiagnostics';
 import { installChunkLoadRecovery } from './utils/chunkLoadRecovery';
@@ -18,6 +19,9 @@ installConsoleLogCapture();
 // Right after it, so the startup lines reach the runtime log file too and not only the in-memory
 // buffer. Both no-op off Electron. See services/debug/debugModule.ts.
 installDebugModule();
+// 手机壳里的同一条管道：把 console 行实时写进用户选的 SAF 文件夹（桌面版走 debugModule 的
+// 主进程文件）。在非安卓环境是 no-op，两个 sink 并存互不干扰。
+installAndroidLogFileSink();
 installMemorySampleFeed();
 // Cover size audit, left wired but switched off: it answered whether the provider CDNs honour the
 // size in a cover URL - they do - and that is not a question worth re-asking every session. The

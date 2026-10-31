@@ -2233,6 +2233,14 @@ export default {
     "settingsSearchEmpty": "Không tìm thấy cài đặt phù hợp",
     "consoleLogCapture": "Nhật ký phiên",
     "consoleLogCaptureDesc": "Dữ liệu ứng dụng ghi lại khi chạy.",
+    "androidLogFileTitle": "Lưu log vào tệp theo thời gian thực",
+    "androidLogFileDesc": "Giống bản desktop: chọn một thư mục, mọi dòng console sẽ được ghi ngay vào đó khi log. Mỗi lần khởi chạy tạo một folia-log-*.txt mới; giữ 8 tệp gần nhất.",
+    "androidLogFilePick": "Chọn vị trí lưu",
+    "androidLogFileForget": "Quên vị trí lưu",
+    "androidLogFileNoFolder": "Chưa chọn vị trí lưu",
+    "androidLogFileWriting": "đang ghi",
+    "androidLogFileIdle": "Sẵn sàng; bắt đầu ghi khi bật hoặc ở lần khởi chạy tiếp theo",
+    "androidLogFilePermissionLost": "Quyền truy cập vị trí đã lưu đã bị thu hồi; hãy chọn lại",
     "consoleLogConvention": "Các dòng được nhóm theo tiền tố [Module] ở đầu để lọc riêng từng mục. Xem docs/client-logging.md.",
     "developerTools": "Nhật ký phiên & Giám sát bộ nhớ",
     "debugLogsToFile": "Lưu vào tệp",
@@ -2364,7 +2372,6 @@ export default {
     "latticeSettings": "Giao diện Lattice & Thư viện",
     "latticePerformanceMode": "Ưu tiên hiệu năng",
       "latticePerformanceModeDesc": "Bật theo mặc định: bỏ lớp vân tường, hiệu ứng tối góc, xếp chồng poster và bộ lọc hover, giảm một bậc độ phân giải ảnh bìa.",
-
     "latticeVignette": "Viền tối cạnh",
     "latticeVignetteDesc": "Làm tối viền xung quanh hàng đợi Lattice và thư viện album để tập trung ánh nhìn vào giữa.",
     "latticePosterTint": "Màu phủ làm nổi poster",
@@ -2455,7 +2462,6 @@ export default {
     "playerCapIgnoreClearHint": "Giữ lời bài hát khi tạm dừng, rảnh hoặc đóng cửa sổ; chỉ làm mới khi thực sự đổi trình phát.",
     "playerCapWaitingLyrics": "Đã kết nối, chờ lời bài hát",
     "playerCapConnecting": "Đang kết nối Nexus PlayerCap…",
-
     "stageAddress": "Địa chỉ Stage",
     "stageSession": "Phiên hiện tại",
     "stageSessionReady": "Phiên đã sẵn sàng",
@@ -3228,7 +3234,6 @@ export default {
       "localVideoCacheEmpty": "Chưa có video cục bộ nào trong bộ nhớ",
       "localVideoCacheCleared": "Đã xóa video cục bộ",
       "localVideoCacheClearFailed": "Không xóa được video cục bộ",
-
     "videoLayerClearFile": "Xóa video nội bộ",
     "videoLayerPickFailed": "Không thể mở video",
     "videoLayerUrl": "URL video",
@@ -3258,7 +3263,6 @@ export default {
       "colorOsLyricsActiveDesc": "Lời bài hát đang được đăng lên MediaSession của hệ thống.",
       "colorOsLyricsInactive": "Đang tắt",
       "colorOsLyricsInactiveDesc": "Thiết bị này không được nhận ra là ColorOS 16+, nên kênh này giữ tắt.",
-
     "neteaseScrobble": "Báo cáo lượt nghe (chỉ NetEase)",
     "neteaseScrobbleDesc": "Gửi báo cáo nghe tới tài khoản NetEase sau khi nghe thực tế tối thiểu 30 giây nhạc NetEase trực tuyến. Tệp nội bộ, nhạc tải lên đám mây và nguồn khác sẽ không ghi nhận. Tính năng này tiềm ẩn rủi ro - hãy thận trọng.",
     "neteaseScrobbleSignInHint": "Đăng nhập NetEase Cloud Music để sử dụng.",

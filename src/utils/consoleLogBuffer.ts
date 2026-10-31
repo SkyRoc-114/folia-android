@@ -99,16 +99,29 @@ export const setConsoleCaptureEnabled = (enabled: boolean) => {
 };
 
 /**
- * Where lines go besides this buffer, or null for nowhere.
+ * Where lines go besides this buffer (the desktop runtime log file, the Android log file, ...).
  *
- * A registered sink rather than an import, so this file keeps depending on nothing: it is installed
- * before anything else in the app and a dependency here is a dependency in every startup path. The
- * debug module registers itself once the app is running - see services/debug/runtimeLogSink.ts.
+ * Registered sinks rather than imports, so this file keeps depending on nothing: it is installed
+ * before anything else in the app and a dependency here is a dependency in every startup path.
+ *
+ * `setConsoleLogSink` keeps its replace-the-one-sink shape for the desktop debug module, which owns
+ * the "is the runtime log on" answer. `addConsoleLogSink` is for a second destination that must not
+ * disturb that registration - the Android file logger registers itself through it, because both the
+ * desktop pipe and the phone pipe have to be live on a build that runs in either shell.
  */
-let sink: ((entry: ConsoleLogEntry) => void) | null = null;
+type ConsoleLogSink = (entry: ConsoleLogEntry) => void;
 
-export const setConsoleLogSink = (next: ((entry: ConsoleLogEntry) => void) | null) => {
-    sink = next;
+const sinks = new Set<ConsoleLogSink>();
+
+export const setConsoleLogSink = (next: ConsoleLogSink | null) => {
+    sinks.clear();
+    if (next) sinks.add(next);
+};
+
+/** Registers one more destination; the returned function unregisters it again. */
+export const addConsoleLogSink = (next: ConsoleLogSink): (() => void) => {
+    sinks.add(next);
+    return () => { sinks.delete(next); };
 };
 
 const push = (level: ConsoleLevel, args: unknown[]) => {
@@ -126,11 +139,12 @@ const push = (level: ConsoleLevel, args: unknown[]) => {
         scope: readScope(text),
     });
     if (entries.length > LIMIT) entries = entries.slice(entries.length - LIMIT);
+    const entry = entries[entries.length - 1];
     // After the buffer, and never allowed to throw back into it: a sink that fails is a log that is
     // not written, not a console call that raises inside whatever was being logged about.
-    if (sink) {
-        try { sink(entries[entries.length - 1]); } catch { /* the sink's problem, not the caller's */ }
-    }
+    sinks.forEach((sink) => {
+        try { sink(entry); } catch { /* the sink's problem, not the caller's */ }
+    });
     listeners.forEach(listener => listener());
 };
 
