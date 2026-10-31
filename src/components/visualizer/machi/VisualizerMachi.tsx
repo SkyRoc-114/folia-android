@@ -16,6 +16,8 @@ import { closeMachiCameraBar, isMachiCameraBarOpen, subscribeMachiCameraBar } fr
 import type { MachiRuntime, MachiSongContext } from './createMachiRuntime';
 import MachiCameraBar from './MachiCameraBar';
 import type { MachiSceneId, MachiTuning } from './types';
+import { capMachiTuningForAndroid } from '../../../utils/androidVisualizerPerfCap';
+import { IS_ANDROID_WEBVIEW } from '../../../utils/platform';
 
 // src/components/visualizer/machi/VisualizerMachi.tsx
 // 町景的 React 外壳：挂共享 shell 与底部字幕层，把按需加载的 three.js 运行时建一次（useVisualizerPixiHost 托管，
@@ -77,7 +79,10 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
     // 取景控制条拖动中的改动（还没存）：画面用存下的 tuning 叠上它。
     const barDraftRef = useRef<Partial<MachiTuning> | null>(null);
     const [barDraft, setBarDraft] = useState<Partial<MachiTuning> | null>(null);
-    const shownTuning = useMemo(() => (barDraft ? { ...machiTuning, ...barDraft } : machiTuning), [machiTuning, barDraft]);
+    // Android 兜底（docs/plans/2026-10-31-…-design.md §2.3）：生效值画质钳到低档（抗锯齿/阴影/倒影/bloom 关，
+    // 分辨率不高于低档），存储值与桌面不动；帽下引用稳定，不引发无谓的运行时重建。
+    const effectiveTuning = useMemo(() => capMachiTuningForAndroid(machiTuning, IS_ANDROID_WEBVIEW), [machiTuning]);
+    const shownTuning = useMemo(() => (barDraft ? { ...effectiveTuning, ...barDraft } : effectiveTuning), [effectiveTuning, barDraft]);
 
     // 运行时创建期间这些输入可能已经变了；create 完成后按最新值补一次。
     const latestRef = useRef({ theme, paused, showText, staticMode, machiTuning, shownTuning, onVisualizerTuningChange });
