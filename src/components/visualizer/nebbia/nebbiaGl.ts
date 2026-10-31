@@ -28,6 +28,10 @@ const MAIN_UNIFORMS = [...SCENE_UNIFORMS, 'uMist', 'uEdge', 'uRefract', 'uGlint'
 const SCN_BUILDINGS = 1;
 const NO_BUILDINGS: NebbiaBuildingState = { on: [0, 0, 0], geo: [0, 1, 1, 0, 1, 1, 0, 1, 1] };
 
+/** uScenery 里楼群那一位（nebbiaFrameUniforms.ts 的 SCENERY_BITS），和关着时给着色器的楼群缓存状态。 */
+const SCN_BUILDINGS = 1;
+const NO_BUILDINGS: NebbiaBuildingState = { on: [0, 0, 0], geo: [0, 1, 1, 0, 1, 1, 0, 1, 1] };
+
 const locate = (gl: WebGL2RenderingContext, prog: WebGLProgram, names: string[]): Locations => (
     Object.fromEntries(names.map(n => [n, gl.getUniformLocation(prog, n)]))
 );
