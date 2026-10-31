@@ -150,7 +150,7 @@ void main() {
     vec2 nn = comp.rg - 0.5;
     vec2 ruv = sv + vec2(-nn.x, nn.y) * (comp.b * 0.6 + 0.4) * uRefract;
     // 雾笺 demo 用的是轻度模糊的背景、漫反射 0.2–0.5、高光指数 48
-    vec3 lens = scene(vec2(ruv.x * aspect, ruv.y), 0.006);
+    vec3 lens = uSeeThrough ? vec3(0.0) : scene(vec2(ruv.x * aspect, ruv.y), 0.006);
     vec3 normal = normalize(vec3(nn * 2.0, 1.0));
     vec3 lightDir = normalize(vec3(-1.0, 1.0, 2.0));
     float lambert = clamp(dot(lightDir, normal), 0.0, 1.0);
