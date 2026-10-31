@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PONDER_TARGET_LIST, findPonderTarget } from '@/components/ponder/ponderRegistry';
 import { compilePonderScene } from '@/utils/ponder/compilePonderTimeline';
 import { SETTINGS_ANCHOR_DEFINITIONS } from '@/components/modal/settings/navigation/settingsAnchorModel';
@@ -7,6 +7,9 @@ import { PONDER_TARGET_CATEGORIES } from '@/types/ponder';
 import type { PonderAnchorPoint, PonderStep, PonderSceneScript, PonderSurfaceKind } from '@/types/ponder';
 import { TOUCH_SCENE_STEPS as HELP_PAGE_TOUCH_STEPS } from '@/components/ponder/targets/basics/helpPage.target';
 import { TOUCH_SCENE_STEPS as PONDER_BASICS_TOUCH_STEPS } from '@/components/ponder/targets/basics/ponderBasics.target';
+import { onboardingUsesTouchStoryboard } from '@/components/ponder/targets/basics/ponderOnboardingShared';
+import { FINE_POINTER_QUERY } from '@/hooks/useSupportsFinePointer';
+import { applyHidPayload } from '@/stores/useHidDevicesStore';
 
 // test/unit/ponder/ponderRegistry.test.ts
 // 场景脚本是纯声明数据，写错了不会有任何类型错误 —— 引用一个不存在的锚点只会让骨架
@@ -305,5 +308,50 @@ describe('ponder registry', () => {
                 expect(plan.keyframes.length, `${definedTarget.id}/${sceneId} 触屏分镜没有关键帧`).toBeGreaterThan(0);
             });
         });
+    });
+});
+
+// 分镜选哪套不再是模块求值时定格（.285 T5 的旧行为），而是每次编译分镜时运行时读
+// onboardingUsesTouchStoryboard（matchMedia 细指针 + HID store）。注册表里的目标对象
+// 始终是同一个，环境变了几下就要跟着变 —— 直接对着注册表断言。
+describe('入门分镜按键鼠接入运行时切换', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+        applyHidPayload({ keyboard: false, mouse: false });
+    });
+
+    it('node / 无 matchMedia 环境落回桌面分镜（T5 起的既有断言依赖这条）', () => {
+        expect(onboardingUsesTouchStoryboard()).toBe(false);
+        expect(
+            findPonderTarget('help-page')!.scenes[0].steps.some(step => step.kind === 'keypress'),
+            '无 window 时注册表里的场景应该编译桌面分镜',
+        ).toBe(true);
+    });
+
+    it('细指针在 → 桌面分镜；粗指针无键鼠 → 触屏分镜', () => {
+        vi.stubGlobal('window', { matchMedia: (query: string) => ({ matches: query === FINE_POINTER_QUERY, media: query }) });
+        expect(onboardingUsesTouchStoryboard()).toBe(false);
+
+        vi.stubGlobal('window', { matchMedia: (query: string) => ({ matches: false, media: query }) });
+        expect(onboardingUsesTouchStoryboard()).toBe(true);
+        expect(
+            findPonderTarget('help-page')!.scenes[0].steps.some(step => step.kind === 'keypress'),
+            '粗指针无键鼠时应该演触屏分镜（不演按键）',
+        ).toBe(false);
+    });
+
+    it('键鼠接入后同一个目标对象换演桌面分镜，全拔出换回来（任一接入即开、全拔即关）', () => {
+        vi.stubGlobal('window', { matchMedia: (query: string) => ({ matches: false, media: query }) });
+        const target = findPonderTarget('help-page')!;
+        const playsKeypress = () => target.scenes[0].steps.some(step => step.kind === 'keypress');
+
+        applyHidPayload({ keyboard: true, mouse: false });
+        expect(playsKeypress(), '只接键盘也应换桌面分镜').toBe(true);
+
+        applyHidPayload({ keyboard: false, mouse: false });
+        expect(playsKeypress(), '全拔出应回触屏分镜').toBe(false);
+
+        applyHidPayload({ keyboard: false, mouse: true });
+        expect(playsKeypress(), '只接鼠标也应换桌面分镜').toBe(true);
     });
 });

@@ -10,17 +10,16 @@
 // 3. 兜底（安卓壳里插件缺失，如老包升级期）：matchMedia 细指针当鼠标信号；纯键盘接入在
 //    Web 层没有媒体查询可感知，接受「按一下才识别」之外的空档（用户拍板：原生监听为主）。
 //
-// 纯件（hidDevicesFromPayload / hidPluginOf / fallbackMouseConnected）node 直测；React 接线很薄。
+// 设备状态落在 useHidDevicesStore（zustand）而不是本 hook 的 state：教程分镜选择
+// （ponderOnboardingShared）在非 React 层也要读到同一份事实。本 hook 只是 store 的
+// 订阅面 + 采集器。纯件（hidPluginOf / fallbackMouseConnected）node 直测。
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect } from 'react';
 import { IS_ANDROID_WEBVIEW } from '../utils/platform';
+import { applyHidPayload, useHidDevicesStore } from '../stores/useHidDevicesStore';
 import { FINE_POINTER_QUERY } from './useSupportsFinePointer';
 
-export type HidDevices = { keyboard: boolean; mouse: boolean };
-export type HidConnectionState = HidDevices & { hidConnected: boolean };
-
-/** 桌面恒接入（键盘+鼠标都算在）。 */
-const DESKTOP_CONNECTED: HidDevices = { keyboard: true, mouse: true };
+export type { HidDevicesState } from '../stores/useHidDevicesStore';
 
 type HidPlugin = {
     getConnectedHidDevices?: () => Promise<unknown>;
@@ -38,12 +37,6 @@ export const hidPluginOf = (): HidPlugin | null => (
             ?.Capacitor?.Plugins?.FoliaNative ?? null)
 );
 
-/** 插件负载 → 设备布尔：只认真布尔，垃圾负载安全落空。 */
-export const hidDevicesFromPayload = (payload: unknown): HidDevices => {
-    const source = (payload && typeof payload === 'object' ? payload : {}) as { keyboard?: unknown; mouse?: unknown };
-    return { keyboard: source.keyboard === true, mouse: source.mouse === true };
-};
-
 /** 无插件环境的兜底：细指针 ≈ 鼠标接入；键盘信号拿不到。 */
 export const fallbackMouseConnected = (): boolean => (
     typeof window !== 'undefined' && typeof window.matchMedia === 'function'
@@ -51,18 +44,24 @@ export const fallbackMouseConnected = (): boolean => (
         : false
 );
 
-export const useHidConnection = (): HidConnectionState => {
-    const [devices, setDevices] = useState<HidDevices>(() => (
-        IS_ANDROID_WEBVIEW ? { keyboard: false, mouse: fallbackMouseConnected() } : DESKTOP_CONNECTED
-    ));
+// 桌面在模块求值时就写「两件都在」：store 默认是全拔出，等 effect 再写会让桌面首帧
+// 键位徽章闪一次「隐藏→出现」。安卓壳的采集仍留给 hook（matchMedia/插件在挂载后跑）。
+if (!IS_ANDROID_WEBVIEW) {
+    applyHidPayload({ keyboard: true, mouse: true });
+}
+
+export const useHidConnection = () => {
+    const devices = useHidDevicesStore();
 
     useEffect(() => {
         if (!IS_ANDROID_WEBVIEW) return;
+        // 触屏起步：先按兜底摆鼠标信号，插件查询/事件来了再覆盖。
+        applyHidPayload({ keyboard: false, mouse: fallbackMouseConnected() });
         const plugin = hidPluginOf();
         let disposed = false;
         let removeListener: (() => void) | null = null;
         const sync = (payload: unknown) => {
-            if (!disposed) setDevices(hidDevicesFromPayload(payload));
+            if (!disposed) applyHidPayload(payload);
         };
         void (async () => {
             // 先查后订：订阅之前发生过的接入不能丢。
@@ -90,8 +89,5 @@ export const useHidConnection = (): HidConnectionState => {
         };
     }, []);
 
-    return useMemo(
-        () => ({ ...devices, hidConnected: devices.keyboard || devices.mouse }),
-        [devices],
-    );
+    return devices;
 };

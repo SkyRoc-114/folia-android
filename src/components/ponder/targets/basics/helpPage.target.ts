@@ -1,4 +1,4 @@
-import { ONBOARDING_ILLUSTRATION, ONBOARDING_TOUCH } from './ponderOnboardingShared';
+import { ONBOARDING_ILLUSTRATION, onboardingUsesTouchStoryboard } from './ponderOnboardingShared';
 import type { PonderAnchorSource, PonderSceneScript, PonderStep, PonderTargetDefinition } from '../../../../types/ponder';
 
 // src/components/ponder/targets/basics/helpPage.target.ts
@@ -10,6 +10,8 @@ import type { PonderAnchorSource, PonderSceneScript, PonderStep, PonderTargetDef
 // 触屏上没有悬停也没有键盘：讲思索和命令面板的两章各有一套触屏分镜（导出成
 // TOUCH_SCENE_STEPS，让注册表测试把两套都拉去同一道防线），常用操作和文档两章
 // 不涉及按键，两套共用。
+// 选哪套在运行时定（onboardingUsesTouchStoryboard）：无键鼠的触屏演灯泡，键鼠接入
+// （物理键盘或鼠标任一）后触屏机也能按到真键，下次进教程换回桌面那套。
 
 const palette = {
     kind: 'synthetic',
@@ -85,6 +87,51 @@ const overviewTouchSteps: PonderStep[] = [
     { kind: 'pause', id: 'readSettings', dwellMs: 2200 },
 ];
 
+const overviewDesktopSteps: PonderStep[] = [
+    { kind: 'keypress', id: 'pressCtrlG', keys: ['Ctrl G'], at: { anchor: 'page', y: 1, offset: { y: 20 } }, durationMs: 1400, keyframe: true },
+    { kind: 'highlight', id: 'markPage', anchor: 'page', intensity: [0, 0.35], durationMs: 520, withPrevious: true },
+    {
+        kind: 'caption', id: 'ctrlG',
+        textKey: 'ponder.captions.onboarding.overviewCtrlG',
+        pointTo: { anchor: 'page' }, durationMs: 6000, withPrevious: true,
+    },
+    { kind: 'pause', id: 'readCtrlG', dwellMs: 2200 },
+
+    {
+        kind: 'caption', id: 'wholePage',
+        textKey: 'ponder.captions.onboarding.overviewWholePage',
+        pointTo: { anchor: 'page' }, durationMs: 6400, keyframe: true,
+    },
+    { kind: 'pause', id: 'readWholePage', dwellMs: 2200 },
+
+    { kind: 'highlight', id: 'dimPage', anchor: 'page', intensity: [0.35, 0], durationMs: 480, keyframe: true },
+    { kind: 'cursor', id: 'hoverComponent', to: { anchor: 'component' }, durationMs: 1000, withPrevious: true },
+    { kind: 'surfaceState', id: 'showHint', anchor: 'page', state: 'hint-shown', durationMs: 520 },
+    {
+        kind: 'caption', id: 'hover',
+        textKey: 'ponder.captions.onboarding.overviewHover',
+        pointTo: { anchor: 'capsule' }, durationMs: 6400, withPrevious: true,
+    },
+    { kind: 'pause', id: 'readHover', dwellMs: 2200 },
+
+    { kind: 'keypress', id: 'holdG', keys: ['G'], at: { anchor: 'capsule', y: 1, offset: { y: 20 } }, durationMs: 1400, keyframe: true },
+    { kind: 'surfaceState', id: 'holding', anchor: 'page', state: 'hint-holding', durationMs: 900, withPrevious: true },
+    { kind: 'surfaceState', id: 'opened', anchor: 'page', state: 'ponder-open', transition: 'zoom', durationMs: 640 },
+    {
+        kind: 'caption', id: 'hold',
+        textKey: 'ponder.captions.onboarding.overviewHold',
+        pointTo: { anchor: 'page' }, durationMs: 6400, withPrevious: true,
+    },
+    { kind: 'pause', id: 'readHold', dwellMs: 2200 },
+
+    {
+        kind: 'caption', id: 'settings',
+        textKey: 'ponder.captions.onboarding.overviewSettings',
+        pointTo: { anchor: 'page' }, durationMs: 6000, keyframe: true,
+    },
+    { kind: 'pause', id: 'readSettings', dwellMs: 2200 },
+];
+
 /**
  * 第一章：两种思索入口，以及不需要时可以关闭。
  *
@@ -101,50 +148,10 @@ const ponderOverview: PonderSceneScript = {
         labelKey: 'ponder.actions.openPonderHints',
     },
     anchors: ONBOARDING_ILLUSTRATION,
-    steps: ONBOARDING_TOUCH ? overviewTouchSteps : [
-        { kind: 'keypress', id: 'pressCtrlG', keys: ['Ctrl G'], at: { anchor: 'page', y: 1, offset: { y: 20 } }, durationMs: 1400, keyframe: true },
-        { kind: 'highlight', id: 'markPage', anchor: 'page', intensity: [0, 0.35], durationMs: 520, withPrevious: true },
-        {
-            kind: 'caption', id: 'ctrlG',
-            textKey: 'ponder.captions.onboarding.overviewCtrlG',
-            pointTo: { anchor: 'page' }, durationMs: 6000, withPrevious: true,
-        },
-        { kind: 'pause', id: 'readCtrlG', dwellMs: 2200 },
-
-        {
-            kind: 'caption', id: 'wholePage',
-            textKey: 'ponder.captions.onboarding.overviewWholePage',
-            pointTo: { anchor: 'page' }, durationMs: 6400, keyframe: true,
-        },
-        { kind: 'pause', id: 'readWholePage', dwellMs: 2200 },
-
-        { kind: 'highlight', id: 'dimPage', anchor: 'page', intensity: [0.35, 0], durationMs: 480, keyframe: true },
-        { kind: 'cursor', id: 'hoverComponent', to: { anchor: 'component' }, durationMs: 1000, withPrevious: true },
-        { kind: 'surfaceState', id: 'showHint', anchor: 'page', state: 'hint-shown', durationMs: 520 },
-        {
-            kind: 'caption', id: 'hover',
-            textKey: 'ponder.captions.onboarding.overviewHover',
-            pointTo: { anchor: 'capsule' }, durationMs: 6400, withPrevious: true,
-        },
-        { kind: 'pause', id: 'readHover', dwellMs: 2200 },
-
-        { kind: 'keypress', id: 'holdG', keys: ['G'], at: { anchor: 'capsule', y: 1, offset: { y: 20 } }, durationMs: 1400, keyframe: true },
-        { kind: 'surfaceState', id: 'holding', anchor: 'page', state: 'hint-holding', durationMs: 900, withPrevious: true },
-        { kind: 'surfaceState', id: 'opened', anchor: 'page', state: 'ponder-open', transition: 'zoom', durationMs: 640 },
-        {
-            kind: 'caption', id: 'hold',
-            textKey: 'ponder.captions.onboarding.overviewHold',
-            pointTo: { anchor: 'page' }, durationMs: 6400, withPrevious: true,
-        },
-        { kind: 'pause', id: 'readHold', dwellMs: 2200 },
-
-        {
-            kind: 'caption', id: 'settings',
-            textKey: 'ponder.captions.onboarding.overviewSettings',
-            pointTo: { anchor: 'page' }, durationMs: 6000, keyframe: true,
-        },
-        { kind: 'pause', id: 'readSettings', dwellMs: 2200 },
-    ],
+    // 分镜运行时选（同 ponderBasics.insidePonder）：getter 在每次编译分镜时读。
+    get steps() {
+        return onboardingUsesTouchStoryboard() ? overviewTouchSteps : overviewDesktopSteps;
+    },
 };
 
 /**
@@ -163,20 +170,25 @@ const commandPaletteTouchSteps: PonderStep[] = [
     { kind: 'pause', id: 'readPalette' },
 ];
 
+const commandPaletteDesktopSteps: PonderStep[] = [
+    { kind: 'keypress', id: 'openPalette', keys: ['Mod K'], at: { anchor: 'palette', y: 0, offset: { y: -24 } }, durationMs: 1000, keyframe: true },
+    { kind: 'highlight', id: 'markInput', anchor: 'input', intensity: [0, 0.75], durationMs: 420, withPrevious: true },
+    {
+        kind: 'caption', id: 'palette',
+        textKey: 'ponder.captions.onboarding.overviewCommandPalette',
+        pointTo: { anchor: 'input' }, durationMs: 6800, withPrevious: true,
+    },
+    { kind: 'pause', id: 'readPalette' },
+];
+
 const commandPalette: PonderSceneScript = {
     id: 'help-page-command-palette',
     titleKey: 'ponder.scenes.helpPageCommandPalette',
     anchors: commandPaletteAnchors,
-    steps: ONBOARDING_TOUCH ? commandPaletteTouchSteps : [
-        { kind: 'keypress', id: 'openPalette', keys: ['Mod K'], at: { anchor: 'palette', y: 0, offset: { y: -24 } }, durationMs: 1000, keyframe: true },
-        { kind: 'highlight', id: 'markInput', anchor: 'input', intensity: [0, 0.75], durationMs: 420, withPrevious: true },
-        {
-            kind: 'caption', id: 'palette',
-            textKey: 'ponder.captions.onboarding.overviewCommandPalette',
-            pointTo: { anchor: 'input' }, durationMs: 6800, withPrevious: true,
-        },
-        { kind: 'pause', id: 'readPalette' },
-    ],
+    // 分镜运行时选（同 ponderOverview）。
+    get steps() {
+        return onboardingUsesTouchStoryboard() ? commandPaletteTouchSteps : commandPaletteDesktopSteps;
+    },
 };
 
 /** 第三章：用音量、队列搜索和当前歌单二次检索说明命令面板的用法。 */
