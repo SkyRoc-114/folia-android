@@ -1,13 +1,20 @@
 import React, { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { AnimatePresence, motion, useIsPresent } from 'framer-motion';
+import { AnimatePresence, animate, motion, useIsPresent, useMotionValue } from 'framer-motion';
 import { X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { Theme } from '../../types';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 import { SettingsKitThemeContext, settingsTokens, useSettingsKitTheme } from '../modal/settings/kit/kitTheme';
 import { KIT_EASE, KIT_MOTION, kitMotionTokens, kitTransition, useKitReducedMotion } from '../modal/settings/kit/motion';
 import { Tooltip } from '../modal/settings/kit';
 import { escapeCloses, tabTarget } from './sheetKeys';
+import {
+    SHEET_BOTTOM_MAX_WIDTH,
+    sheetDragDecision,
+    sheetPresentation,
+    type SheetPresentation,
+} from './sheetPresentation';
 
 // src/components/shared/Sheet.tsx
 // The frame of every dialog: a title and the close button at the top, the content in the middle,
@@ -38,6 +45,19 @@ const SIZE_CLASS: Record<SheetSize, string> = {
     l: 'h-[720px] w-[880px]',
     xl: 'h-[720px] w-[1160px]',
     side: 'min-h-[min(420px,100%)] w-[772px]',
+};
+
+/**
+ * 安卓竖屏手机上的弹窗是贴底的全宽「独立窗口」（bottom sheet）：呈现判定按视口事实，
+ * 不挂 phone-fit 设置——默认安装也一样。抽成 hook：Sheet 挂属性、选进出场、画把手都读它。
+ * 宽度用一对媒体查询代表：sheetPresentation 拿真数字，这里不另起一套 resize 监听。
+ */
+const BOTTOM_NARROW_QUERY = `(max-width: ${SHEET_BOTTOM_MAX_WIDTH - 0.5}px)`;
+const useSheetPresentation = (): SheetPresentation => {
+    const coarse = useMediaQuery('(pointer: coarse)');
+    const portrait = useMediaQuery('(orientation: portrait)');
+    const narrow = useMediaQuery(BOTTOM_NARROW_QUERY);
+    return sheetPresentation({ coarse, portrait, width: narrow ? SHEET_BOTTOM_MAX_WIDTH - 1 : SHEET_BOTTOM_MAX_WIDTH });
 };
 
 const BODY_CLASS = {
@@ -202,6 +222,11 @@ const SheetFrame: React.FC<SheetFrameProps> = ({
     const titleId = useId();
     const panelRef = useRef<HTMLDivElement>(null);
     const isMouseDownOnOverlayRef = useRef(false);
+    const bottom = useSheetPresentation() === 'bottom';
+    // CSS（androidSheetPresentation.css）按 html 属性挑选择器，和这里的进出场/把手同源。
+    useEffect(() => {
+        document.documentElement.setAttribute('data-folia-sheet-presentation', bottom ? 'bottom' : 'card');
+    }, [bottom]);
     // What had focus before the sheet took it: read while rendering, before anything inside mounts.
     const [opener] = useState(() => (document.activeElement instanceof HTMLElement ? document.activeElement : null));
     const childTheme = useMemo(() => ({ isDaylight, theme }), [isDaylight, theme]);
@@ -216,6 +241,53 @@ const SheetFrame: React.FC<SheetFrameProps> = ({
     // Escape 先问多页 sheet 的 onEscape（每次渲染换成最新的）。
     const onEscapeRef = useRef(onEscape);
     onEscapeRef.current = onEscape;
+
+    // 下拉关闭：把手/头部起手，竖直跟手，松手按 sheetDragDecision 定去留。
+    // dismiss 与返回键同一条规矩：先问 onEscape（多页先退页，弹回不关窗），没人吃才飞出+关。
+    const dragY = useMotionValue(0);
+    const dragState = useRef<{ id: number; startY: number; lastY: number; lastT: number; vy: number } | null>(null);
+    const springBack = () => {
+        void animate(dragY, 0, { duration: reduced ? 0 : 0.2, ease: 'easeOut' });
+    };
+    const onDragPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+        if (!bottom || !isPresent) return;
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        const target = event.target as Element | null;
+        if (!target?.closest('[data-folia-sheet-drag]')) return;
+        // 起手在控件上不拖：X、头部按钮、输入框自己有正事。
+        if (target.closest('button, a, input, select, textarea, label, [role="button"], [aria-haspopup]')) return;
+        dragState.current = { id: event.pointerId, startY: event.clientY, lastY: event.clientY, lastT: event.timeStamp, vy: 0 };
+        event.currentTarget.setPointerCapture?.(event.pointerId);
+    };
+    const onDragPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+        const state = dragState.current;
+        if (!state || event.pointerId !== state.id) return;
+        const dt = event.timeStamp - state.lastT;
+        if (dt > 0) state.vy = state.vy * 0.8 + ((event.clientY - state.lastY) / dt) * 0.2;
+        state.lastY = event.clientY;
+        state.lastT = event.timeStamp;
+        dragY.set(Math.max(0, event.clientY - state.startY));
+    };
+    const onDragPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+        const state = dragState.current;
+        dragState.current = null;
+        if (!state || event.pointerId !== state.id) return;
+        const dy = Math.max(0, event.clientY - state.startY);
+        const decision = sheetDragDecision({ dy, vy: state.vy, viewportH: window.innerHeight, closeBlocked: closeDisabledRef.current });
+        if (decision === 'restore') {
+            springBack();
+            return;
+        }
+        // 与 Escape 同语义：多页 sheet 的 onEscape 吃掉了这次 dismiss 就只是退页，弹回。
+        if (onEscapeRef.current?.()) {
+            springBack();
+            return;
+        }
+        // 壳先飞出屏，面板的 exit 动画在屏外收尾（scrim 同步淡出）。
+        const flyDistance = (panelRef.current?.offsetHeight ?? window.innerHeight) + 48;
+        void animate(dragY, flyDistance, { duration: reduced ? 0 : 0.18, ease: 'easeIn' });
+        requestCloseRef.current();
+    };
 
     useEffect(() => {
         const panel = panelRef.current;
@@ -280,10 +352,12 @@ const SheetFrame: React.FC<SheetFrameProps> = ({
         };
     }, [isPresent, opener]);
 
-    // Where the panel comes from and goes back to: a little lower and a little smaller.
-    const away = { opacity: 0, x: 0, y: 12, scale: 0.985 };
-    // Read once, when the sheet arrives: a change of `from` afterwards moves nothing.
-    const [cameFrom] = useState(() => (from ? { opacity: 0, x: from.x, y: from.y, scale: 0.9 } : away));
+    // Where the panel comes from and goes back to: a little lower and a little smaller. On the
+    // phone's bottom sheet it is wholly below the screen: it slides up, and leaves downward.
+    const away = bottom ? { opacity: 1, x: 0, y: '110%' } : { opacity: 0, x: 0, y: 12, scale: 0.985 };
+    // Read once, when the sheet arrives: a change of `from` afterwards moves nothing. The bottom
+    // sheet always arrives from below, so the opener's direction is ignored there.
+    const [cameFrom] = useState(() => (from && !bottom ? { opacity: 0, x: from.x, y: from.y, scale: 0.9 } : away));
     const exit = leave === 'through'
         ? { opacity: 0, scale: 1.08, transition: { duration: reduced ? 0 : KIT_MOTION.unfold, ease: KIT_EASE.standard } }
         : { ...away, transition: kitTransition('move', reduced) };
@@ -296,13 +370,19 @@ const SheetFrame: React.FC<SheetFrameProps> = ({
             // What hasOpenSheet (utils/keyboardTargets) looks for.
             data-folia-sheet={isPresent ? 'true' : undefined}
             inert={!isPresent}
-            className={`fixed inset-0 z-[200] flex justify-center p-4 ${restHeight ? 'items-start' : 'items-center'}`}
-            style={restHeight
-                ? { ...overlayTokens(isDaylight, theme), paddingTop: `max(16px, calc(50vh - ${restHeight / 2}px))` }
-                : overlayTokens(isDaylight, theme)}
+            className={`fixed inset-0 z-[200] flex justify-center ${bottom ? 'items-end p-0' : `p-4 ${restHeight ? 'items-start' : 'items-center'}`}`}
+            style={bottom
+                ? overlayTokens(isDaylight, theme)
+                : restHeight
+                    ? { ...overlayTokens(isDaylight, theme), paddingTop: `max(16px, calc(50vh - ${restHeight / 2}px))` }
+                    : overlayTokens(isDaylight, theme)}
             onMouseDown={(event) => {
                 isMouseDownOnOverlayRef.current = event.target === event.currentTarget;
             }}
+            onPointerDown={onDragPointerDown}
+            onPointerMove={onDragPointerMove}
+            onPointerUp={onDragPointerUp}
+            onPointerCancel={onDragPointerUp}
             onClick={(event) => {
                 if (event.target === event.currentTarget && isMouseDownOnOverlayRef.current) requestClose();
             }}
@@ -315,6 +395,12 @@ const SheetFrame: React.FC<SheetFrameProps> = ({
                 transition={kitTransition('move', reduced)}
                 className="pointer-events-none absolute inset-0 bg-[var(--sheet-scrim)]"
             />
+            {/* 拖拽壳：只驮下拉的 y（跟手直写，不参与进出场）。card 呈现下 display:contents，
+                包装对布局完全透明；bottom 呈现下它是 items-end 的那个伸缩项，面板全宽贴底。 */}
+            <motion.div
+                style={{ y: dragY, display: bottom ? undefined : 'contents' }}
+                className={bottom ? 'w-full' : undefined}
+            >
             <motion.div
                 ref={panelRef}
                 role="dialog"
@@ -332,10 +418,25 @@ const SheetFrame: React.FC<SheetFrameProps> = ({
                 style={{ outline: 'none', ...panelTokens(isDaylight, theme, reduced) }}
             >
                 <SettingsKitThemeContext.Provider value={childTheme}>
+                    {bottom && (
+                        // 安卓窗口的把手：一条视觉锚点，也是下拉关闭的起手面。
+                        <div
+                            aria-hidden
+                            data-folia-sheet-drag="true"
+                            className="flex shrink-0 justify-center pb-1.5 pt-3"
+                            style={{ touchAction: 'none' }}
+                        >
+                            <span className="h-1 w-9 rounded-full bg-[var(--st-t3)] opacity-40" />
+                        </div>
+                    )}
                     {underlay && <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">{underlay}</div>}
                     {overlay && <div aria-hidden className="pointer-events-none absolute inset-0 z-10">{overlay}</div>}
                     {withAside(aside, <>
-                    <header className={`flex shrink-0 items-start gap-3 pl-6 pr-4 pt-4 ${body === 'panes' ? 'border-b border-[var(--st-line)] pb-3' : ''}`}>
+                    <header
+                        data-folia-sheet-drag="true"
+                        style={{ touchAction: 'none' }}
+                        className={`flex shrink-0 items-start gap-3 pl-6 pr-4 pt-4 ${body === 'panes' ? 'border-b border-[var(--st-line)] pb-3' : ''}`}
+                    >
                         <div className={`st-t-fast min-w-0 flex-1 transition-opacity ${quiet ? 'opacity-0' : ''}`}>
                             <h2 id={titleId} className={`text-base font-semibold leading-8 ${titleLead ? 'flex items-center gap-2.5' : ''}`}>
                                 {titleLead}
@@ -376,6 +477,7 @@ const SheetFrame: React.FC<SheetFrameProps> = ({
                     )}
                     </>)}
                 </SettingsKitThemeContext.Provider>
+            </motion.div>
             </motion.div>
         </div>
     );

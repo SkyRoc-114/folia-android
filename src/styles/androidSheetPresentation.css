@@ -1,0 +1,29 @@
+/*
+ * Android bottom-sheet presentation for every Sheet / ThemedDialog popup.
+ *
+ * Sheet.tsx writes `data-folia-sheet-presentation='bottom'` on <html> while the viewport is a
+ * portrait touch phone (see sheetPresentation.ts: pointer coarse + portrait + width < 720). This
+ * file turns the desktop centred card into an Android "independent window": full width, rounded
+ * top corners only, flush with the bottom edge behind the gesture bar, safe areas honoured.
+ *
+ * It is loaded after androidPhoneFit.css and out-ranks that file's !important rules for the same
+ * properties (equal specificity, later in the cascade). Nothing here applies unless the attribute
+ * is present, so the desktop and every other presentation is byte-for-byte untouched.
+ */
+
+html[data-folia-sheet-presentation='bottom'] [data-folia-themed-overlay] {
+  align-items: flex-end !important;
+  padding: 0 !important;
+  padding-bottom: env(safe-area-inset-bottom) !important;
+}
+
+html[data-folia-sheet-presentation='bottom'] [data-folia-themed-dialog] {
+  width: 100% !important;
+  max-width: 100% !important;
+  /* 视高减去顶部安全区再留一点缝：把手以内的内容永远在手势条之上，底部安全区由 overlay 兜住。 */
+  max-height: calc(100dvh - env(safe-area-inset-top) - 12px) !important;
+  border-radius: 26px 26px 0 0 !important;
+  padding: 0 !important;
+  /* 面板自己不滚：滚动是体层（或页面内部）的事，下拉手势才不会被滚动吞掉。 */
+  overscroll-behavior: contain;
+}

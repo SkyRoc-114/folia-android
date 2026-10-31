@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client';
 import './i18n/config';
 import './index.css';
 import './styles/androidPhoneFit.css';
+// Sheet 的安卓贴底呈现（bottom sheet）规则：排在 phone-fit 之后，同属性时以本文件为准。
+import './styles/androidSheetPresentation.css';
 import App from './App';
 import AppSplashGate from './components/AppSplashGate';
 import ChunkLoadBoundary from './components/app/ChunkLoadBoundary';
