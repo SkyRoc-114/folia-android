@@ -6,6 +6,8 @@ import android.content.ClipData;
 import android.content.ContentResolver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.content.UriPermission;
 import android.database.Cursor;
 import android.os.Build;
 import android.os.PowerManager;
@@ -35,14 +37,18 @@ import com.getcapacitor.annotation.PermissionCallback;
 
 import org.json.JSONObject;
 
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.OutputStreamWriter;
 import java.lang.reflect.Method;
 import java.net.URL;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
@@ -1141,5 +1147,296 @@ public class FoliaNativePlugin extends Plugin {
             cookies.add(cookie);
         }
         return cookies;
+    }
+
+    // ---- 实时日志文件（用户自选保存位置） ----
+    //
+    // 桌面版的 debug 模块把 console 行经 IPC 实时写进主进程文件；手机壳里没有主进程，
+    // 这里用 SAF 补齐同一条管道：用户选一个文件夹（ACTION_OPEN_DOCUMENT_TREE，持久授权），
+    // 每次会话在其中新建一个 folia-log-<时间戳>.txt，JS 侧把 console 行分批推过来即写即刷。
+    // 全部走 DocumentsContract（API 19+），Android 7 可用。
+
+    private static final String LOG_PREFS = "folia_log_prefs";
+    private static final String LOG_KEY_FOLDER_URI = "folder_uri";
+    private static final String LOG_KEY_FOLDER_NAME = "folder_name";
+    private static final String LOG_FILE_PREFIX = "folia-log-";
+    /** 每次启动新建一个文件，无清理会无限堆积；只删自己写出的同名前缀文件，别的文件不碰。 */
+    private static final int LOG_KEEP_FILES = 8;
+    private static final String LOG_MIME_TYPE = "text/plain";
+
+    private boolean isLogFolderPickerOpen = false;
+    private final Object logLock = new Object();
+    private BufferedWriter logWriter;
+    private String logFileName;
+
+    @PluginMethod
+    public void pickLogFolder(PluginCall call) {
+        if (isLogFolderPickerOpen) {
+            call.reject("Log folder picker is already open");
+            return;
+        }
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        isLogFolderPickerOpen = true;
+        startActivityForResult(call, intent, "handlePickedLogFolder");
+    }
+
+    @ActivityCallback
+    private void handlePickedLogFolder(PluginCall call, ActivityResult activityResult) {
+        isLogFolderPickerOpen = false;
+        if (call == null) return;
+        Intent data = activityResult == null ? null : activityResult.getData();
+        Uri treeUri = data == null ? null : data.getData();
+        int resultCode = activityResult == null ? Activity.RESULT_CANCELED : activityResult.getResultCode();
+        if (resultCode != Activity.RESULT_OK || treeUri == null) {
+            // 用户取消不算错误，JS 侧按「什么都没发生」处理。
+            JSObject cancelled = new JSObject();
+            cancelled.put("cancelled", true);
+            call.resolve(cancelled);
+            return;
+        }
+        try {
+            getContext().getContentResolver().takePersistableUriPermission(
+                treeUri,
+                data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            );
+        } catch (Exception ignored) {
+            // 部分提供方不给持久授权；本次会话内仍然可写。
+        }
+        SharedPreferences preferences = getContext().getSharedPreferences(LOG_PREFS, Context.MODE_PRIVATE);
+        preferences.edit()
+            .putString(LOG_KEY_FOLDER_URI, treeUri.toString())
+            .putString(LOG_KEY_FOLDER_NAME, describeFolderName(treeUri))
+            .apply();
+        synchronized (logLock) {
+            // 换位置时旧写手必须先关掉，否则它还指着上一个文件夹里的文件。
+            closeLogWriterLocked();
+            try {
+                openLogSessionLocked();
+                resolveLogSession(call);
+            } catch (Exception error) {
+                call.reject("Could not start log file: " + logErrorMessage(error), error);
+            }
+        }
+    }
+
+    /** 用已保存的位置开一个新会话；已在写时幂等返回当前文件名。 */
+    @PluginMethod
+    public void startLogSession(PluginCall call) {
+        synchronized (logLock) {
+            if (logWriter != null) {
+                resolveLogSession(call);
+                return;
+            }
+            String saved = getContext().getSharedPreferences(LOG_PREFS, Context.MODE_PRIVATE)
+                .getString(LOG_KEY_FOLDER_URI, "");
+            if (saved == null || saved.isEmpty()) {
+                call.reject("No log folder selected");
+                return;
+            }
+            try {
+                openLogSessionLocked();
+                resolveLogSession(call);
+            } catch (Exception error) {
+                call.reject("Could not start log file: " + logErrorMessage(error), error);
+            }
+        }
+    }
+
+    /** JS 分批推来的日志行；即写即刷，崩溃前的最后一行也能落在文件里。 */
+    @PluginMethod
+    public void appendLogLines(PluginCall call) {
+        String text = call.getString("text", "");
+        synchronized (logLock) {
+            if (logWriter == null) {
+                call.reject("No log session is active");
+                return;
+            }
+            try {
+                logWriter.write(text == null ? "" : text);
+                logWriter.write("\n");
+                logWriter.flush();
+                call.resolve();
+            } catch (Exception error) {
+                // 磁盘满 / 授权被系统收回 / 云端目录断连：关掉写手并把失败抛回去，
+                // 让 JS 把开关回到「已停止」，而不是继续假装在记录。
+                closeLogWriterLocked();
+                call.reject("Log write failed: " + logErrorMessage(error), error);
+            }
+        }
+    }
+
+    @PluginMethod
+    public void endLogSession(PluginCall call) {
+        synchronized (logLock) {
+            closeLogWriterLocked();
+        }
+        call.resolve();
+    }
+
+    /** 停止写入并忘掉保存的位置（释放持久授权、清掉偏好）。 */
+    @PluginMethod
+    public void forgetLogFolder(PluginCall call) {
+        Context context = getContext();
+        SharedPreferences preferences = context.getSharedPreferences(LOG_PREFS, Context.MODE_PRIVATE);
+        String saved = preferences.getString(LOG_KEY_FOLDER_URI, "");
+        synchronized (logLock) {
+            closeLogWriterLocked();
+        }
+        if (saved != null && !saved.isEmpty()) {
+            try {
+                context.getContentResolver().releasePersistableUriPermission(
+                    Uri.parse(saved),
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                );
+            } catch (Exception ignored) {
+                // 授权早已不在时（重装 / 系统回收）释放会抛异常，忽略即可。
+            }
+        }
+        preferences.edit().clear().apply();
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void getLogSessionStatus(PluginCall call) {
+        Context context = getContext();
+        SharedPreferences preferences = context.getSharedPreferences(LOG_PREFS, Context.MODE_PRIVATE);
+        String saved = preferences.getString(LOG_KEY_FOLDER_URI, "");
+        boolean hasPermission = false;
+        if (saved != null && !saved.isEmpty()) {
+            for (UriPermission permission : context.getContentResolver().getPersistedUriPermissions()) {
+                if (permission.getUri().toString().equals(saved) && permission.isWritePermission()) {
+                    hasPermission = true;
+                    break;
+                }
+            }
+        }
+        JSObject result = new JSObject();
+        result.put("hasFolder", saved != null && !saved.isEmpty());
+        result.put("folderName", preferences.getString(LOG_KEY_FOLDER_NAME, ""));
+        result.put("permissionLost", saved != null && !saved.isEmpty() && !hasPermission);
+        result.put("active", logWriter != null);
+        result.put("fileName", logFileName == null ? "" : logFileName);
+        call.resolve(result);
+    }
+
+    /** 调用方必须持有 logLock。写不进去就明说，不留一个「看起来在记录」的假会话。 */
+    private void openLogSessionLocked() throws Exception {
+        Context context = getContext();
+        SharedPreferences preferences = context.getSharedPreferences(LOG_PREFS, Context.MODE_PRIVATE);
+        String saved = preferences.getString(LOG_KEY_FOLDER_URI, "");
+        if (saved == null || saved.isEmpty()) throw new IllegalStateException("No log folder selected");
+        Uri treeUri = Uri.parse(saved);
+
+        // 授权可能已被系统回收（用户在系统设置里清过）：写不进去就明说。
+        boolean writable = false;
+        for (UriPermission permission : context.getContentResolver().getPersistedUriPermissions()) {
+            if (permission.getUri().toString().equals(saved) && permission.isWritePermission()) {
+                writable = true;
+                break;
+            }
+        }
+        if (!writable) throw new SecurityException("The saved log folder permission is no longer granted");
+
+        pruneOldLogFiles(treeUri);
+        Uri rootDocumentUri = DocumentsContract.buildDocumentUriUsingTree(
+            treeUri, DocumentsContract.getTreeDocumentId(treeUri));
+        String fileName = LOG_FILE_PREFIX
+            + new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(new Date())
+            + ".txt";
+        Uri documentUri = DocumentsContract.createDocument(
+            context.getContentResolver(), rootDocumentUri, LOG_MIME_TYPE, fileName);
+        if (documentUri == null) throw new IOException("createDocument returned null");
+        OutputStream output = context.getContentResolver().openOutputStream(documentUri, "w");
+        if (output == null) throw new IOException("openOutputStream returned null");
+        logWriter = new BufferedWriter(new OutputStreamWriter(output, java.nio.charset.StandardCharsets.UTF_8));
+        String displayName = queryDisplayName(context.getContentResolver(), documentUri);
+        logFileName = displayName == null || displayName.isEmpty() ? fileName : displayName;
+    }
+
+    private void closeLogWriterLocked() {
+        if (logWriter != null) {
+            try { logWriter.flush(); } catch (Exception ignored) { }
+            try { logWriter.close(); } catch (Exception ignored) { }
+            logWriter = null;
+        }
+        logFileName = null;
+    }
+
+    private void resolveLogSession(PluginCall call) {
+        Context context = getContext();
+        JSObject result = new JSObject();
+        result.put("ok", true);
+        result.put("fileName", logFileName == null ? "" : logFileName);
+        result.put("folderName", context.getSharedPreferences(LOG_PREFS, Context.MODE_PRIVATE)
+            .getString(LOG_KEY_FOLDER_NAME, ""));
+        call.resolve(result);
+    }
+
+    /** 只删自己写出的 folia-log-*.txt，给新会话腾位置；删失败不影响本次会话。 */
+    private void pruneOldLogFiles(Uri treeUri) {
+        try {
+            Context context = getContext();
+            Uri childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+                treeUri, DocumentsContract.getTreeDocumentId(treeUri));
+            String[] projection = new String[]{
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_LAST_MODIFIED
+            };
+            List<String> documentIds = new ArrayList<>();
+            List<Long> lastModified = new ArrayList<>();
+            try (Cursor cursor = context.getContentResolver().query(childrenUri, projection, null, null, null)) {
+                if (cursor == null) return;
+                int idColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID);
+                int nameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME);
+                int timeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED);
+                while (cursor.moveToNext()) {
+                    String name = nameColumn >= 0 ? cursor.getString(nameColumn) : null;
+                    if (name == null || !name.startsWith(LOG_FILE_PREFIX) || !name.toLowerCase(Locale.ROOT).endsWith(".txt")) continue;
+                    documentIds.add(cursor.getString(idColumn));
+                    lastModified.add(timeColumn >= 0 ? cursor.getLong(timeColumn) : 0L);
+                }
+            }
+            // 最旧的在前；保留 LOG_KEEP_FILES - 1 个，新建一个之后总数刚好是 LOG_KEEP_FILES。
+            int deleteCount = documentIds.size() - (LOG_KEEP_FILES - 1);
+            while (deleteCount > 0) {
+                int oldest = 0;
+                for (int index = 1; index < documentIds.size(); index += 1) {
+                    if (lastModified.get(index) < lastModified.get(oldest)) oldest = index;
+                }
+                Uri documentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentIds.get(oldest));
+                try {
+                    DocumentsContract.deleteDocument(context.getContentResolver(), documentUri);
+                } catch (Exception ignored) {
+                    // 单个删不掉（占用 / 提供方拒绝）就算了，别让它堵住会话启动。
+                }
+                documentIds.remove(oldest);
+                lastModified.remove(oldest);
+                deleteCount -= 1;
+            }
+        } catch (Exception ignored) {
+            // 清理是锦上添花，绝不能挡住会话启动。
+        }
+    }
+
+    /** 选择的目录名：从 tree id（形如 "primary:Documents/folia"）里取最后一段；取不到就空着。 */
+    private static String describeFolderName(Uri treeUri) {
+        try {
+            String treeId = DocumentsContract.getTreeDocumentId(treeUri);
+            if (treeId == null || treeId.isEmpty()) return "";
+            String path = treeId.contains(":") ? treeId.substring(treeId.indexOf(':') + 1) : treeId;
+            if (path.isEmpty()) return "";
+            int slash = path.lastIndexOf('/');
+            return slash >= 0 ? path.substring(slash + 1) : path;
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private static String logErrorMessage(Exception error) {
+        return error.getMessage() == null ? error.toString() : error.getMessage();
     }
 }

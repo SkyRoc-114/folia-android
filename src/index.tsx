@@ -4,6 +4,7 @@ import { installConsoleLogCapture } from './utils/consoleLogBuffer';
 import { installCrashDiagnostics } from './utils/crashDiagnostics';
 import { installChunkLoadRecovery } from './utils/chunkLoadRecovery';
 import { installDebugModule } from './services/debug/debugModule';
+import { installAndroidLogFileSink } from './services/debug/androidLogFileSink';
 import { installMemorySampleFeed } from './services/debug/memorySamples';
 import { installFrameTimingDiagnostics } from './utils/frameTimingDiagnostics';
 import { installNativeAndroidBridge } from './services/nativeAndroidBridge';
@@ -21,6 +22,9 @@ installChunkLoadRecovery();
 // Right after it, so the startup lines reach the runtime log file too and not only the in-memory
 // buffer. Both no-op off Electron. See services/debug/debugModule.ts.
 installDebugModule();
+// 手机壳里的同一条管道：把 console 行实时写进用户选的 SAF 文件夹（桌面版走 debugModule 的
+// 主进程文件）。在非安卓环境是 no-op，两个 sink 并存互不干扰。
+installAndroidLogFileSink();
 installMemorySampleFeed();
 // 帧耗时 / 长任务采样，供设置里的「复制诊断数据」判断卡顿是渲染开销还是设备性能。
 installFrameTimingDiagnostics();

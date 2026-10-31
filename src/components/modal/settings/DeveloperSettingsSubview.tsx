@@ -1,5 +1,5 @@
 import React, { useSyncExternalStore } from 'react';
-import { Activity, FolderOpen, ScrollText } from 'lucide-react';
+import { Activity, FolderOpen, ScrollText, Smartphone, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import type { Theme } from '../../../types';
 import {
@@ -15,6 +15,14 @@ import {
     subscribeToDebugModule,
     type DebugLogMode,
 } from '../../../services/debug/debugModule';
+import {
+    forgetAndroidLogFolder,
+    getAndroidLogFileSnapshot,
+    pickAndroidLogFolder,
+    subscribeToAndroidLogFile,
+    toggleAndroidLogFile,
+} from '../../../services/debug/androidLogFileSink';
+import { IS_ANDROID_WEBVIEW } from '../../../utils/platform';
 import ConsoleLogPanel from '../../shared/ConsoleLogPanel';
 
 // src/components/modal/settings/DeveloperSettingsSubview.tsx
@@ -132,6 +140,15 @@ const DeveloperSettingsSubview: React.FC<DeveloperSettingsSubviewProps> = ({
     // other, on a switch that had in fact flipped. A derived value is not a subscription.
     const capturing = useSyncExternalStore(subscribeToConsoleLog, isConsoleCaptureEnabled);
     const debug = useSyncExternalStore(subscribeToDebugModule, getDebugModuleSnapshot);
+    // Only live on the Android shell; everywhere else the snapshot is the idle default and the
+    // card below is not rendered at all.
+    const logFile = useSyncExternalStore(subscribeToAndroidLogFile, getAndroidLogFileSnapshot);
+
+    const logFileStatus = logFile.permissionLost
+        ? t('options.androidLogFilePermissionLost')
+        : logFile.active
+            ? `${logFile.fileName} · ${t('options.androidLogFileWriting')}`
+            : t('options.androidLogFileIdle');
 
     return (
         <div className="space-y-4">
@@ -199,6 +216,73 @@ const DeveloperSettingsSubview: React.FC<DeveloperSettingsSubviewProps> = ({
                     listMaxHeightClass="max-h-[22rem]"
                 />
             </div>
+
+            {/* 手机壳专属：桌面版把「写文件」交给 debug 模块的主进程文件，安卓没有主进程，
+                这里用 SAF 让用户选一个可访问的文件夹实时写入。桌面版不渲染这张卡。 */}
+            {IS_ANDROID_WEBVIEW && (
+                <div className={`rounded-2xl border p-4 space-y-4 ${settingsCardClass}`}>
+                    <div className="flex items-center justify-between gap-4">
+                        <div className="flex min-w-0 items-start gap-3">
+                            <div className="p-2 rounded-lg opacity-60 shrink-0">
+                                <Smartphone size={14} />
+                            </div>
+                            <div className="min-w-0 space-y-1">
+                                <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+                                    {t('options.androidLogFileTitle')}
+                                </span>
+                                <div className="text-xs opacity-50" style={{ color: 'var(--text-secondary)' }}>
+                                    {t('options.androidLogFileDesc')}
+                                </div>
+                            </div>
+                        </div>
+                        <Switch
+                            isOn={logFile.enabled}
+                            onToggle={() => void toggleAndroidLogFile()}
+                            theme={theme}
+                            toggleOffBackgroundClass={toggleOffBackgroundClass}
+                        />
+                    </div>
+
+                    <div className={`rounded-xl border px-3 py-2.5 ${isDaylight ? 'border-black/10 bg-black/[0.03]' : 'border-white/10 bg-black/15'}`}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="min-w-0 flex-1 truncate text-[11px] opacity-70" style={{ color: 'var(--text-secondary)' }}>
+                                {logFile.folderName || t('options.androidLogFileNoFolder')}
+                            </span>
+                            <div className="flex items-center gap-1.5">
+                                <button
+                                    type="button"
+                                    onClick={() => void pickAndroidLogFolder()}
+                                    className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] transition-colors ${isDaylight ? 'border-black/10 hover:bg-black/[0.05]' : 'border-white/10 hover:bg-white/[0.07]'}`}
+                                    style={{ color: 'var(--text-secondary)' }}
+                                >
+                                    <FolderOpen size={11} className="shrink-0" />
+                                    {t('options.androidLogFilePick')}
+                                </button>
+                                {logFile.folderName && (
+                                    <button
+                                        type="button"
+                                        onClick={() => void forgetAndroidLogFolder()}
+                                        aria-label={t('options.androidLogFileForget')}
+                                        className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] opacity-55 transition-colors hover:opacity-90 ${isDaylight ? 'border-black/10 hover:bg-black/[0.05]' : 'border-white/10 hover:bg-white/[0.07]'}`}
+                                        style={{ color: 'var(--text-secondary)' }}
+                                    >
+                                        <Trash2 size={11} className="shrink-0" />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                        <div className="mt-1.5 truncate text-[10px] opacity-45" style={{ color: 'var(--text-secondary)' }}>
+                            {logFileStatus}
+                        </div>
+                    </div>
+
+                    {logFile.error && (
+                        <div className="text-[11px] leading-relaxed opacity-60" style={{ color: 'var(--text-secondary)' }}>
+                            {logFile.error}
+                        </div>
+                    )}
+                </div>
+            )}
 
             <div className={`rounded-2xl border p-4 space-y-4 ${settingsCardClass}`}>
                 <div className="flex items-center justify-between gap-4">
