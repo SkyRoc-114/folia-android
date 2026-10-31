@@ -34,6 +34,19 @@ const getPlugin = (): NativeBackPlugin | null => {
 export type NativeBackOutcome = 'handled' | 'background' | 'exit';
 
 /**
+ * 合成 Escape 落在哪。焦点元素优先：Sheet 打开时把焦点收进面板，真实 Escape 的 target 就是它，
+ * document 层的监听（Sheet、临时导入菜单）只有从这里派发才收得到；原来派发到 window，
+ * target=window 的传播路径不含 document，返回键对所有 Sheet 失效。没有焦点元素（或它不能收事件）
+ * 就落到 body，路径 window→document→body 照样经过 document 层。鸭子判定 dispatchEvent，
+ * 不用 instanceof HTMLElement，纯函数在 node 测试里也能摆。
+ */
+export const nativeEscapeTarget = (active: unknown, fallback: unknown): unknown => (
+    typeof (active as { dispatchEvent?: unknown } | null | undefined)?.dispatchEvent === 'function'
+        ? active
+        : fallback
+);
+
+/**
  * 返回键到底做什么。抽成纯函数是为了能直接测「无层可关时不再直接退出」这条策略。
  *
  * 有层消费：什么都不做（面板 / 设置子页 / 弹窗自己关掉）。
@@ -91,7 +104,9 @@ export const useNativeBackButton = (): void => {
                 bubbles: true,
                 cancelable: true,
             });
-            const handled = !window.dispatchEvent(event) || event.defaultPrevented;
+            // 派发到焦点元素（兜底 body），不是 window：见 nativeEscapeTarget 的注释。
+            const target = nativeEscapeTarget(document.activeElement, document.body);
+            const handled = !(target as Element).dispatchEvent(event) || event.defaultPrevented;
             applyNativeBackPress(plugin, handled);
         });
 
