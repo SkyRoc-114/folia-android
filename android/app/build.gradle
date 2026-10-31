@@ -48,14 +48,25 @@ android {
     signingConfigs {
         if (hasReleaseKeystore) {
             release {
+                // storeFile 相对 app 模块目录解析；storeType 可选（PKCS12 必须写，JKS 省略即 JVM 默认）。
                 storeFile file(keystoreProperties['storeFile'])
                 storePassword keystoreProperties['storePassword']
                 keyAlias keystoreProperties['keyAlias']
                 keyPassword keystoreProperties['keyPassword']
+                if (keystoreProperties['storeType']) {
+                    storeType keystoreProperties['storeType']
+                }
             }
         }
     }
     buildTypes {
+        debug {
+            // 发布链路走 assembleDebug（见 android-pre-release.yml）：debug 也用入库的稳定签名，
+            // 覆盖安装才连续。曾经 runner 现场生成 debug keystore，每版一张随机证书，用户无法升级。
+            if (hasReleaseKeystore) {
+                signingConfig signingConfigs.release
+            }
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'

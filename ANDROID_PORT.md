@@ -75,6 +75,19 @@ APK 输出：
 android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
+## 签名与覆盖安装
+
+自 `.293` 起全部 APK（含 assembleDebug 产物）用**入库的稳定 keystore** 签名：
+`android/app/folia-release.p12` + `android/keystore.properties`（公开入库，取舍见该文件头注释）。
+证书 SHA-256 `A8ED29C8…FB9541`，有效期至 2056-10-23；CI 构建后核对指纹，漂移即构建失败。
+
+- 背景：`.281`–`.292` 走 CI 时签名用的是 runner 现场生成的 debug keystore，一次构建一张随机证书
+  （六版六证实测），任何两版之间覆盖安装都会失败。
+- **一次性迁移**：装过 `.292` 及更早版本的用户升级 `.293` 必须先卸载再安装（旧证书不可恢复）；
+  此后所有版本互相覆盖安装正常。
+- 换私有 keystore：复制 `keystore.properties.example` 为 `keystore.properties` 填私有值（不入库），
+  但同签名连续性即断，老用户需卸载重装，慎重。
+
 ## 当前实现范围
 
 - Android Capacitor 容器
@@ -117,7 +130,7 @@ QQ 的同一套形状也用于专辑订阅与歌单写入。
 
 ## 尚未完成
 
-- 正式签名和应用商店配置
+- ~~正式签名~~：已入库稳定 keystore（见「签名与覆盖安装」）；应用商店配置仍无
 
 网易云 / QQ / 酷狗登录与曲库、AI 主题配置、后台播放前台服务、锁屏与通知栏媒体控制、
 本地音乐（系统文件管理导入 + 设备音乐库扫描）均已接入，详细改动见提交历史。

@@ -4,8 +4,12 @@
 # 手动触发时从所选分支/提交构建，release tag 名取自 package.json 的 version）。
 #
 # 构建链路来自 ANDROID_PORT.md：npm 构建 web 产物（build:capacitor）→ npx cap sync android
-# → gradlew assembleDebug。用 assembleDebug 而不是 assembleRelease：仓库里没有签名密钥，
-# 无签名 release 包无法安装；debug 包用 debug 密钥签名，可直接侧载。
+# → gradlew assembleDebug。用 assembleDebug 而不是 assembleRelease：release 包还需单独签名配置，
+# 而 debug 包同样用入库的稳定 keystore 签名（android/keystore.properties + android/app/folia-release.p12，
+# 公开入库见该文件头注释），可直接侧载且覆盖安装连续。
+#
+# 签名核验：构建后用 keytool 比对证书指纹，与 keystore.properties 记档的不一致就失败——
+# 防止再出现（.281-.292 期间）每版一张随机证书、用户无法升级的事故。
 #
 # android/gradle.properties 里 org.gradle.java.home 硬编码了维护者的 Windows JDK 路径，
 # CI 用 -Dorg.gradle.java.home 指回 runner 的 JDK 21（命令行属性优先于 gradle.properties）。
@@ -69,6 +73,25 @@ jobs:
           cd android
           chmod +x gradlew
           ./gradlew -Dorg.gradle.java.home="$JAVA_HOME" assembleDebug --no-daemon --stacktrace
+
+      # 覆盖安装连续性的门禁：APK 证书指纹必须等于入库 keystore 记档的指纹。
+      # .281-.292 每 runner 一张随机证书，任何两版都无法升级；这里漂移即 fail fast。
+      - name: Verify APK signing certificate
+        run: |
+          EXPECTED="A8ED29C87807D2535BA1FD3AD37EB40E233386D606DB56D2D133B8CA4DFB9541"
+          APK=android/app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+          ACTUAL=$(unzip -p "$APK" META-INF/*.{RSA,DSA,EC} 2>/dev/null | openssl pkcs7 -inform DER -print_certs 2>/dev/null | openssl x509 -noout -fingerprint -sha256 2>/dev/null | sed 's/.*=//;s/://g')
+          if [ -z "$ACTUAL" ]; then
+            # v2-only 签名块里没有 v1 JAR 签名文件时，用 apksigner 读证书。
+            BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
+            ACTUAL=$("$ANDROID_HOME/build-tools/$BT/apksigner" verify --print-certs "$APK" -v 2>/dev/null | grep -o 'SHA-256 digest: [0-9a-f]*' | head -1 | awk '{print $3}' | tr 'a-f' 'A-F' || true)
+          fi
+          echo "expected=$EXPECTED"
+          echo "actual  =$ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::APK signing certificate drifted from the committed keystore; over-install would break"
+            exit 1
+          fi
 
       # splits.abi（见 android/app/build.gradle）产出三种安装包，按惯例命名：
       # armv7 = armeabi-v7a、armv8 = arm64-v8a、universal = 全 ABI。
