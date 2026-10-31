@@ -1342,7 +1342,17 @@ export default {
     "error": "Tìm kiếm thất bại. Thử lại sau.",
     "offline": "No network connection. Check your connection and try again.",
     "retry": "Thử lại",
-    "catalogUnavailable": "Không thể mở album hoặc nghệ sĩ này do nguồn nhạc không trả về ID danh mục hợp lệ."
+    "catalogUnavailable": "Không thể mở album hoặc nghệ sĩ này do nguồn nhạc không trả về ID danh mục hợp lệ.",
+    "placeholderAlbum": "Tìm album...",
+    "placeholderPlaylist": "Tìm danh sách phát...",
+    "sources": "Nguồn tìm kiếm",
+    "kinds": "Loại tìm kiếm",
+    "kindSong": "Bài hát",
+    "kindAlbum": "Album",
+    "kindPlaylist": "Danh sách phát",
+    "resultCount": "Tìm thấy {{n}}",
+    "trackCount": "{{n}} bài",
+    "playCount": "{{n}} lượt phát"
   },
   "personalFmMode": {
     "openPicker": "Chuyển chế độ FM cá nhân",

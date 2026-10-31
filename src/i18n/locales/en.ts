@@ -1341,7 +1341,17 @@ export default {
     "error": "Search failed. Please try again.",
     "offline": "No network connection. Check your connection and try again.",
     "retry": "Retry",
-    "catalogUnavailable": "This album or artist cannot be opened because the provider did not return a valid catalog ID."
+    "catalogUnavailable": "This album or artist cannot be opened because the provider did not return a valid catalog ID.",
+    "placeholderAlbum": "Search albums...",
+    "placeholderPlaylist": "Search playlists...",
+    "sources": "Search source",
+    "kinds": "What to search",
+    "kindSong": "Songs",
+    "kindAlbum": "Albums",
+    "kindPlaylist": "Playlists",
+    "resultCount": "{{n}} found",
+    "trackCount": "{{n}} tracks",
+    "playCount": "{{n}} plays"
   },
   "personalFmMode": {
     "openPicker": "Switch the Personal FM mode",
