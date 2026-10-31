@@ -20,7 +20,7 @@
   - **③播放页透明开关删除（Android 死开关）**：透明窗口是 Electron 能力（OBS/抠像），Android WebView 合成器不透明。IntegrationPage 透明行 `isElectron` 门控 + 命令面板 `settings-toggle-transparent` 加 `platform: ['electron']`（availability.ts 现成机制）；底层链路保留降合并冲突
   - **fork 侦察**：EasonLai96（Capacitor 移植，MainActivity 无返回键定制）、hejunlin1755（pc-for-android，CI 同样裸 assembleDebug=同样断签）——两问题无现成借鉴，本仓首发修复；上游 scratchpad 批次（b54f3681 等）留下一轮迁移
   - ⚠️ 显示层教训补充：本轮工具输出会吞 `[h` 序列（`[host]` 显示成 `ost`、`a[href]` 显示成 `aref]`），两处疑似 typo 均为伪影——**od -c 字节级验证才可信**（与上批 ANSI 教训同源）
-  - 验证：tsc --noEmit --skipLibCheck EXIT=0；定向测试 nativeBackButton 8 例 + loginHostState 23 例 + command-palette 313 例绿；全量回归见发版提交
+  - 验证：tsc --noEmit --skipLibCheck EXIT=0；定向测试 nativeBackButton 8 例 + loginHostState 23 例 + command-palette 313 例绿；全量分片 13726 过 + 1 存量败（ytmProvider:813 基线）+ 3 skipped（+8 新例）。CI 首跑指纹门禁拦下自身：apksigner 提取链在 runner 静默失败（build-tools/apksigner 不可预期，0.4s 内空输出）——改仓库内 `scripts/apk_cert.py`（纯标准库读 v2/v3 签名块，六版 APK 已对账验证）做门禁，零 JDK/SDK 依赖；门禁失败关闭=true 拦截未放行坏包
 - **上一批：Folium 1.8 跟进——町景性能 + 歌词画布渲染质量 + mod API（2026-10-31 23:00+08，用户指令「查看它干什么的再合理迁移（注意android背景）」放行，随 v0.7.22-android.292 发布）**；设计 `docs/plans/2026-10-31-folium-1-8-render-quality-design.md`（三提交拆解/交互分析）、计划 `…-render-quality.md`（6 任务）
   - 上游范围（v0.7.25 之上 main 合入 3 有效提交）：3b4f01a7 Folium 1.8（111 文件 +3470/-788）+ a390a45b（导出 1×/心象默认）+ c56bf8ec（雾笺排版画布 #963）；fa9522d4/d695db52 代码地图 chore 跳过（惯例）
   - 逐笔 cherry-pick -x 落地：

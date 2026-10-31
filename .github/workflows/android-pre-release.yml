@@ -76,16 +76,13 @@ jobs:
 
       # 覆盖安装连续性的门禁：APK 证书指纹必须等于入库 keystore 记档的指纹。
       # .281-.292 每 runner 一张随机证书，任何两版都无法升级；这里漂移即 fail fast。
+      # 解析用 scripts/apk_cert.py（纯标准库，读 v2/v3 签名块），不依赖 JDK/SDK：
+      # runner 的 build-tools/apksigner 不可预期（.293 首跑就因它静默失败过一次）。
       - name: Verify APK signing certificate
         run: |
           EXPECTED="A8ED29C87807D2535BA1FD3AD37EB40E233386D606DB56D2D133B8CA4DFB9541"
           APK=android/app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
-          ACTUAL=$(unzip -p "$APK" META-INF/*.{RSA,DSA,EC} 2>/dev/null | openssl pkcs7 -inform DER -print_certs 2>/dev/null | openssl x509 -noout -fingerprint -sha256 2>/dev/null | sed 's/.*=//;s/://g')
-          if [ -z "$ACTUAL" ]; then
-            # v2-only 签名块里没有 v1 JAR 签名文件时，用 apksigner 读证书。
-            BT=$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)
-            ACTUAL=$("$ANDROID_HOME/build-tools/$BT/apksigner" verify --print-certs "$APK" -v 2>/dev/null | grep -o 'SHA-256 digest: [0-9a-f]*' | head -1 | awk '{print $3}' | tr 'a-f' 'A-F' || true)
-          fi
+          ACTUAL=$(python3 scripts/apk_cert.py --digest "$APK")
           echo "expected=$EXPECTED"
           echo "actual  =$ACTUAL"
           if [ "$ACTUAL" != "$EXPECTED" ]; then
