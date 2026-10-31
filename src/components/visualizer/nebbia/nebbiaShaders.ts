@@ -71,9 +71,9 @@ uniform vec2 uGlassShift; uniform float uMist, uEdge, uRefract, uGlint;
 uniform sampler2D uFogBlur, uFogGlow;
 // 静态噪声纹理（nebbiaNoiseTex.ts）：按 px 取样；uNoiseOn 为假（还没算好、画布超过纹理尺寸上限）时现算
 uniform bool uNoiseOn; uniform sampler2D uNoise;
-// 透明（窗外是共用背景或桌面）：不画窗外，输出预乘的透明度。雾是一层半透明的白雾，擦开的地方全透明，
-// 光（聚光灯、擦痕边、水珠高光）只加颜色不加不透明度，叠在后面的东西上
-uniform bool uSeeThrough;
+// 透明（窗外是共用背景或桌面）：不画窗外，输出预乘的透明度。雾是一层半透明的雾，擦开的地方全透明，
+// 光（聚光灯、擦痕边、水珠高光）只加颜色不加不透明度，叠在后面的东西上。雾的颜色跟主题日夜：日间乳白、夜间深色
+uniform bool uSeeThrough; uniform vec3 uMistTint;
 ${STATIC_NOISE}
 void main() {
   // 颠簸：玻璃上的东西（雾、擦痕、水珠）跟车身一起晃，窗外晃得更多
@@ -117,11 +117,12 @@ void main() {
   }
   // 密到普通雾的范围以上（哈气）时，窗外再暗一点、乳白再多一点
   vec3 fog = blur * max(0.08, 1.0 - 0.45 * dens - 0.25 * breath) + glow * 0.9 * dens + haze * (0.2 * dens + 0.25 * breath);
-  // 透明时雾的浓淡就是不透明度，颜色是乳白
+  // 透明时雾的浓淡就是不透明度，颜色是 uMistTint
   float alpha = 1.0;
   if (uSeeThrough) {
-    alpha = clamp(0.62 * dens + 0.3 * breath, 0.0, 0.92);
-    fog = vec3(0.86, 0.89, 0.92) * alpha;
+    // 深色的雾叠在暗桌面上不显，比白雾浓一点
+    alpha = clamp((0.62 * dens + 0.3 * breath) * mix(1.3, 1.0, dot(uMistTint, vec3(0.333))), 0.0, 0.92);
+    fog = uMistTint * alpha;
   }
   // 透明时颗粒乘不透明度：雾很淡的地方不在后面的东西上撒亮点
   fog += (hash(px) - 0.5) * 0.025 * alpha;
@@ -149,16 +150,20 @@ void main() {
     vec2 nn = comp.rg - 0.5;
     vec2 ruv = sv + vec2(-nn.x, nn.y) * (comp.b * 0.6 + 0.4) * uRefract;
     // 雾笺 demo 用的是轻度模糊的背景、漫反射 0.2–0.5、高光指数 48
-    vec3 lens = uSeeThrough ? vec3(0.0) : scene(vec2(ruv.x * aspect, ruv.y), 0.006);
+    vec3 lens = scene(vec2(ruv.x * aspect, ruv.y), 0.006);
     vec3 normal = normalize(vec3(nn * 2.0, 1.0));
     vec3 lightDir = normalize(vec3(-1.0, 1.0, 2.0));
     float lambert = clamp(dot(lightDir, normal), 0.0, 1.0);
     float spec = pow(max(dot(normal, normalize(lightDir + vec3(0.0, 0.0, 1.0))), 0.0), 48.0);
     lens += (lambert - 0.8) * vec3(0.3, 0.3, 0.32) + spec * vec3(0.3, 0.3, 0.33) * uGlint;
     if (uSeeThrough) {
-      // 透明时水珠本身是一层薄雾（颜色跟它的不透明度走），明暗的那部分只剩高光加上去
-      float da = alpha * 0.55 + 0.08 * dens;
-      lens = vec3(0.86, 0.89, 0.92) * da + max(lens, vec3(0.0));
+      // 和 raindrop-fx 一样，水珠是一颗透镜，里面是折射过来的背景。透明时拿不到窗后面的画面，折射的还是雾笺自己的
+      // 雨夜街景（和街景模式的水珠一样）。白雾时水珠不透明：街景比雾暗，和透出后面的字一样是暗的；
+      // 深色雾时字透出的后面比雾亮，水珠也要以透出后面为主：街景留一半不到，边上一圈折射的暗边
+      float dark = 1.0 - dot(uMistTint, vec3(0.333));
+      float rimA = (1.0 - smoothstep(0.975, 0.995, comp.a)) * 0.21;
+      float da = mix(1.0, 0.47 + rimA, dark);
+      lens = max(lens, vec3(0.0)) * mix(1.0, 0.47, dark);
       alpha = mix(alpha, da, dmask);
     } else {
       // 车厢里的灯照在水珠表面：比纯透过去的窗外亮一点，不会在灰白的雾上显成黑点

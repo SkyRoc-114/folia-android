@@ -22,7 +22,7 @@ type Locations = Record<string, WebGLUniformLocation | null>;
 // 街景（两个程序都有）读的 uniform；其余只在主画面
 const PALETTE_UNIFORMS = ['uSky0', 'uSky1', 'uLa', 'uLb', 'uLc'];
 const SCENE_UNIFORMS = ['uRes', 'uSceneShift', 'uTime', 'uBus', 'uNeon', ...PALETTE_UNIFORMS, 'uSpotSrc', 'uSpotSrc2', 'uSpotTgt', 'uSpotR', 'uSpotI', 'uScenery', 'uBldOn', 'uBldGeo'];
-const MAIN_UNIFORMS = [...SCENE_UNIFORMS, 'uMist', 'uEdge', 'uRefract', 'uGlint', 'uGlassShift', 'uBreathOn', 'uBreathThick', 'uNoiseOn', 'uSeeThrough'];
+const MAIN_UNIFORMS = [...SCENE_UNIFORMS, 'uMist', 'uEdge', 'uRefract', 'uGlint', 'uGlassShift', 'uBreathOn', 'uBreathThick', 'uNoiseOn', 'uSeeThrough', 'uMistTint'];
 
 /** uScenery 里楼群那一位（nebbiaFrameUniforms.ts 的 SCENERY_BITS），和关着时给着色器的楼群缓存状态。 */
 const SCN_BUILDINGS = 1;
@@ -55,6 +55,8 @@ export class NebbiaGl {
     private instData = new Float32Array(0);
     /** 主题配色：编好之前先记下，编好时补上。 */
     private palette: number[][] | null = null;
+    /** 透明时雾的颜色（0..1 的 RGB），跟主题日夜。 */
+    mistTint: [number, number, number] = [0.07, 0.08, 0.1];
     /** 精灵贴图加载好时调（这之前不画水珠）。 */
     onSpriteReady: (() => void) | null = null;
 
@@ -258,6 +260,7 @@ export class NebbiaGl {
         gl.uniform2fv(U.uGlassShift, u.glassShift);
         gl.uniform1i(U.uBreathOn, breath ? 1 : 0);
         gl.uniform1i(U.uNoiseOn, noiseOn ? 1 : 0);
+        gl.uniform3fv(U.uMistTint, this.mistTint);
         gl.viewport(0, 0, this.canvas.width, this.canvas.height);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
         gl.bindVertexArray(null);

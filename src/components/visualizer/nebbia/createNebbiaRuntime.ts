@@ -106,6 +106,8 @@ export class NebbiaRuntime {
     }
     setFontScale(scale: number) { if (scale !== this.fontScale) { this.fontScale = scale; this.rebuild(); } }
     setShowText(show: boolean) { if (show !== this.showText) { this.showText = show; this.rebuild(); } }
+    /** 透明时雾的颜色跟主题日夜：日间乳白，夜间深色（像夜里起雾的车窗）。 */
+    setDaylight(daylight: boolean) { this.gl.mistTint = daylight ? [0.86, 0.89, 0.92] : [0.07, 0.08, 0.1]; this.requestFrame(); }
 
     // 只改配色时只换调色板；字体或涂鸦图标变了才重排整首
     setTheme(theme: Theme) {

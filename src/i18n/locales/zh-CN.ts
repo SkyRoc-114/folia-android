@@ -2900,7 +2900,7 @@ export default {
     "nebbiaRain_straight": "竖直",
     "nebbiaRain_off": "不下",
     "nebbiaBehind": "窗外",
-    "nebbiaBehindHint": "雨夜街景，或者用共用背景。用背景时雾变成一层半透明的白雾，擦开的字透出后面的背景；播放页透明时总是这样，透出的是桌面。",
+    "nebbiaBehindHint": "雨夜街景，或者用共用背景。用背景时雾变成一层半透明的雾（日间主题是白雾、夜间主题是深色的雾），擦开的字透出后面的背景；播放页透明时总是这样，透出的是桌面。",
     "nebbiaBehind_night": "雨夜街景",
     "nebbiaBehind_backdrop": "背景",
     "lumiereUnlitOpacity": "未唱字透明度",

@@ -29,7 +29,7 @@ const VisualizerNebbia: React.FC<Props> = (props) => {
         showText = true, lyricsFontScale = 1, staticMode = false, paused = false, seed = 'nebbia', songTitle, songArtist,
         isPlayerChromeHidden = false, hideTranslationSubtitle = false,
         subtitleOverlayLayout, subtitleTheme, subtitleFontScale, subtitleOverlayOpacity, subtitleOverlayBackground, subtitleUpcomingLyricsBlur,
-        nebbiaTuning = DEFAULT_NEBBIA_TUNING,
+        isDaylight = false, nebbiaTuning = DEFAULT_NEBBIA_TUNING,
     } = props;
     const { t } = useTranslation();
     const hostRef = useRef<HTMLDivElement>(null);
@@ -50,8 +50,8 @@ const VisualizerNebbia: React.FC<Props> = (props) => {
         [committedLines, committed.seed, songTitle, songArtist],
     );
 
-    const latest = useRef({ theme, tuning: nebbiaTuning, song, lyricsFontScale, showText, paused, staticMode, firstFrameDrawn });
-    latest.current = { theme, tuning: nebbiaTuning, song, lyricsFontScale, showText, paused, staticMode, firstFrameDrawn };
+    const latest = useRef({ theme, tuning: nebbiaTuning, song, lyricsFontScale, showText, isDaylight, paused, staticMode, firstFrameDrawn });
+    latest.current = { theme, tuning: nebbiaTuning, song, lyricsFontScale, showText, isDaylight, paused, staticMode, firstFrameDrawn };
 
     useEffect(() => {
         const host = hostRef.current;
@@ -70,6 +70,7 @@ const VisualizerNebbia: React.FC<Props> = (props) => {
             }, l.theme, l.tuning);
             runtime.setFontScale(l.lyricsFontScale);
             runtime.setShowText(l.showText);
+            runtime.setDaylight(l.isDaylight);
             runtime.setPlayback(l.paused, l.staticMode);
             runtime.setSong(l.song);
         } catch (error) {
@@ -92,6 +93,7 @@ const VisualizerNebbia: React.FC<Props> = (props) => {
     useEffect(() => { runtimeRef.current?.setTheme(theme); }, [theme]);
     useEffect(() => { runtimeRef.current?.setFontScale(lyricsFontScale); }, [lyricsFontScale]);
     useEffect(() => { runtimeRef.current?.setShowText(showText); }, [showText]);
+    useEffect(() => { runtimeRef.current?.setDaylight(isDaylight); }, [isDaylight]);
     useEffect(() => { runtimeRef.current?.setPlayback(paused, staticMode); }, [paused, staticMode]);
     // 暂停时循环停着，拖动进度要手动补一帧
     useEffect(() => currentTime.on('change', () => {

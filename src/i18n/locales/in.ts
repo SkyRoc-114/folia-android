@@ -2855,7 +2855,7 @@ export default {
     "nebbiaRain_straight": "Tegak",
     "nebbiaRain_off": "Mati",
     "nebbiaBehind": "Di luar jendela",
-    "nebbiaBehindHint": "Jalanan malam berhujan, atau latar bersama. Dengan latar, kabut menjadi lapisan putih tembus pandang dan goresan yang diusap memperlihatkan latar di belakangnya; halaman pemutar transparan selalu begini dan memperlihatkan desktop.",
+    "nebbiaBehindHint": "Jalanan malam berhujan, atau latar bersama. Dengan latar, kabut menjadi lapisan tembus pandang (putih dengan tema siang, gelap dengan tema malam) dan goresan yang diusap memperlihatkan latar di belakangnya; halaman pemutar transparan selalu begini dan memperlihatkan desktop.",
     "nebbiaBehind_night": "Jalanan malam",
     "nebbiaBehind_backdrop": "Latar",
     "lumiereUnlitOpacity": "Opasitas teks yang belum dinyanyikan",

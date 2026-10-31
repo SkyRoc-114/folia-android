@@ -2900,7 +2900,7 @@ export default {
     "nebbiaRain_straight": "Straight",
     "nebbiaRain_off": "Off",
     "nebbiaBehind": "Outside the window",
-    "nebbiaBehindHint": "The street at night, or the shared background behind the fog. With the background the fog turns into a translucent white mist and the wiped strokes show what is behind; a transparent player page always works this way and shows the desktop.",
+    "nebbiaBehindHint": "The street at night, or the shared background behind the fog. With the background the fog turns into a translucent mist (white with a daylight theme, dark with a night theme) and the wiped strokes show what is behind; a transparent player page always works this way and shows the desktop.",
     "nebbiaBehind_night": "Night street",
     "nebbiaBehind_backdrop": "Background",
     "lumiereUnlitOpacity": "Unsung text opacity",
