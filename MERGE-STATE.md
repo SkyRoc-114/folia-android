@@ -12,8 +12,24 @@
 - 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）
 - ⚠️ PAT 绝不能写进仓库任何被跟踪的文件
 
-## 当前进度（2026-10-30 09:05 +08 更新）
+## 当前进度（2026-10-31 +08 更新）
 
+- **最新批次：上游 v0.7.24/25 全量迁移 + QQ 批次补齐 + 「快捷键显示」（2026-10-31，用户八问拍板后放行，随 v0.7.22-android.290 发布）**；设计 `docs/plans/2026-10-31-upstream-0.7.24-25-qq-shortcut-hints-design.md`（§0 八决策）、计划 `…-hints.md`（14 任务）
+  - **上游 v0.7.24 (adf86215) + v0.7.25 (20c3ecd0) 全量迁移 ✅**（71 非合并提交，v0.7.23 为 base）：
+    - 雾笺 nebbia（WebGL2 雨夜窗景 43 文件）+ 町景 machi（three.js 雨夜街景 71 文件）final-state checkout（c224f24b）；文件级对账：与 upstream/main 仅差 machi Android 钳制接线 7 行（本线专属，非漏迁）；`dev/nebbia/nebbiaStrokesPlugin.mjs` 笔顺构建插件（commit 钉死 + 逐文件 sha256 + 失败软降级 + `FOLIA_NEBBIA_STROKES=off` 逃生门）+ `licenses/nebbia-strokes/`
+    - fix 批 cherry-pick -x（1fe89c65）：lucide Path2D、主题默认回套、汽水试听提示×2、AudioContext 输出设备、Spotify 官方限制提示、AI i18n 中性化、remote 队列展开动画、bravais 信息条自动反向；intro「新功能」卡片 0.7.25 Rainy SP1（dad8c34c）；i18n 四语言全键（fca7aacc）
+    - 跳过（纯桌面/不适用）：d12f54da、ad5763cd（chore(dev) 代码地图 [skip ci]）、c81dc148（chore(skills) 上游协作流程文档）
+  - **QQ 批次缺口补齐 ✅**（4f945888 收尾）：origin/main 970ef5be..d1d11bf7 共 38 提交逐笔判定补齐（扫码登录通道、点赞/unlike、订阅、g_tk、QIMEI、KRC、QQ 渲染优化与 .289 已迁 2 笔汇合），`git cherry` 对账 **0 缺口**
+  - **Android 性能兜底 ✅**（e278adfc，决策 #3）：`src/utils/androidVisualizerPerfCap.ts`——Android WebView 上町景生效值钳低档（抗锯齿/阴影/倒影/bloom 关、renderScale 不高于低档），存储值不动、帽下同引用（免运行时重建）、adaptive 保留让上游帧时降档在帽下工作；桌面零改动；雾笺不钳（上游已 1/8 雾层 + 双程序后台编译；WebGL2 缺失时组件级退回只显示当前句）；7 例直测
+  - **「快捷键显示」✅**（决策 #4-#7：默认关、键鼠任一接入自动开、全拔自动关、HelpPage 查阅页除外）：
+    - store + resolver（db8162b4）：`shortcut_hints_mode` 三态 auto（默认）/on/off，`resolveShortcutHintsVisible` 纯真值表；store 契约快照更新
+    - useHidConnection（75a239f3）：Android 先查 `getConnectedHidDevices` 后订 `onHidDevicesChanged`（防丢事件）；桌面 matchMedia 兜底；Electron 恒接入 → 桌面行为零回归；8 例
+    - 原生监听（a81e3004，决策 #5）：FoliaNativePlugin `registerInputDeviceListener` + SOURCE_KEYBOARD/MOUSE 位测（isFullKeyboard 归键盘）+ isVirtual 跳过 + `getConnectedHidDevices` PluginMethod；与既有 41 个 PluginMethod 共存
+    - 三徽章受控（245ef495）：WallToolsRows / LatticeFocusButton / BravaisStageChrome 三处 kbd 徽章全部走生效值，Playwright 组件测试锁定
+    - 教程分镜运行时切换（73664e4a）：`useOnboardingTouch()` 键鼠/触屏分镜按接入即时切换（含 keycap），触屏常量保持具名（T5 坑）
+    - 三态设置行（f96424fa）：InteractionPage「快捷键显示」自动（跟随键鼠）/始终显示/始终隐藏，仅 Android 壳渲染该组；四语言键（vi 人工翻译）
+  - 验证：tsc 0 错（--skipLibCheck，同基线法）；unit 全量 **13631 过 + 1 存量失败**（ytmProvider no-browser 描述用例，基线 .289 同败非本批）+ 3 skipped；components 定向 **156 过**（wallToolsIsland 20、bravaisHome 25、ponder 三件 40、settings 两件 18、pixiVisualizerResize 10、lattice 27、bravaisChrome 14——**bravaisChrome:137 存量失败本次也过**）+ lattice 277/564/594 存量失败与基线一致；e2e 定向 interactionSettingsSection 6 + ponder 6 + nomandSettings 全过，helpCommunity 5 存量失败（基线 .289 同败）；`build:capacitor` 产物齐全（nebbia/machi 入包、`nebbia-strokes.json` + licenses 打包）；⚠️ 沙箱 2 核 swiftshader 组件测试 ~12s/例，accountBehavior 等重型 spec 基线同慢（15.9m 跑不完 43 例，环境限制非回归）；Java 编译验收交 CI（沙箱无 javac）；后台进程会被沙箱会话回收，长测必须前台分批跑
+- **v0.7.22-android.289（2026-10-31）**：Android 7 闪退修复（90072e92）+ 实时日志落盘（d3bc59e3）；tsc 0 错、定向 vitest 304 例全过、build:capacitor 237 项
 - **上游 v0.7.23（120 提交，B6-1..B6-6）：✅ 全部合入**（`git cherry android-0.7.22 v0.7.23` 零缺口，两个实例各自独立验证过），随 v0.7.22-android.282/.283/.284 发布
 - **T1-T6 修复任务**：T1 启动闪斜体 ✅、T2 触屏按钮裁剪 ✅、T3 后台节流 ✅（真机耗电验证仍待，需实机）、T4 搜索页X误触灯泡 ✅、**T5 教程触屏分镜 ✅（随 .285 发布）**、T6 杂项视为关闭
 - **issue 务实修复批（用户指令「去理想化修复issue」放行，随 .286 发布）**：
