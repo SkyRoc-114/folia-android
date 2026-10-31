@@ -426,9 +426,12 @@ describe('what is written', () => {
                 // What is held is what was written.
                 expect(json(app.state()[field])).toBe(app.text(key));
             }
+            const held = app.state()[field] as unknown as Record<string, unknown>;
             (app.state()[reset] as () => void)();
             steps.push({ from, reset: true, written: app.text(key) });
-            expect(app.text(key)).toBe(json(DEFAULTS[key]));
+            // 心象的面板上只有「渲染」一组：「默认」只还原它，别的项（只能靠导入得到）留着（cadenza/tuning.ts 的 reset）。
+            const expected = key === 'cadenza_tuning' ? { ...held, render: (DEFAULTS[key] as Record<string, unknown>).render } : DEFAULTS[key];
+            expect(app.text(key)).toBe(json(expected));
             expect(json(app.state()[field])).toBe(app.text(key));
             // No other key is touched.
             expect(app.keys()).toEqual([...new Set([...before, key])].sort());

@@ -52,3 +52,11 @@ describe.each(styles)('$name render override', ({ tuning, defaults }) => {
         expect(storage.merge(merged, rest).render).toEqual({ scale: 2, antialias: 'on' });
     });
 });
+
+describe('cadenza reset', () => {
+    it('puts back only what its panel shows, keeping the fields only an import gives', () => {
+        const storage = cadenzaTuning.storage!;
+        const held = { ...DEFAULT_CADENZA_TUNING, fontScale: 1.4, widthRatio: 0.6, render: { scale: 2, antialias: 'global' } } as const;
+        expect(storage.reset?.(held, DEFAULT_CADENZA_TUNING)).toEqual({ ...held, render: GLOBAL });
+    });
+});

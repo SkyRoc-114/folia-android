@@ -573,7 +573,7 @@ exports[`what is written > by a change and by a reset of 'cadenza_tuning' 1`] = 
   {
     "from": "nothing stored",
     "reset": true,
-    "written": "{"render":{"scale":"global","antialias":"global"},"fontScale":1.12,"widthRatio":0.72,"motionAmount":1,"glowIntensity":1,"beamIntensity":0}",
+    "written": "{"render":{"scale":"global","antialias":"global"},"fontScale":1.3,"widthRatio":0.72,"motionAmount":1,"glowIntensity":99,"beamIntensity":0}",
   },
   {
     "from": "the current shape",
@@ -588,7 +588,7 @@ exports[`what is written > by a change and by a reset of 'cadenza_tuning' 1`] = 
   {
     "from": "the current shape",
     "reset": true,
-    "written": "{"render":{"scale":"global","antialias":"global"},"fontScale":1.12,"widthRatio":0.72,"motionAmount":1,"glowIntensity":1,"beamIntensity":0}",
+    "written": "{"render":{"scale":"global","antialias":"global"},"fontScale":1.3,"widthRatio":0.6,"motionAmount":0.8,"glowIntensity":99,"beamIntensity":0}",
   },
 ]
 `;

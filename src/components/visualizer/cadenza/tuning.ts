@@ -25,6 +25,8 @@ export default defineVisualizerTuning<CadenzaTuning>({
         read: (stored: Partial<CadenzaTuning>) => ({ ...DEFAULT_CADENZA_TUNING, ...stored, beamIntensity: 0, render: normalizeLyricRenderOverride(stored.render) }),
         merge: (held, patch) => ({ ...held, ...patch, beamIntensity: 0, render: normalizeLyricRenderOverride(patch.render ?? held.render) }),
         resetNotice: 'notifications.cadenzaReset',
+        // 面板上只有「渲染」一组：「默认」只把它还原，fontScale 这些面板上没有的（只能靠导入得到）留着。
+        reset: (held, defaults) => ({ ...held, render: defaults.render }),
     },
     apply: (props, tuning) => ({ ...props, cadenzaTuning: tuning }),
 });

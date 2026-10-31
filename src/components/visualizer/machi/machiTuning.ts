@@ -67,6 +67,17 @@ export const normalizeMachiQuality = (raw: unknown): MachiQuality => {
     };
 };
 
+/**
+ * 视频导出时町景用的画质（渲染质量被钉住时，VisualizerMachi.tsx）：分辨率、抗锯齿都按跟随全局算（钉住的是 1×、自动，
+ * 也就是 1 倍 + SMAA），町景自己选的倍数和抗锯齿（含超采样）都不算；自动降级关掉，免得导出到一半被压低分辨率。
+ * 阴影、倒影、辉光照用户选的。
+ */
+export const pinMachiQualityForExport = (quality: MachiQuality): MachiQuality => (
+    quality.renderScale === MACHI_FOLLOW_GLOBAL && quality.antialias === MACHI_FOLLOW_GLOBAL && !quality.adaptive
+        ? quality
+        : { ...quality, renderScale: MACHI_FOLLOW_GLOBAL, antialias: MACHI_FOLLOW_GLOBAL, adaptive: false }
+);
+
 /** 这套画质是哪一档预设（细项和某一档完全一样才算），不是就是自定义。 */
 export const resolveMachiQualityPreset = (quality: MachiQuality): MachiQualityPresetId | 'custom' => (
     MACHI_QUALITY_PRESET_IDS.find(id => {

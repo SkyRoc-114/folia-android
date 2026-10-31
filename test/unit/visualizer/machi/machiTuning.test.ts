@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeMachiTuning, resolveMachiQualityPreset, resolveMachiSceneId } from '@/components/visualizer/machi/machiTuning';
+import { normalizeMachiTuning, pinMachiQualityForExport, resolveMachiQualityPreset, resolveMachiSceneId } from '@/components/visualizer/machi/machiTuning';
 import { DEFAULT_MACHI_QUALITY, DEFAULT_MACHI_TUNING, DEFAULT_MACHI_VIEW, DEFAULT_MACHI_VIEWS, MACHI_QUALITY_PRESET_IDS, MACHI_QUALITY_PRESETS, MACHI_SCENE_IDS } from '@/components/visualizer/machi/types';
 
 // test/unit/visualizer/machi/machiTuning.test.ts
@@ -98,5 +98,15 @@ describe('resolveMachiSceneId', () => {
             expect(MACHI_SCENE_IDS).toContain(scene);
             expect(resolveMachiSceneId({ scene: 'auto' }, seed)).toBe(scene);
         });
+    });
+});
+
+describe('pinMachiQualityForExport', () => {
+    it('draws exports at the pinned 1× with SMAA and no auto-degrade, keeping the rest of the quality', () => {
+        const chosen = { ...MACHI_QUALITY_PRESETS.low, adaptive: true };
+        expect(pinMachiQualityForExport(chosen)).toEqual({ ...chosen, renderScale: 'global', antialias: 'global', adaptive: false });
+        expect(pinMachiQualityForExport({ ...DEFAULT_MACHI_QUALITY, antialias: 'ssaa' })).toMatchObject({ antialias: 'global', adaptive: false });
+        const already = { ...DEFAULT_MACHI_QUALITY, adaptive: false };
+        expect(pinMachiQualityForExport(already)).toBe(already);
     });
 });
