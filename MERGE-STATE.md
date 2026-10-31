@@ -14,7 +14,17 @@
 
 ## 当前进度（2026-10-31 +08 更新）
 
-- **仓库维护批次：main 重锚定 + 分支清理（2026-10-31 20:30+08，用户指令「清理分支，更新仓库」；沙箱重置后 blobless clone 恢复，凭证丢失待用户重发）**
+- **最新批次：Folium 1.8 跟进——町景性能 + 歌词画布渲染质量 + mod API（2026-10-31 23:00+08，用户指令「查看它干什么的再合理迁移（注意android背景）」放行，随 v0.7.22-android.292 发布）**；设计 `docs/plans/2026-10-31-folium-1-8-render-quality-design.md`（三提交拆解/交互分析）、计划 `…-render-quality.md`（6 任务）
+  - 上游范围（v0.7.25 之上 main 合入 3 有效提交）：3b4f01a7 Folium 1.8（111 文件 +3470/-788）+ a390a45b（导出 1×/心象默认）+ c56bf8ec（雾笺排版画布 #963）；fa9522d4/d695db52 代码地图 chore 跳过（惯例）
+  - 逐笔 cherry-pick -x 落地：
+    - ebad05ab ← 3b4f01a7：町景切换不卡主线程（engine/programWarmup 按真实渲染目标预编 + KHR_parallel_shader_compile 后台编 + 分段建场景；降级顺序改：先景深/超采样/MSAA 再倒影/辉光/分辨率/后期抗锯齿，阴影最后；degradeStatus 面板显示降了几档）+ 歌词画布全局渲染质量挡位 lyric_render_quality（分辨率 0.5×-2× + 抗锯齿 auto/on/off，10 样式「渲染」组）+ Folium mod API 7 文件随树全收（Android 无 Electron，零行为）
+    - 3dba3e93 ← a390a45b：视频导出固定 1×（pinMachiQualityForExport + renderPinned）+ 心象「默认」不重置面板没有的项；冲突语义合并：我们的 Android 帽（effectiveTuning）与上游 pin 共存，**pin 后再过一遍 Android 帽**（导出状态不放宽）
+    - 86ed6264 ← c56bf8ec：雾笺 resize 改量 clientWidth/Height（不受 transform 影响，修预览笔画粗细 #963）；与 .291 cold-start 的 hostSize 拆分语义合并（hostSize 同改 clientWidth，预设画布与度量一致）
+  - **旧 #929 体系退役（d9796d6a 简版 → 上游完整版）**：useLyricSettingsStore 删 lyricRenderQuality/lyricAntialias 字段与 handler（契约快照同步）；LyricsPage 旧「歌词渲染」组删除（新挡位在「性能与动效」GraphicsPage）；旧键 i18n（lyricRenderQuality/lyricAntialias 旧文案等）四语言清除；lattice（bravais 墙歌词，不在上游 10 样式清单）桥接新全局挡位（latticeLyricResolution 加 scale 参数走 resolveLyricPixelRatio）；**存档迁移（ecca8345，TDD 4 例）**：readStoredLyricRenderQuality 首读时 lyrics_antialias=true → {scale:1, antialias:on}、false/未设 → 默认，写新键删旧键
+  - **钳制层适配（04dee608+3d63086b，TDD 12 例）**：'global' 字段先按全局挡位 resolve（上游 settle 语义：global.scale 直接数值化、on/auto→SMAA、off→off）再走低档帽；全局倍数 1.5/2 也进帽比较；PRESETS 类型放宽后 LOW.renderScale 收窄为 LOW_RENDER_SCALE；帽下引用稳定语义保留；调用方传 useGlobalLyricRenderQuality（含导出钉住值）
+  - ⚠️ **环境教训**：①工具输出管道会吞 `[m`（ANSI reset 序列）——`[machiTuning]` 显示成 `achiTuning]`，曾误判为 typo（od -c 字节级验证才可信）②tsc 大 heap（2560/3072）在 4G 沙箱会被 OOM 静默 kill（EXIT 137 无输出），**必须 2400 堆 + 输出到文件 + 显式 exit code**；.290/.291 的「tsc 0 错」当时可能未真跑完，本次全量显式验证 EXIT=0
+  - 验证：tsc --noEmit --skipLibCheck **EXIT=0 显式验证**（2400 堆）；unit 全量 **13718 过 + 1 存量失败**（ytmProvider:813，.290 起基线同败）+ 3 skipped（总数 13644→13722，+78 为 Folium 1.8 新测试）；androidVisualizerPerfCap 12 例 + 迁移 4 例绿；pin 快照 43 例（上游新 pin 并入）；`git diff 3450fff9..HEAD -- android/` 空（壳零改动）；四语言 lyricRenderScale/lyricAntialias 齐全、旧键清零
+- **仓库维护批次：main 重锚定 + 分支清理（2026-10-31 20:30+08，用户指令「清理分支，更新仓库」）✅ 已推**：
   - **沙箱重置恢复**：folia-android/ 与凭证全部丢失；`git clone --filter=blob:none` 恢复（tip 与 .291 tag 一致 1a1fd2b1，零丢失）；upstream 重挂；MERGE-STATE 本文件即接力源
   - **origin 远端盘点**：仅 3 heads（android-0.7.22 发布线 / main / meta）+ 11 tags（.281-.291）全部有效，**无垃圾分支可删**
   - **main 重锚定 ✅（本地完成待推）**：`main-relaunch` = android-0.7.22 + 两个 `-s ours` 声明式合并（ad82d546 吸纳 origin/main 207 独有提交、e1a598f2 吸纳 upstream/main，树与发布线 diff=0）。背景：origin/main 与 upstream/main 分叉 207/587，真 merge 冲突 214 文件不可行；main 线工作已全量回流发布线（QQ 批次对账 0 缺口），声明式吸纳=历史可达性恢复（fork 页 behind 提示消除）+ 零丢失。**待 push：`git push origin main-relaunch:main`**
