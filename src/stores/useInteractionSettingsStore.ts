@@ -8,6 +8,7 @@
 
 import { create } from 'zustand';
 import { getStoredBoolean, getStoredString, setStoredBoolean } from './storagePrimitives';
+import { normalizeShortcutHintsMode, type ShortcutHintsMode } from '../utils/shortcutHints';
 
 /** What the grid action button's leftward slide reaches. */
 export type GridActionButtonSlideTarget = 'filter' | 'command-palette';
@@ -19,6 +20,7 @@ const CUSTOM_SHORTCUT_LETTER_KEY = 'custom_shortcut_letter';
 const CUSTOM_SHORTCUT_COMMAND_KEY = 'custom_shortcut_command';
 const GLOBAL_SHORTCUT_BINDINGS_KEY = 'global_shortcut_bindings';
 const GLOBAL_SHORTCUT_PORTAL_KEY = 'global_shortcut_portal_enabled';
+const SHORTCUT_HINTS_MODE_KEY = 'shortcut_hints_mode';
 
 /** How many system-wide shortcuts there are. The settings rows and the registering hook use the same count. */
 export const GLOBAL_SHORTCUT_SLOTS = 5;
@@ -94,6 +96,12 @@ export type InteractionSettingsState = {
      * prompt or list; the bindings above are not used there, the desktop picks the keys.
      */
     globalShortcutPortalEnabled: boolean;
+    /**
+     * Whether the kbd shortcut badges show: auto follows the HID devices (physical keyboard or
+     * mouse plugged in), on/off force it. Auto is the default — on a touch phone the badges are
+     * noise, and a desktop always has both, so auto behaves exactly like "always show" there.
+     */
+    shortcutHintsMode: ShortcutHintsMode;
 
     setGridActionButtonSlideTarget: (target: GridActionButtonSlideTarget) => void;
     handleToggleGridCommandPaletteHotkey: (enable: boolean) => void;
@@ -102,6 +110,7 @@ export type InteractionSettingsState = {
     setCustomShortcutCommandId: (commandId: string | null) => void;
     setGlobalShortcutBinding: (slot: number, patch: Partial<GlobalShortcutBinding>) => void;
     setGlobalShortcutPortalEnabled: (enable: boolean) => void;
+    setShortcutHintsMode: (mode: ShortcutHintsMode) => void;
 };
 
 export const useInteractionSettingsStore = create<InteractionSettingsState>((set) => ({
@@ -112,6 +121,7 @@ export const useInteractionSettingsStore = create<InteractionSettingsState>((set
     customShortcutCommandId: getStoredString(CUSTOM_SHORTCUT_COMMAND_KEY, '') || null,
     globalShortcutBindings: readGlobalShortcutBindings(),
     globalShortcutPortalEnabled: getStoredBoolean(GLOBAL_SHORTCUT_PORTAL_KEY, false),
+    shortcutHintsMode: normalizeShortcutHintsMode(getStoredString(SHORTCUT_HINTS_MODE_KEY, 'auto')),
 
     setGridActionButtonSlideTarget: (target) => {
         writeString(SLIDE_TARGET_KEY, target);
@@ -150,5 +160,9 @@ export const useInteractionSettingsStore = create<InteractionSettingsState>((set
     setGlobalShortcutPortalEnabled: (enable) => {
         setStoredBoolean(GLOBAL_SHORTCUT_PORTAL_KEY, enable);
         set({ globalShortcutPortalEnabled: enable });
+    },
+    setShortcutHintsMode: (mode) => {
+        writeString(SHORTCUT_HINTS_MODE_KEY, mode);
+        set({ shortcutHintsMode: mode });
     },
 }));
