@@ -10,9 +10,11 @@ import {
     MACHI_DETAIL_LEVELS,
     MACHI_DOF_LIMITS,
     MACHI_FOCUS_MODES,
+    MACHI_FOLLOW_GLOBAL,
     MACHI_MOTION_SPEED_LIMITS,
     MACHI_QUALITY_PRESET_IDS,
     MACHI_QUALITY_PRESETS,
+    MACHI_QUALITY_REVISION,
     MACHI_RENDER_SCALES,
     MACHI_SCENE_IDS,
     MACHI_TIMES_OF_DAY,
@@ -52,13 +54,16 @@ export const normalizeMachiQuality = (raw: unknown): MachiQuality => {
     const input = raw && typeof raw === 'object' ? raw as Partial<Record<keyof MachiQuality, unknown>> : {};
     const d = DEFAULT_MACHI_QUALITY;
     const pick = <T>(choices: readonly T[], value: unknown, fallback: T): T => (choices.includes(value as T) ? value as T : fallback);
+    // 有「跟随全局」之前存的：100% 和 SMAA 是当时的默认值，换成跟随全局（全局挡位默认时画面一样）。
+    const legacy = input.revision !== MACHI_QUALITY_REVISION;
     return {
-        renderScale: pick(MACHI_RENDER_SCALES, input.renderScale, d.renderScale),
-        antialias: pick(MACHI_ANTIALIAS_MODES, input.antialias, d.antialias),
+        renderScale: legacy && input.renderScale === 1 ? MACHI_FOLLOW_GLOBAL : pick([MACHI_FOLLOW_GLOBAL, ...MACHI_RENDER_SCALES], input.renderScale, d.renderScale),
+        antialias: legacy && input.antialias === 'smaa' ? MACHI_FOLLOW_GLOBAL : pick([MACHI_FOLLOW_GLOBAL, ...MACHI_ANTIALIAS_MODES], input.antialias, d.antialias),
         shadows: pick(MACHI_DETAIL_LEVELS, input.shadows, d.shadows),
         reflections: pick(MACHI_DETAIL_LEVELS, input.reflections, d.reflections),
         glow: typeof input.glow === 'boolean' ? input.glow : d.glow,
         adaptive: typeof input.adaptive === 'boolean' ? input.adaptive : d.adaptive,
+        revision: MACHI_QUALITY_REVISION,
     };
 };
 

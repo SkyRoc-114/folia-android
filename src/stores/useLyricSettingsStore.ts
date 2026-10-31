@@ -16,7 +16,6 @@ import { DEFAULT_PREFERRED_LYRIC_SOURCE, migratePreferredLyricSource } from '../
 import { DEFAULT_LYRIC_STAFF_ABSORB_MODE, DEFAULT_LYRIC_STAFF_MIN_DWELL_SECONDS, DEFAULT_LYRIC_STAFF_POLICY, LYRIC_STAFF_MIN_DWELL_RANGE, type LyricStaffAbsorbMode, type LyricStaffPolicy } from '../utils/lyrics/staffCreditsPolicy';
 import { getStoredBoolean, getStoredString, removeStoredKey, setStoredBoolean, setStoredString } from './storagePrimitives';
 import { setStatusMessage } from './useStatusMessageStore';
-import { DEFAULT_LYRIC_RENDER_QUALITY, isLyricRenderQuality, type LyricRenderQuality } from '../utils/lyricRenderQuality';
 
 export const GLOBAL_LYRIC_TIMELINE_OFFSET_STORAGE_KEY = 'global_lyric_timeline_offset_ms';
 
@@ -122,21 +121,13 @@ const readStoredLyricStaffAbsorbMode = (): LyricStaffAbsorbMode => {
     return saved === 'before' || saved === 'both' || saved === 'off' ? saved : DEFAULT_LYRIC_STAFF_ABSORB_MODE;
 };
 
-const readStoredLyricRenderQuality = (): LyricRenderQuality => {
-    const saved = localStorage.getItem(LYRIC_RENDER_QUALITY_STORAGE_KEY);
-    return isLyricRenderQuality(saved) ? saved : DEFAULT_LYRIC_RENDER_QUALITY;
-};
-
 // storeContract 契约靠模块级 XXX_KEY 常量声明登记 key，别用裸字面量。
-const LYRIC_RENDER_QUALITY_STORAGE_KEY = 'lyrics_render_quality';
+// LYRIC_ANTIALIAS_STORAGE_KEY：旧 #929 实现（#929 完整版已并入 lyric_render_quality 挡位，见 useVisualizerSettingsStore）。
+// 键保留声明供存档迁移读取旧值（读取处归一化时一次性搬到新挡位），新代码不得再写。
 const LYRIC_ANTIALIAS_STORAGE_KEY = 'lyrics_antialias';
 
 export type LyricSettingsState = {
     autoUseBestLyric: boolean;
-    /** 歌词画布渲染倍率（#929）：auto 随 dpr 钳 1..2，或固定 1/2/3 倍。 */
-    lyricRenderQuality: LyricRenderQuality;
-    /** 歌词 WebGL 上下文的多重采样（MSAA）：定格于 context 创建，改后需重建。 */
-    lyricAntialias: boolean;
     preferredAlternativeLyricSource: LyricProviderSource;
     localLyricsPriority: LocalLyricsPriority;
     localLyricFormatOrder: LocalLyricFileFormat[];
@@ -157,8 +148,6 @@ export type LyricSettingsState = {
     handleSetLyricStaffMinDwellSeconds: (seconds: number) => void;
     handleSetLyricStaffAbsorbMode: (mode: LyricStaffAbsorbMode) => void;
     handleSetLyricStaffPattern: (pattern: string) => void;
-    handleSetLyricRenderQuality: (quality: LyricRenderQuality) => void;
-    handleToggleLyricAntialias: (enable: boolean) => void;
 };
 
 export const useLyricSettingsStore = create<LyricSettingsState>((set, get) => ({
@@ -172,8 +161,6 @@ export const useLyricSettingsStore = create<LyricSettingsState>((set, get) => ({
     lyricStaffMinDwellSeconds: readStoredLyricStaffMinDwellSeconds(),
     lyricStaffAbsorbMode: readStoredLyricStaffAbsorbMode(),
     lyricStaffPattern: getStoredString('lyrics_staff_pattern', ''),
-    lyricRenderQuality: typeof window === 'undefined' ? DEFAULT_LYRIC_RENDER_QUALITY : readStoredLyricRenderQuality(),
-    lyricAntialias: getStoredBoolean(LYRIC_ANTIALIAS_STORAGE_KEY, false),
     handleToggleAutoUseBestLyric: (enable) => {
         setStoredBoolean('auto_use_best_lyric', enable);
         set({ autoUseBestLyric: enable });
@@ -181,14 +168,6 @@ export const useLyricSettingsStore = create<LyricSettingsState>((set, get) => ({
             type: 'info',
             text: i18n.t('notifications.' + (enable ? 'autoBestLyricOn' : 'autoBestLyricOff')),
         });
-    },
-    handleSetLyricRenderQuality: (quality) => {
-        setStoredString(LYRIC_RENDER_QUALITY_STORAGE_KEY, quality);
-        set({ lyricRenderQuality: quality });
-    },
-    handleToggleLyricAntialias: (enable) => {
-        setStoredBoolean(LYRIC_ANTIALIAS_STORAGE_KEY, enable);
-        set({ lyricAntialias: enable });
     },
     handleSetPreferredAlternativeLyricSource: (source) => {
         if (typeof window !== 'undefined') {

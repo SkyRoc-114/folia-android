@@ -1,3 +1,5 @@
+import type { LyricRenderOverride, LyricRenderScale } from '../../../types';
+import { LYRIC_RENDER_SCALES, normalizeLyricRenderOverride } from '../../../utils/lyricRenderQuality';
 import { defineVisualizerTuning, numberWithin, type StoredTuningFields } from '../tuningDefinition';
 import {
     DEFAULT_NEBBIA_TUNING,
@@ -29,9 +31,27 @@ const subsetOf = <T extends string>(choices: readonly T[], value: unknown, fallb
 const LEGACY_APPEAR: Record<string, NebbiaTuning['appear']> = { auto: ['write', 'fade'], write: ['write'], fade: ['fade'] };
 const LEGACY_FADE: Record<string, NebbiaTuning['fade']> = { fog: ['fog'], fingers: ['fingers'], mix: ['fog', 'fingers'] };
 
+/**
+ * 分辨率与抗锯齿（#929）。以前雾笺自己有一个分辨率滑块（`resolution`，0.5–2 倍，1 是原样），现在换成了共用的
+ * 「跟随全局 / 指定倍数」：存档里有 `render` 就只看它；只有旧的 `resolution`、又不是 1 时，换成最接近的倍数
+ * （两边一样近取大的那个，老用户调高是想要更清楚），这样调过的值保留下来；是 1 或没有就跟随全局。
+ */
+const readRender = (render: unknown, legacyResolution: unknown): LyricRenderOverride => {
+    if (render !== undefined) return normalizeLyricRenderOverride(render);
+    const override = normalizeLyricRenderOverride(null);
+    if (legacyResolution === undefined) return override;
+    const resolution = numberWithin(legacyResolution, 1, 0.5, 2);
+    if (resolution === 1) return override;
+    const scale = LYRIC_RENDER_SCALES.reduce<LyricRenderScale>(
+        (best, next) => (Math.abs(next - resolution) <= Math.abs(best - resolution) ? next : best),
+        LYRIC_RENDER_SCALES[0],
+    );
+    return { ...override, scale };
+};
+
 /** 存着的值、导入或同步来的值，读成一份完整合法的 tuning：缺的、类型不对的用默认，数值夹进范围。 */
 export const normalizeNebbiaTuning = (stored: unknown): NebbiaTuning => {
-    const values = (stored && typeof stored === 'object' ? stored : {}) as Partial<Record<keyof NebbiaTuning | 'appearMode' | 'fadeMode', unknown>>;
+    const values = (stored && typeof stored === 'object' ? stored : {}) as Partial<Record<keyof NebbiaTuning | 'appearMode' | 'fadeMode' | 'resolution', unknown>>;
     const base = DEFAULT_NEBBIA_TUNING;
     const numbers = Object.fromEntries((Object.keys(NEBBIA_LIMITS) as NebbiaNumberKey[]).map(key => [
         key,
@@ -40,6 +60,7 @@ export const normalizeNebbiaTuning = (stored: unknown): NebbiaTuning => {
     const appear = values.appear ?? LEGACY_APPEAR[String(values.appearMode)];
     const fade = values.fade ?? LEGACY_FADE[String(values.fadeMode)];
     return {
+        render: readRender(values.render, values.resolution),
         appear: subsetOf(NEBBIA_APPEAR_STYLES, appear, base.appear),
         fade: subsetOf(NEBBIA_FADE_STYLES, fade, base.fade),
         layouts: subsetOf(NEBBIA_LAYOUTS, values.layouts, base.layouts),
@@ -65,6 +86,4 @@ export default defineVisualizerTuning<NebbiaTuning>({
         merge: (held, patch) => normalizeNebbiaTuning({ ...held, ...patch }),
         resetNotice: 'notifications.nebbiaReset',
     },
-    // 分辨率要重建画布的缓冲：设置窗口的小样在拖滑块时留在已保存的值上。
-    preview: (draft, saved) => ({ ...draft, resolution: saved.resolution }),
 });

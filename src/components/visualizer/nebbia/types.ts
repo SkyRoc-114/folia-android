@@ -1,3 +1,4 @@
+import type { LyricRenderOverride } from '../../../types';
 import type { MotionValue } from 'framer-motion';
 import type { Line } from '../../../types';
 
@@ -33,6 +34,8 @@ export const NEBBIA_BEHIND = ['night', 'backdrop'] as const;
 export type NebbiaBehind = typeof NEBBIA_BEHIND[number];
 
 export interface NebbiaTuning {
+    /** 分辨率与抗锯齿（#929）：默认跟随「性能与动效」里的全局挡位（utils/lyricRenderQuality.ts）。 */
+    render: LyricRenderOverride;
     /** 打开的出现方式，至少一种。 */
     appear: NebbiaAppearStyle[];
     /** 打开的消失方式，至少一种。 */
@@ -77,8 +80,6 @@ export interface NebbiaTuning {
     rainBig: number;
     /** 颠簸强度，0 关。 */
     bump: number;
-    /** 渲染分辨率（× CSS 像素，最高 2 倍设备像素比）。 */
-    resolution: number;
 }
 
 /** 各个数值项的范围：设置面板的滑块和归一化共用。 */
@@ -98,12 +99,12 @@ export const NEBBIA_LIMITS = {
     rainHit: { min: 0, max: 3 },
     rainBig: { min: 0, max: 2 },
     bump: { min: 0, max: 2.5 },
-    resolution: { min: 0.5, max: 2 },
 } as const satisfies Partial<Record<keyof NebbiaTuning, { min: number; max: number }>>;
 
 export type NebbiaNumberKey = keyof typeof NEBBIA_LIMITS;
 
 export const DEFAULT_NEBBIA_TUNING: NebbiaTuning = {
+    render: { scale: 'global', antialias: 'global' },
     appear: ['write', 'fade'],
     fade: ['fog'],
     layouts: [...NEBBIA_LAYOUTS],
@@ -126,7 +127,6 @@ export const DEFAULT_NEBBIA_TUNING: NebbiaTuning = {
     rainHit: 1,
     rainBig: 1,
     bump: 1,
-    resolution: 1,
 };
 
 /** 运行时（createNebbiaRuntime.ts）的歌：歌词、随机种子，片尾写的曲名和歌手。 */

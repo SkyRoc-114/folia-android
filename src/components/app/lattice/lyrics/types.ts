@@ -1,4 +1,5 @@
 import type { VisualizerSharedProps } from '../../../visualizer/definition';
+import type { LyricRenderScale } from '../../../../types';
 
 // src/components/app/lattice/lyrics/types.ts
 export type LatticeLyricSource = Pick<VisualizerSharedProps,
@@ -19,7 +20,7 @@ export interface LatticeLyricRuntime {
     setErrorHandler(handler: (error: unknown) => void): void;
     update(input: LatticeLyricInput): void;
     /** CSS-pixel box of the host and the screen density it is shown at; a change of either rebuilds the scene. */
-    resize(width: number, height: number, devicePixelRatio: number): void;
+    resize(width: number, height: number, devicePixelRatio: number, scale?: LyricRenderScale): void;
     setVisible(visible: boolean): void;
     destroy(): void;
 }

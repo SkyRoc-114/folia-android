@@ -140,6 +140,24 @@ export type BuiltinVisualizerMode = 'classic' | 'cadenza' | 'partita' | 'fume' |
 export type VisualizerMode = BuiltinVisualizerMode | (string & {});
 export type VisualizerFrameRate = 'off' | 30 | 120 | 90 | 60;
 
+/**
+ * 用 canvas / WebGL 画的歌词样式的渲染分辨率：相对样式自己默认像素密度（大多是屏幕的 devicePixelRatio，钳到 2）的倍数，
+ * 大于 1 是超采样（utils/lyricRenderQuality.ts）。
+ */
+export type LyricRenderScale = 0.5 | 0.75 | 1 | 1.5 | 2;
+/** 歌词画布的抗锯齿：auto 是各样式自己的默认（有的开 MSAA，有的靠后处理）。 */
+export type LyricAntialias = 'auto' | 'on' | 'off';
+/** 「性能与动效」里的全局挡位：各样式默认跟随它。 */
+export interface LyricRenderQuality {
+  scale: LyricRenderScale;
+  antialias: LyricAntialias;
+}
+/** 一个歌词样式自己的分辨率与抗锯齿（存在样式的 tuning 里）：global 跟随全局挡位。 */
+export interface LyricRenderOverride {
+  scale: 'global' | LyricRenderScale;
+  antialias: 'global' | 'on' | 'off';
+}
+
 export type HomeViewTab = 'playlist' | 'local' | 'albums' | 'navidrome' | 'radio' | 'explore';
 
 export type PlaybackContext = 'main' | 'stage';
@@ -420,6 +438,8 @@ export const DEFAULT_CLASSIC_TUNING: ClassicTuning = {
 };
 
 export interface CadenzaTuning {
+  /** 分辨率与抗锯齿（#929）：默认跟随「性能与动效」里的全局挡位（utils/lyricRenderQuality.ts）。 */
+  render: LyricRenderOverride;
   fontScale: number;
   widthRatio: number;
   motionAmount: number;
@@ -428,6 +448,7 @@ export interface CadenzaTuning {
 }
 
 export const DEFAULT_CADENZA_TUNING: CadenzaTuning = {
+  render: { scale: 'global', antialias: 'global' },
   fontScale: 1.12,
   widthRatio: 0.72,
   motionAmount: 1,
@@ -450,6 +471,8 @@ export const DEFAULT_PARTITA_TUNING: PartitaTuning = {
 };
 
 export interface FumeTuning {
+  /** 分辨率与抗锯齿（#929）：默认跟随「性能与动效」里的全局挡位（utils/lyricRenderQuality.ts）。 */
+  render: LyricRenderOverride;
   hidePrintSymbols: boolean;
   disableGeometricBackground: boolean;
   backgroundObjectOpacity: number;
@@ -461,6 +484,7 @@ export interface FumeTuning {
 }
 
 export const DEFAULT_FUME_TUNING: FumeTuning = {
+  render: { scale: 'global', antialias: 'global' },
   hidePrintSymbols: false,
   disableGeometricBackground: true,
   backgroundObjectOpacity: 0.5,
@@ -517,6 +541,8 @@ export const DEFAULT_TILT_TUNING: TiltTuning = {
 };
 
 export interface PendoloTuning {
+  /** 分辨率与抗锯齿（#929）：默认跟随「性能与动效」里的全局挡位（utils/lyricRenderQuality.ts）。 */
+  render: LyricRenderOverride;
   arcRadius: number;
   arcAngleDeg: number;
   wheelCenterX: number;
@@ -530,6 +556,7 @@ export interface PendoloTuning {
 }
 
 export const DEFAULT_PENDOLO_TUNING: PendoloTuning = {
+  render: { scale: 'global', antialias: 'global' },
   arcRadius: 0.42,
   arcAngleDeg: 100,
   wheelCenterX: 0.0,
@@ -545,6 +572,8 @@ export const DEFAULT_PENDOLO_TUNING: PendoloTuning = {
 export type SonnetOuterFrameMode = 'none' | 'frame' | 'full';
 
 export interface SonnetTuning {
+  /** 分辨率与抗锯齿（#929）：默认跟随「性能与动效」里的全局挡位（utils/lyricRenderQuality.ts）。 */
+  render: LyricRenderOverride;
   cameraIntensity: number;
   typographyMotion: number;
   mgDensity: number;
@@ -575,6 +604,7 @@ export interface SonnetTuning {
 }
 
 export const DEFAULT_SONNET_TUNING: SonnetTuning = {
+  render: { scale: 'global', antialias: 'global' },
   cameraIntensity: 1,
   typographyMotion: 1,
   mgDensity: 1,
@@ -680,6 +710,8 @@ export const DEFAULT_TEMPERA_LAYER_IMAGE: Omit<TemperaLayerImage, 'id' | 'name'>
 };
 
 export interface TemperaTuning {
+  /** 分辨率与抗锯齿（#929）：默认跟随「性能与动效」里的全局挡位（utils/lyricRenderQuality.ts）。 */
+  render: LyricRenderOverride;
   cameraIntensity: number;
   /** Per-glyph entrance motion strength, 0..2. */
   glyphMotion: number;
@@ -739,6 +771,7 @@ export interface TemperaTuning {
 }
 
 export const DEFAULT_TEMPERA_TUNING: TemperaTuning = {
+  render: { scale: 'global', antialias: 'global' },
   cameraIntensity: 1,
   glyphMotion: 1,
   wholeLineLyrics: false,
@@ -771,6 +804,8 @@ export const DEFAULT_TEMPERA_TUNING: TemperaTuning = {
 export type LumiereRenderQuality = 'full' | 'balanced' | 'low';
 
 export interface LumiereTuning {
+  /** 分辨率与抗锯齿（#929）：默认跟随「性能与动效」里的全局挡位（utils/lyricRenderQuality.ts）。 */
+  render: LyricRenderOverride;
   /** 光强倍率, 0.3..2. */
   lightIntensity: number;
   /** 随音乐变亮, 0..2 (0 = 不随音乐变). */
@@ -829,6 +864,7 @@ export interface LumiereTuning {
 }
 
 export const DEFAULT_LUMIERE_TUNING: LumiereTuning = {
+  render: { scale: 'global', antialias: 'global' },
   lightIntensity: 1,
   audioResponse: 1,
   fogDensity: 1,
@@ -914,6 +950,8 @@ export const DIORAMA_PARTICLE_GLOW_INTENSITY_MAX = 1.5;
 export const DIORAMA_PARTICLE_GLOW_INTENSITY_STEP = 0.05;
 
 export interface DioramaTuning {
+  /** 分辨率与抗锯齿（#929）：默认跟随「性能与动效」里的全局挡位（utils/lyricRenderQuality.ts）。 */
+  render: LyricRenderOverride;
   cameraSpeed: number;
   motionAmount: number;
   audioReactivity: number;
@@ -951,6 +989,7 @@ export interface DioramaTuning {
 }
 
 export const DEFAULT_DIORAMA_TUNING: DioramaTuning = {
+  render: { scale: 'global', antialias: 'global' },
   cameraSpeed: 1,
   motionAmount: 1,
   audioReactivity: 1,
@@ -1059,6 +1098,8 @@ export interface SoraBackgroundTuning {
 }
 
 export interface MonetTuning {
+  /** 分辨率与抗锯齿（#929）：默认跟随「性能与动效」里的全局挡位（utils/lyricRenderQuality.ts）。 */
+  render: LyricRenderOverride;
   keywordColoringEnabled: boolean;
   showDescription: boolean;
   showAudioVisualization: boolean;
@@ -1134,6 +1175,7 @@ export const DEFAULT_SORA_BACKGROUND_TUNING: SoraBackgroundTuning = {
 };
 
 export const DEFAULT_MONET_TUNING: MonetTuning = {
+  render: { scale: 'global', antialias: 'global' },
   keywordColoringEnabled: true,
   showDescription: true,
   showAudioVisualization: true,

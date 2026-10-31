@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { Line, Theme } from '../../../types';
 import { loadLucideIcons } from '../../../services/lucideIconResolver';
 import { useAppViewStore } from '../../../stores/useAppViewStore';
+import { useVisualizerSettingsStore } from '../../../stores/useVisualizerSettingsStore';
 import { resolveThemeFontStack, resolveThemeFontWeight } from '../../../utils/fontStacks';
 import { getLineRenderEndTime } from '../../../utils/lyrics/renderHints';
 import type { VisualizerSharedProps } from '../definition';
@@ -70,6 +71,8 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
     const { t } = useTranslation();
     const hostRef = useRef<HTMLDivElement>(null);
     const [runtimeFailed, setRuntimeFailed] = useState(false);
+    // 歌词画布的全局分辨率与抗锯齿挡位：画质里跟随全局的两项用它。
+    const renderQuality = useVisualizerSettingsStore(state => state.lyricRenderQuality);
     const [contextEpoch, setContextEpoch] = useState(0);
     // 取景控制条：只在播放页上（预览不接拖拽，也没有地方存改动；画面在主页后面当背景时也不出）。
     const onPlayerPage = useAppViewStore(state => state.view === 'player');
@@ -85,8 +88,8 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
     const shownTuning = useMemo(() => (barDraft ? { ...effectiveTuning, ...barDraft } : effectiveTuning), [effectiveTuning, barDraft]);
 
     // 运行时创建期间这些输入可能已经变了；create 完成后按最新值补一次。
-    const latestRef = useRef({ theme, paused, showText, staticMode, machiTuning, shownTuning, onVisualizerTuningChange });
-    latestRef.current = { theme, paused, showText, staticMode, machiTuning, shownTuning, onVisualizerTuningChange };
+    const latestRef = useRef({ theme, paused, showText, staticMode, machiTuning, shownTuning, renderQuality, onVisualizerTuningChange });
+    latestRef.current = { theme, paused, showText, staticMode, machiTuning, shownTuning, renderQuality, onVisualizerTuningChange };
 
     const previewFromBar = useCallback((patch: Partial<MachiTuning>) => {
         barDraftRef.current = { ...barDraftRef.current, ...patch };
@@ -138,6 +141,7 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
                 song,
                 theme: latest.theme,
                 tuning: latest.shownTuning,
+                renderQuality: latest.renderQuality,
                 currentTime,
                 audioPower,
                 audioBands,
@@ -158,6 +162,7 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
             const current = latestRef.current;
             runtime.setTheme(current.theme);
             runtime.setTuning(current.shownTuning);
+            runtime.setRenderQuality(current.renderQuality);
             runtime.setShowText(current.showText);
             runtime.setStaticMode(current.staticMode);
             runtime.setPaused(current.paused);
@@ -182,6 +187,10 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
     useEffect(() => {
         runtimeRef.current?.setTuning(shownTuning);
     }, [shownTuning, runtimeRef]);
+
+    useEffect(() => {
+        runtimeRef.current?.setRenderQuality(renderQuality);
+    }, [renderQuality, runtimeRef]);
 
     useEffect(() => {
         runtimeRef.current?.setShowText(showText);

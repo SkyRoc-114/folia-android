@@ -4,7 +4,7 @@ import { startLatticeLyricSession } from './latticeLyricSession';
 import type { LatticeLyricInput, LatticeLyricRuntime } from './types';
 import { resolveThemeFontStack, resolveThemeTranslationFontStack, resolveThemeFontWeight } from '../../../../utils/fontStacks';
 import { useDevicePixelRatio } from '../../../../hooks/useMediaQuery';
-import { useLyricSettingsStore } from '../../../../stores/useLyricSettingsStore';
+import { useVisualizerSettingsStore } from '../../../../stores/useVisualizerSettingsStore';
 
 // src/components/app/lattice/lyrics/useLatticeLyricCanvas.ts
 // How long the content box must hold still before the renderer is rebuilt at the new size.
@@ -42,7 +42,8 @@ export function useLatticeLyricCanvas(hostRef: RefObject<HTMLDivElement | null>,
     const latest = useRef(input); latest.current = input;
     const devicePixelRatio = useDevicePixelRatio();
     // #929：质量变化走 resize（它以新 resolution 重分配 renderer + 重排版），不用重建整个会话。
-    const lyricRenderQuality = useLyricSettingsStore(state => state.lyricRenderQuality);
+    // 全局挡位（utils/lyricRenderQuality.ts）跟随「性能与动效」，lattice 不在样式覆盖清单里，只跟全局。
+    const lyricRenderScale = useVisualizerSettingsStore(state => state.lyricRenderQuality.scale);
     const density = useRef(devicePixelRatio); density.current = devicePixelRatio;
     // The host's last observed content box, kept outside the session effect so a density change
     // can resize the live runtime without restarting the session.
@@ -75,7 +76,7 @@ export function useLatticeLyricCanvas(hostRef: RefObject<HTMLDivElement | null>,
             runtime.attach(host);
             runtime.setErrorHandler(onFailure);
             if (latest.current) runtime.update(latest.current);
-            runtime.setVisible(visible()); runtime.resize(box.current.width, box.current.height, density.current);
+            runtime.setVisible(visible()); runtime.resize(box.current.width, box.current.height, density.current, lyricRenderScale);
             setReady(true);
         }, onFailure);
         // A runtime resize reallocates the renderer, re-measures the typography and re-rasterizes
@@ -89,7 +90,7 @@ export function useLatticeLyricCanvas(hostRef: RefObject<HTMLDivElement | null>,
             if (pendingResize !== null) clearTimeout(pendingResize);
             pendingResize = setTimeout(() => {
                 pendingResize = null;
-                runtimeRef.current?.resize(box.current.width, box.current.height, density.current);
+                runtimeRef.current?.resize(box.current.width, box.current.height, density.current, lyricRenderScale);
             }, RESIZE_SETTLE_MS);
         });
         resize.observe(host);
@@ -115,7 +116,7 @@ export function useLatticeLyricCanvas(hostRef: RefObject<HTMLDivElement | null>,
     useEffect(() => { if (input) runtimeRef.current?.update(input); }, [input]);
     // Dragging the window onto a display of another density: same box, different pixel budget.
     // 质量档位变化（#929）同路径：resize 会用新 resolution 重建 renderer。
-    useEffect(() => { runtimeRef.current?.resize(box.current.width, box.current.height, devicePixelRatio); }, [devicePixelRatio, lyricRenderQuality]);
+    useEffect(() => { runtimeRef.current?.resize(box.current.width, box.current.height, devicePixelRatio, lyricRenderScale); }, [devicePixelRatio, lyricRenderScale]);
     useEffect(() => {
         if (!input || !document.fonts) return;
         const primary = `${resolveThemeFontWeight(input.theme, 600)} 36px ${resolveThemeFontStack(input.theme)}`;

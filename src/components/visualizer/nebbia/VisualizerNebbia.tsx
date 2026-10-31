@@ -11,6 +11,7 @@ import { useFirstFrameDrawn } from '../styleTransition/firstFrame';
 import { resolveSubtitleFontSizes } from '../subtitleFontSizes';
 import VisualizerShell from '../VisualizerShell';
 import VisualizerSubtitleOverlay from '../VisualizerSubtitleOverlay';
+import { useLyricRenderQuality } from '../renderQuality/useLyricRenderQuality';
 import { NebbiaRuntime } from './createNebbiaRuntime';
 import { nebbiaSeesThrough } from './nebbiaBehind';
 import { DEFAULT_NEBBIA_TUNING, type NebbiaTuning } from './types';
@@ -27,7 +28,7 @@ const VisualizerNebbia: React.FC<Props> = (props) => {
     const {
         currentTime, currentLineIndex, lines, theme, audioPower, audioBands,
         showText = true, lyricsFontScale = 1, staticMode = false, paused = false, seed = 'nebbia', songTitle, songArtist,
-        isPlayerChromeHidden = false, hideTranslationSubtitle = false,
+        isPlayerChromeHidden = false, hideTranslationSubtitle = false, isPreviewMode = false,
         subtitleOverlayLayout, subtitleTheme, subtitleFontScale, subtitleOverlayOpacity, subtitleOverlayBackground, subtitleUpcomingLyricsBlur,
         isDaylight = false, nebbiaTuning = DEFAULT_NEBBIA_TUNING,
     } = props;
@@ -41,6 +42,9 @@ const VisualizerNebbia: React.FC<Props> = (props) => {
     const [drawn, setDrawn] = useState(false);
     const firstFrameDrawn = useFirstFrameDrawn();
     const seeThrough = nebbiaSeesThrough(nebbiaTuning, props.background, props.isPreviewMode);
+    // 分辨率（#929）：全屏着色器没有 MSAA，只跟分辨率倍数；预览的小图保持原来的像素密度
+    const renderQuality = useLyricRenderQuality(nebbiaTuning.render);
+    const renderScale = isPreviewMode ? 1 : renderQuality.scale;
 
     // 真正在画的歌：切歌时滞后于 props，免得对着还没到的歌词排版（songHandover.ts）
     const committed = useVisualizerSongCommit({ seed, lines, currentTime, readyGraceMs: 3000 });
@@ -50,8 +54,8 @@ const VisualizerNebbia: React.FC<Props> = (props) => {
         [committedLines, committed.seed, songTitle, songArtist],
     );
 
-    const latest = useRef({ theme, tuning: nebbiaTuning, song, lyricsFontScale, showText, isDaylight, paused, staticMode, firstFrameDrawn });
-    latest.current = { theme, tuning: nebbiaTuning, song, lyricsFontScale, showText, isDaylight, paused, staticMode, firstFrameDrawn };
+    const latest = useRef({ theme, tuning: nebbiaTuning, renderScale, song, lyricsFontScale, showText, isDaylight, paused, staticMode, firstFrameDrawn });
+    latest.current = { theme, tuning: nebbiaTuning, renderScale, song, lyricsFontScale, showText, isDaylight, paused, staticMode, firstFrameDrawn };
 
     useEffect(() => {
         const host = hostRef.current;
@@ -67,7 +71,7 @@ const VisualizerNebbia: React.FC<Props> = (props) => {
                 onFirstFrame: () => { setDrawn(true); latest.current.firstFrameDrawn(); },
                 onFailed: () => { setFailed(true); setDrawn(true); latest.current.firstFrameDrawn(); },
                 onRestored: () => setGeneration(value => value + 1),
-            }, l.theme, l.tuning);
+            }, l.theme, l.tuning, l.renderScale);
             runtime.setFontScale(l.lyricsFontScale);
             runtime.setShowText(l.showText);
             runtime.setDaylight(l.isDaylight);
@@ -90,6 +94,7 @@ const VisualizerNebbia: React.FC<Props> = (props) => {
 
     useEffect(() => { runtimeRef.current?.setSong(song); }, [song]);
     useEffect(() => { runtimeRef.current?.setTuning(nebbiaTuning); }, [nebbiaTuning]);
+    useEffect(() => { runtimeRef.current?.setRenderScale(renderScale); }, [renderScale]);
     useEffect(() => { runtimeRef.current?.setTheme(theme); }, [theme]);
     useEffect(() => { runtimeRef.current?.setFontScale(lyricsFontScale); }, [lyricsFontScale]);
     useEffect(() => { runtimeRef.current?.setShowText(showText); }, [showText]);

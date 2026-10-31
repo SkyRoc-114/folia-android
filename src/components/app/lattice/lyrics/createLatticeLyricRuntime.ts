@@ -1,7 +1,7 @@
 import { cubicBezier } from 'framer-motion';
 import { loadPixi } from '../../../visualizer/pixi/loadPixi';
-import { useLyricSettingsStore } from '../../../../stores/useLyricSettingsStore';
-import { applyLyricRenderQuality } from '../../../../utils/lyricRenderQuality';
+import { resolveLyricPixelRatio } from '../../../../utils/lyricRenderQuality';
+import type { LyricRenderScale } from '../../../../types';
 import { clearMonetMeasurementCaches, type MonetVisibleLineEntry } from '../../../visualizer/monet/monetLyricsModel';
 import { MONET_SCROLL_SPRING, MONET_SCALE_SPRING, resolveMonetTone } from '../../../visualizer/monet/monetLyricMotion';
 import { createLatticeRaster } from './latticeLyricRaster';
@@ -29,11 +29,11 @@ let initialization: Promise<unknown> = Promise.resolve();
  * supersampling for that downscale and visibly softens glyph edges. Capped at 2 so a denser screen
  * never costs more than before.
  */
-export const latticeLyricResolution = (devicePixelRatio: number) =>
-    applyLyricRenderQuality(
-        useLyricSettingsStore.getState().lyricRenderQuality,
-        devicePixelRatio,
-        dpr => Math.min(2, Math.max(1, Number.isFinite(dpr) && dpr > 0 ? Math.ceil(dpr) : 1)),
+export const latticeLyricResolution = (devicePixelRatio: number, scale: LyricRenderScale = 1) =>
+    // 渲染质量挡位（#929）：base 是 ceil 鉹 1..2 的样式默认密度，倍数用共用的 resolveLyricPixelRatio（超上限不外加，缩小照常）。
+    resolveLyricPixelRatio(
+        Math.min(2, Math.max(1, Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? Math.ceil(devicePixelRatio) : 1)),
+        scale,
     );
 
 /**
@@ -190,8 +190,8 @@ function attachRuntime(pixi: typeof import('pixi.js'), app: import('pixi.js').Ap
             if (rebuild) { clear(); timeline = createLatticeTimeline(input.lines); typography = resolveLatticeTypography(input, width, height, raster.measure); }
             loop.wake();
         },
-        resize(w, h, devicePixelRatio) {
-            const nextResolution = latticeLyricResolution(devicePixelRatio);
+        resize(w, h, devicePixelRatio, scale: LyricRenderScale = 1) {
+            const nextResolution = latticeLyricResolution(devicePixelRatio, scale);
             if (destroyed || (w === width && h === height && nextResolution === resolution)) return;
             width = w; height = h; resolution = nextResolution;
             app.renderer.resize(Math.max(1, width), Math.max(1, height), resolution);

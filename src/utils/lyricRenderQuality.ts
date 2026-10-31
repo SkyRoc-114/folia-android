@@ -1,40 +1,64 @@
-// 歌词画布渲染质量（#929）：把散在各风格里的 `min(2, max(1, dpr))` 收拢成一个宿主设置。
-// 这里只放纯函数与类型，不 import store —— 各 runtime/组件自行读 useLyricSettingsStore
-// 再传进来，保证本文件可单测、也无循环依赖。
+import type { LyricAntialias, LyricRenderOverride, LyricRenderQuality, LyricRenderScale } from '../types';
 
-/** auto = 维持旧行为（随 devicePixelRatio，钳 1..2）；1/2/3 = 固定倍率。 */
-export type LyricRenderQuality = 'auto' | '1' | '2' | '3';
+// src/utils/lyricRenderQuality.ts
+// 歌词画布的分辨率与抗锯齿（#929）：「性能与动效」里一个全局挡位，用 canvas / WebGL 画的歌词样式各自有一份覆盖，
+// 默认「跟随全局」。这里是纯函数：校验存着的值、合出一个样式实际用的那一组、按样式自己的默认像素密度算出渲染倍率。
+// 全局挡位存在 useVisualizerSettingsStore，样式的覆盖存在样式自己的 tuning 里，模组经 folium.visualizer 读写全局挡位。
 
-export const LYRIC_RENDER_QUALITY_VALUES: readonly LyricRenderQuality[] = ['auto', '1', '2', '3'];
+export const LYRIC_RENDER_QUALITY_STORAGE_KEY = 'lyric_render_quality';
 
-export const DEFAULT_LYRIC_RENDER_QUALITY: LyricRenderQuality = 'auto';
+export const LYRIC_RENDER_SCALES = [0.5, 0.75, 1, 1.5, 2] as const satisfies readonly LyricRenderScale[];
+export const LYRIC_ANTIALIAS_MODES = ['auto', 'on', 'off'] as const satisfies readonly LyricAntialias[];
+/** 样式覆盖里抗锯齿的取值（「自动」只在全局挡位里有：就是跟着样式自己的默认）。 */
+export const LYRIC_ANTIALIAS_OVERRIDES = ['global', 'on', 'off'] as const satisfies readonly LyricRenderOverride['antialias'][];
 
-export const isLyricRenderQuality = (value: unknown): value is LyricRenderQuality =>
-    typeof value === 'string' && (LYRIC_RENDER_QUALITY_VALUES as readonly string[]).includes(value);
+/** 默认就是各样式原来的样子：分辨率不加不减，抗锯齿按样式自己的默认。 */
+export const DEFAULT_LYRIC_RENDER_QUALITY: LyricRenderQuality = { scale: 1, antialias: 'auto' };
+export const DEFAULT_LYRIC_RENDER_OVERRIDE: LyricRenderOverride = { scale: 'global', antialias: 'global' };
 
-/** 旧行为：1 倍屏给 1，2 倍及以上给 2（ceil 后钳 1..2）。 */
-export const legacyLyricResolution = (devicePixelRatio: number): number =>
-    Math.min(2, Math.max(1, Number.isFinite(devicePixelRatio) && devicePixelRatio > 0 ? Math.ceil(devicePixelRatio) : 1));
+/** 超采样后的渲染倍率最多到这么大（2 倍屏上再超采样 2 倍会是 4，显存和填充率都吃不消）。 */
+export const MAX_LYRIC_PIXEL_RATIO = 3;
 
-/**
- * 歌词图层最终渲染倍率。
- * - 'auto'：维持旧行为（分数字屏向上取整，钳 1..2）；
- * - '1'/'2'/'3'：固定倍率，钳到 ≥1（不设上限：4K 大屏用户可显式选 3，
- *   纹理上限由各消费方（如字形图集的 maxCanvasPx）自行裁剪）。
- */
-export const resolveLyricRenderQuality = (quality: LyricRenderQuality, devicePixelRatio: number): number => {
-    if (quality === 'auto') return legacyLyricResolution(devicePixelRatio);
-    const fixed = Number.parseInt(quality, 10);
-    return Number.isFinite(fixed) && fixed > 0 ? fixed : 1;
+export const isLyricRenderScale = (value: unknown): value is LyricRenderScale => (LYRIC_RENDER_SCALES as readonly unknown[]).includes(value);
+
+/** 存着的（或模组给的）全局挡位读成合法值，缺的、不认识的取默认。 */
+export const normalizeLyricRenderQuality = (raw: unknown): LyricRenderQuality => {
+    const input = raw && typeof raw === 'object' ? raw as Partial<Record<keyof LyricRenderQuality, unknown>> : {};
+    return {
+        scale: isLyricRenderScale(input.scale) ? input.scale : DEFAULT_LYRIC_RENDER_QUALITY.scale,
+        antialias: (LYRIC_ANTIALIAS_MODES as readonly unknown[]).includes(input.antialias) ? input.antialias as LyricAntialias : DEFAULT_LYRIC_RENDER_QUALITY.antialias,
+    };
 };
 
+/** 样式 tuning 里存着的覆盖读成合法值；没有这一项（旧的存档）就是全跟随全局。 */
+export const normalizeLyricRenderOverride = (raw: unknown): LyricRenderOverride => {
+    const input = raw && typeof raw === 'object' ? raw as Partial<Record<keyof LyricRenderOverride, unknown>> : {};
+    return {
+        scale: isLyricRenderScale(input.scale) ? input.scale : 'global',
+        antialias: input.antialias === 'on' || input.antialias === 'off' ? input.antialias : 'global',
+    };
+};
+
+/** 一个样式实际用的分辨率倍数与抗锯齿：覆盖里写了具体值就用它，否则用全局挡位。 */
+export const resolveLyricRenderQuality = (global: LyricRenderQuality, override?: LyricRenderOverride | null): LyricRenderQuality => ({
+    scale: override && override.scale !== 'global' ? override.scale : global.scale,
+    antialias: override && override.antialias !== 'global' ? override.antialias : global.antialias,
+});
+
 /**
- * 各风格的接入口：auto 时保留该风格原有的 resolution 计算（各处细节略有差异——
- * lattice 用 ceil、hanabi/lumiere 不取整——不去强行统一，避免「自动」档行为漂移）；
- * 固定档统一走 resolveLyricRenderQuality。
+ * 渲染倍率：样式自己的默认像素密度（base，各样式原来怎么算还怎么算）乘上分辨率倍数，最多 MAX_LYRIC_PIXEL_RATIO；
+ * 默认密度本来就超过上限时不再往上加，但缩小照样生效。
  */
-export const applyLyricRenderQuality = (
-    quality: LyricRenderQuality,
-    devicePixelRatio: number,
-    legacy: (dpr: number) => number,
-): number => (quality === 'auto' ? legacy(devicePixelRatio) : resolveLyricRenderQuality(quality, devicePixelRatio));
+export const resolveLyricPixelRatio = (base: number, scale: LyricRenderScale, max = MAX_LYRIC_PIXEL_RATIO) => {
+    const safeBase = Number.isFinite(base) && base > 0 ? base : 1;
+    const ratio = safeBase * scale;
+    return scale > 1 ? Math.max(safeBase, Math.min(ratio, max)) : ratio;
+};
+
+/** 抗锯齿开不开：auto 用样式自己的默认。 */
+export const resolveLyricAntialias = (antialias: LyricAntialias, styleDefault: boolean) => (
+    antialias === 'auto' ? styleDefault : antialias === 'on'
+);
+
+/** 面板和命令面板里显示的分辨率倍数（“1.5×”）。 */
+export const formatLyricRenderScale = (scale: LyricRenderScale) => `${scale}×`;

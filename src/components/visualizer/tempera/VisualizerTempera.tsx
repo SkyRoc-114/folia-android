@@ -5,14 +5,15 @@ import type { Line } from '../../../types';
 import { extractRepresentativeColors } from '../../../utils/colorExtractor';
 import { loadTemperaLayerImageBlobs } from '../../../services/temperaLayerImages';
 import { resolveThemeFontStack, resolveThemeFontWeight } from '../../../utils/fontStacks';
+import { resolveLyricAntialias } from '../../../utils/lyricRenderQuality';
 import { getLineRenderEndTime } from '../../../utils/lyrics/renderHints';
 import type { VisualizerSharedProps } from '../definition';
 import { useVisualizerPixiHost } from '../pixi/pixiRuntimeHost';
+import { useLyricRenderQuality } from '../renderQuality/useLyricRenderQuality';
 import { useVisualizerRuntime } from '../runtime';
 import { useVisualizerSongCommit } from '../songHandover';
 import VisualizerShell from '../VisualizerShell';
 import VisualizerSubtitleOverlay from '../VisualizerSubtitleOverlay';
-import { useAndroidLayoutSettingsStore } from '../../../stores/useAndroidLayoutSettingsStore';
 import type {
     TemperaPixiRuntime,
     TemperaSongContext,
@@ -50,24 +51,23 @@ const VisualizerTempera: React.FC<VisualizerSharedProps> = (props) => {
         subtitleOverlayOpacity,
         subtitleOverlayBackground,
         subtitleUpcomingLyricsBlur,
+        isPreviewMode = false,
         temperaTuning = DEFAULT_TEMPERA_TUNING,
     } = props;
     const { t } = useTranslation();
     const hostRef = useRef<HTMLDivElement>(null);
     const pausedRef = useRef(paused);
     pausedRef.current = paused;
-    // 轻量模式（Android 默认开）：关 tempera 后处理/折射层这类重 WebGL 特效（Sakurakilove
-    // 同款取舍）。只改生效值不改用户存储的 tuning，开关一关立刻回来；后处理决定画布是否
-    // 抗锯齿（定格于 context 创建），所以生效值变化会经 rebuildKey 触发整体重建。
-    const liteModeEnabled = useAndroidLayoutSettingsStore(state => state.liteModeEnabled);
-    const effectiveTemperaTuning = useMemo(
-        () => (liteModeEnabled && temperaTuning.postProcessEnabled
-            ? { ...temperaTuning, postProcessEnabled: false }
-            : temperaTuning),
-        [temperaTuning, liteModeEnabled],
-    );
-    const temperaTuningRef = useRef(effectiveTemperaTuning);
-    temperaTuningRef.current = effectiveTemperaTuning;
+    const temperaTuningRef = useRef(temperaTuning);
+    temperaTuningRef.current = temperaTuning;
+    // 分辨率与抗锯齿（#929）：全局挡位叠上本样式的覆盖。倍数乘在 textureResolution 上；抗锯齿「自动」是原来的
+    // !postProcessEnabled（开了后处理画面画进滤镜自己的多重采样目标，画布 MSAA 只剩画框边缘受益）。
+    // 预览（样式架小图、样式窗口、主题乐园）保持原来的密度和抗锯齿，不跟这两个设置。
+    const renderQuality = useLyricRenderQuality(temperaTuning.render);
+    const renderScale = isPreviewMode ? 1 : renderQuality.scale;
+    const antialias = resolveLyricAntialias(isPreviewMode ? 'auto' : renderQuality.antialias, !temperaTuning.postProcessEnabled);
+    const renderScaleRef = useRef(renderScale);
+    renderScaleRef.current = renderScale;
     const latestSongMetadataRef = useRef<TemperaSongMetadata>({
         title: songTitle,
         artist: songArtist,
@@ -194,9 +194,10 @@ const VisualizerTempera: React.FC<VisualizerSharedProps> = (props) => {
         hostRef,
         label: 'Tempera',
         // Only inputs that genuinely need a new WebGL context and texture pool. The song is
-        // handed to the live runtime instead - see TemperaPixiRuntime.swapSong. Post-processing
-        // decides whether the canvas is antialiased, which is fixed when the context is made.
-        rebuildKey: [currentTime, imageBlobs, lyricsFontScale, staticMode, effectiveTemperaTuning.postProcessEnabled],
+        // handed to the live runtime instead - see TemperaPixiRuntime.swapSong. Whether the canvas
+        // is antialiased is fixed when the context is made: post-processing decides it unless the
+        // 抗锯齿 setting forces it. The 分辨率 multiplier is pushed in place (setRenderScale).
+        rebuildKey: [currentTime, imageBlobs, lyricsFontScale, staticMode, antialias],
         song: songContext,
         create: async (host, song, signal) => {
             const { TemperaPixiRuntime } = await import('./createTemperaPixiRuntime');
@@ -207,6 +208,8 @@ const VisualizerTempera: React.FC<VisualizerSharedProps> = (props) => {
                 program: song.program,
                 theme: song.theme,
                 tuning: temperaTuningRef.current,
+                renderScale: renderScaleRef.current,
+                antialias,
                 currentTime,
                 lyricsFontScale,
                 staticMode,
@@ -221,6 +224,7 @@ const VisualizerTempera: React.FC<VisualizerSharedProps> = (props) => {
             runtime.setSongMetadata(latestSongMetadataRef.current);
             // The tuning may have moved on while Pixi was importing or initializing.
             runtime.setTuning(temperaTuningRef.current);
+            runtime.setRenderScale(renderScaleRef.current);
             // The pause state may have changed while Pixi was importing or initializing.
             runtime.setPaused(pausedRef.current);
             return runtime;
@@ -233,8 +237,12 @@ const VisualizerTempera: React.FC<VisualizerSharedProps> = (props) => {
     // Tuning is pushed into the live renderer rather than rebuilding it. A rebuild per pointer
     // move re-initialises WebGL, re-decodes every placed image and re-measures every line.
     useEffect(() => {
-        runtimeRef.current?.setTuning(effectiveTemperaTuning);
-    }, [effectiveTemperaTuning, runtimeRef]);
+        runtimeRef.current?.setTuning(temperaTuning);
+    }, [temperaTuning, runtimeRef]);
+
+    useEffect(() => {
+        runtimeRef.current?.setRenderScale(renderScale);
+    }, [renderScale, runtimeRef]);
 
     useEffect(() => {
         runtimeRef.current?.setSongMetadata(latestSongMetadataRef.current);
