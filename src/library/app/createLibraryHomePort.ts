@@ -113,11 +113,10 @@ export const createLibraryHomePort = (getSurface: () => HomePortSurface): Librar
         describeNavidromeCard: (card, type) => createNavidromeGridViewCollection(card, type),
         notify: (notice) => {
             const text = translateHomeMessage(i18n.t, notice.message);
-            if (notice.kind === 'alert') {
-                alert(text);
-                return;
-            }
-            getSurface().onStatusMessage?.({ type: notice.type, text });
+            // 「alert」类提示不再弹阻塞式原生框（安卓 WebView 里是 Chrome 风格的"网页弹窗"）：
+            // 一律走 surface 的应用内状态提示（App 层 onStatusMessage 就是全局 toast 的写入口）。
+            // 合同里的 'alert' 变体保留给上游合并面，本仓不再产出。
+            getSurface().onStatusMessage?.({ type: notice.kind === 'alert' ? 'error' : notice.type, text });
         },
     };
 };
