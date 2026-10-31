@@ -39,20 +39,40 @@ def find_signing_block(data: bytes):
     return pairs
 
 
+def _u32(buf: bytes, off: int) -> int:
+    return struct.unpack_from("<I", buf, off)[0]
+
+
+def _field(buf: bytes, off: int, what: str):
+    """读一个长度前缀字段：[uint32 长度（不含自身 4 字节）][内容]，返回 (内容, 下一偏移)。
+    .293 首跑教训：把这里当 TLV 自含长度解析，逐层错位后仍能取到「看似合理」的字节，
+    算出格式良好但完全错误的指纹。"""
+    n = _u32(buf, off)
+    if n < 0 or off + 4 + n > len(buf):
+        raise ValueError(f"{what} framing mismatch")
+    return buf[off + 4: off + 4 + n], off + 4 + n
+
+
 def first_certificate(pairs: dict) -> bytes:
-    """v2/v3 signer: 长度前缀 signer -> signed data -> certificates 序列，取第一张。"""
+    """v2/v3 签名块取第一张证书 DER。层级（每层 [长度不含自身][内容]）：
+    value → signers 序列（单 signer 必须恰好耗尽）→ signer → signed data →
+    digests → certificates → cert1。signed data 尾部（additional attributes 及
+   其对齐）不强校验——只逐层校验我们走过的地方。"""
     for pid in (V3_SCHEME, V2_SCHEME):
-        if pid in pairs:
-            val = pairs[pid][0]
-            (signer_len,) = struct.unpack_from("<I", val, 0)
-            signer = val[4: 4 + signer_len]
-            (sd_len,) = struct.unpack_from("<I", signer, 0)
-            sd = signer[4: 4 + sd_len]
-            (d_len,) = struct.unpack_from("<I", sd, 0)
-            (certs_len,) = struct.unpack_from("<I", sd, 4 + d_len)
-            blob = sd[4 + d_len + 4: 4 + d_len + 4 + certs_len]
-            (clen,) = struct.unpack_from("<I", blob, 0)
-            return blob[4: 4 + clen]
+        if pid not in pairs:
+            continue
+        val = pairs[pid][0]
+        signers, off = _field(val, 0, "signers")
+        if off != len(val):
+            raise ValueError("signers trailing bytes")
+        signer, _ = _field(signers, 0, "signer")
+        signed_data, _ = _field(signer, 0, "signed data")
+        _, off = _field(signed_data, 0, "digests")
+        certs, _ = _field(signed_data, off, "certificates")
+        cert, _ = _field(certs, 0, "certificate")
+        if not cert.startswith(b"\x30\x82"):
+            raise ValueError("certificate not DER")
+        return cert
     raise ValueError("no v2/v3 signature")
 
 
