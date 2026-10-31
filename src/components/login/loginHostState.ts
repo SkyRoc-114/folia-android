@@ -111,6 +111,20 @@ export const createLoginHostState = (ports: LoginHostPorts) => {
         /** 退出选中的平台的登录；真的退出了才关窗，在确认框里点了取消窗口留着。 */
         signOutChosen: (): void => forChosen(providerId => ports.signOut(providerId), () => ports.closeWindow()),
 
+        /**
+         * 返回键/边缘滑动的多页返回（安卓）：选中的那一步（二维码、账号那一幅）先退回平台这一页，
+         * 这一次返回就被消费掉（true），窗口留着——再一次返回没人接，Sheet 自己关窗（false）。
+         * 结束这一轮的规矩与关窗相同：正在进行的登录停下，晚到的回答不作数。成功动画放着的时候窗口
+         * 归动画管，不退（false）；窗口没开、什么都没选，没有上一页可退（false）。
+         */
+        backOut(): boolean {
+            if (!open || state.done || !state.chosen) return false;
+            turn += 1;
+            ports.closeLogin();
+            set(NOTHING_CHOSEN);
+            return true;
+        },
+
         /** 窗口打开了一次：给了平台就选中它，没给就什么都不选、什么都不开始。 */
         opened(providerId: OnlineProviderId | null): void {
             turn += 1;

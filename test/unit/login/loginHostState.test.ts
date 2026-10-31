@@ -181,6 +181,51 @@ describe('the sign-in window\'s host', () => {
         expect(useLoginWindowStore.getState().isOpen).toBe(false);
     });
 
+    // 返回键/边缘滑动的多页返回：二维码那一步退回平台列表，再一次才是关窗（Sheet 的 onEscape 先问 backOut）。
+    describe('backing out a page', () => {
+        it('with nothing chosen there is no page to go back to: false, the window close stays Sheet\'s', () => {
+            const { host, said } = setup();
+            host.opened(null);
+            expect(host.backOut()).toBe(false);
+            expect(said).toEqual(['stop']);
+        });
+
+        it('a window that is not open backs out of nothing', () => {
+            const { host } = setup();
+            expect(host.backOut()).toBe(false);
+        });
+
+        it('with a row chosen backing out ends the turn: the sign-in stops, the platform list is back, the window stays', () => {
+            const { host, said } = setup();
+            host.opened('code-a');
+            expect(host.getState().chosen).toEqual({ providerId: 'code-a', lead: 'sign-in' });
+            expect(host.backOut()).toBe(true);
+            expect(host.getState()).toEqual({ chosen: null, done: false });
+            expect(said).toEqual(['stop', 'start code-a', 'stop']);
+            expect(said).not.toContain('close');
+        });
+
+        it('a backed-out turn is over: a late switch does nothing, and a row can be chosen again', async () => {
+            const { host, said, tell } = setup();
+            host.opened('in');
+            host.switchToChosen();
+            expect(host.backOut()).toBe(true);
+            await tell('switch', true);
+            expect(said).not.toContain('close');
+            host.choose('code-a');
+            expect(host.getState().chosen).toEqual({ providerId: 'code-a', lead: 'sign-in' });
+            expect(said.at(-1)).toBe('start code-a');
+        });
+
+        it('while the sign-in animation plays there is no backing out: the window belongs to the animation', () => {
+            const { host } = setup({ plays: true });
+            host.opened('code-a');
+            host.completed(completion('code-a'));
+            expect(host.getState().done).toBe(true);
+            expect(host.backOut()).toBe(false);
+        });
+    });
+
     describe('once the account is read', () => {
         it('with motion on the window stays for the animation, and the animation ends when it is told so', () => {
             const { host, said } = setup({ plays: true });
