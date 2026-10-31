@@ -14,7 +14,7 @@ import { resolveSmartBeatSettings, type SmartBeatPatch } from '../services/beatF
 import { parseVisualizerFrameRate, VISUALIZER_FRAME_RATE_STORAGE_KEY } from '../utils/frameRateLimiter';
 import { DEFAULT_LYRIC_RENDER_QUALITY, LYRIC_RENDER_QUALITY_STORAGE_KEY, normalizeLyricRenderQuality } from '../utils/lyricRenderQuality';
 
-import { getStoredString } from './storagePrimitives';
+import { getStoredString, removeStoredKey, setStoredString } from './storagePrimitives';
 import { normalizeRandomVisualizerModes } from '../utils/randomVisualizerModes';
 
 export const RANDOM_VISUALIZER_MODES_STORAGE_KEY = 'random_visualizer_modes';
@@ -107,10 +107,29 @@ export const readStoredVisualizerFrameRate = (): VisualizerFrameRate => {
     return parseVisualizerFrameRate(localStorage.getItem(VISUALIZER_FRAME_RATE_STORAGE_KEY));
 };
 
-/** 歌词画布的全局分辨率与抗锯齿挡位（utils/lyricRenderQuality.ts）。 */
+/**
+ * 旧 #929 实现（d9796d6a）的歌词抗锯齿布尔键：Folium 1.8 的 lyric_render_quality 挡位取代了它，
+ * 存量值在这里一次性搬过去（true → 抗锯齿 on，旧用户明确要 MSAA；false/未设 → 默认 auto），
+ * 然后删旧键。新键已存在时旧键只是陈旧残留，顺手清掉。只读不写业务语义，新代码不要再用这个键。
+ */
+const LEGACY_LYRIC_ANTIALIAS_STORAGE_KEY = 'lyrics_antialias';
+
+const consumeLegacyLyricAntialias = (): 'true' | 'false' | null => {
+    const legacy = getStoredString(LEGACY_LYRIC_ANTIALIAS_STORAGE_KEY, '');
+    if (!legacy) return null;
+    removeStoredKey(LEGACY_LYRIC_ANTIALIAS_STORAGE_KEY);
+    return legacy === 'true' ? 'true' : 'false';
+};
+
+/** 歌词画布的全局分辨率与抗锯齿挡位（utils/lyricRenderQuality.ts）；首次读取时顺带完成旧键迁移。 */
 export const readStoredLyricRenderQuality = (): LyricRenderQuality => {
     const saved = getStoredString(LYRIC_RENDER_QUALITY_STORAGE_KEY, '');
-    if (!saved) return DEFAULT_LYRIC_RENDER_QUALITY;
+    const legacy = consumeLegacyLyricAntialias();
+    if (!saved) {
+        const migrated: LyricRenderQuality = legacy === 'true' ? { scale: 1, antialias: 'on' } : DEFAULT_LYRIC_RENDER_QUALITY;
+        if (legacy !== null) setStoredString(LYRIC_RENDER_QUALITY_STORAGE_KEY, JSON.stringify(migrated));
+        return migrated;
+    }
     try {
         return normalizeLyricRenderQuality(JSON.parse(saved));
     } catch {
