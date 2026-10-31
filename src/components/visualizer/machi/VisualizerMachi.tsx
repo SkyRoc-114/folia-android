@@ -87,7 +87,10 @@ const VisualizerMachi: React.FC<VisualizerMachiProps> = (props) => {
     const [barDraft, setBarDraft] = useState<Partial<MachiTuning> | null>(null);
     // Android 兜底（docs/plans/2026-10-31-…-design.md §2.3）：生效值画质钳到低档（抗锯齿/阴影/倒影/bloom 关，
     // 分辨率不高于低档），存储值与桌面不动；帽下引用稳定，不引发无谓的运行时重建。
-    const effectiveTuning = useMemo(() => capMachiTuningForAndroid(machiTuning, IS_ANDROID_WEBVIEW), [machiTuning]);
+    const effectiveTuning = useMemo(
+        () => capMachiTuningForAndroid(machiTuning, IS_ANDROID_WEBVIEW, renderQuality),
+        [machiTuning, renderQuality],
+    );
     // 导出渲染钉住（a390a45b：视频导出固定按 1× 画）：钉住值再过一遍 Android 帽，帽在导出状态也不放宽。
     const shownTuning = useMemo(() => {
         const tuning = barDraft ? { ...effectiveTuning, ...barDraft } : effectiveTuning;

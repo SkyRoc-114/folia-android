@@ -54,3 +54,45 @@ describe('capMachiTuningForAndroid', () => {
         expect(capMachiTuningForAndroid(tuning as never, true)).toBe(tuning);
     });
 });
+
+// Folium 1.8（3b4f01a7）之后町景的 renderScale/antialias 可以是 'global'（跟随「性能与动效」的全局挡位）：
+// 钳制前先 resolve 成数值/枚举再钳；全局挡位从 useVisualizerSettingsStore 读进来，缺省用默认挡位（1× + auto）。
+describe('capMachiQualityForAndroid with global quality (Folium 1.8)', () => {
+    it('resolves global fields above the cap down to the low preset', () => {
+        const user: MachiQuality = { ...MACHI_QUALITY_PRESETS.high, adaptive: true };
+        expect(user.renderScale).toBe('global');
+        const capped = capMachiQualityForAndroid(user, { scale: 1.5, antialias: 'on' });
+        expect(capped.renderScale).toBe(0.75);
+        expect(capped.antialias).toBe('off');
+        expect(capped.shadows).toBe('off');
+        expect(capped.adaptive).toBe(true);
+    });
+
+    it('keeps a resolved global scale that is already under the cap (0.5 stays 0.5)', () => {
+        const user: MachiQuality = { ...MACHI_QUALITY_PRESETS.high, adaptive: false };
+        const capped = capMachiQualityForAndroid(user, { scale: 0.5, antialias: 'off' });
+        expect(capped.renderScale).toBe(0.5);
+        expect(capped.antialias).toBe('off');
+    });
+
+    it('resolves global antialias: auto/on mean the machi default (SMAA) and off means off', () => {
+        const auto = capMachiQualityForAndroid({ ...MACHI_QUALITY_PRESETS.high, adaptive: false }, { scale: 0.5, antialias: 'auto' });
+        expect(auto.antialias).toBe('off'); // auto → SMAA（样式默认）→ 钳到 off
+        const on = capMachiQualityForAndroid({ ...MACHI_QUALITY_PRESETS.high, adaptive: false }, { scale: 0.5, antialias: 'on' });
+        expect(on.antialias).toBe('off'); // on → SMAA → 钳到 off
+        const off = capMachiQualityForAndroid({ ...MACHI_QUALITY_PRESETS.high, adaptive: false }, { scale: 0.5, antialias: 'off' });
+        expect(off.antialias).toBe('off');
+    });
+
+    it('caps the high preset (global fields) with no explicit global quality passed', () => {
+        const capped = capMachiQualityForAndroid({ ...MACHI_QUALITY_PRESETS.high, adaptive: true });
+        expect(capped).toEqual({ ...MACHI_QUALITY_PRESETS.low, adaptive: true });
+    });
+
+    it('tuning-level cap also resolves global fields', () => {
+        const tuning = { quality: { ...MACHI_QUALITY_PRESETS.high, adaptive: true }, motion: true };
+        const capped = capMachiTuningForAndroid(tuning as never, true) as typeof tuning;
+        expect(capped.quality.renderScale).toBe(0.75);
+        expect(capped.quality.antialias).toBe('off');
+    });
+});
