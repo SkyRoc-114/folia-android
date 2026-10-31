@@ -5,6 +5,7 @@ import { percent, SliderRow, times, ToggleRow } from '../panelRows';
 import {
     DEFAULT_NEBBIA_TUNING,
     NEBBIA_APPEAR_STYLES,
+    NEBBIA_BEHIND,
     NEBBIA_FADE_STYLES,
     NEBBIA_LAYOUTS,
     NEBBIA_LIMITS,
@@ -131,9 +132,18 @@ const NebbiaSettingsPanel: React.FC<VisualizerSettingsPanelProps<NebbiaTuning>> 
             <Group def={WINDOW_GROUP}>{sliders(WINDOW_SLIDERS)}</Group>
             {/* 窗外每样单独开关，和上面几组不同，可以全关 */}
             <Group def={SCENERY_GROUP} foot={t('options.nebbiaSceneryHint')}>
+                <Row label={t('options.nebbiaBehind')} note={t('options.nebbiaBehindHint')}>
+                    <Segmented<NebbiaTuning['behind']>
+                        value={resolved.behind}
+                        options={NEBBIA_BEHIND.map(behind => ({ value: behind, label: t(`options.nebbiaBehind_${behind}`) }))}
+                        onChange={behind => onTuningChange({ behind })}
+                    />
+                </Row>
+                {/* 窗外用共用背景时街景不画，下面几项看不出来（聚光灯照在雾上的那圈光还在） */}
                 {NEBBIA_SCENERY.map(part => (
                     <ToggleRow
                         key={part}
+                        disabled={resolved.behind === 'backdrop' && part !== 'spot'}
                         label={t(`options.nebbiaScenery_${part}`)}
                         checked={resolved.scenery.includes(part)}
                         onChange={next => onTuningChange({ scenery: NEBBIA_SCENERY.filter(c => (c === part ? next : resolved.scenery.includes(c))) })}
@@ -142,7 +152,7 @@ const NebbiaSettingsPanel: React.FC<VisualizerSettingsPanelProps<NebbiaTuning>> 
                 {/* 窗外的雨只画在聚光灯光柱里（被照亮的雨丝），聚光灯关着或强度为 0 时这项看不出来 */}
                 <Row label={t('options.nebbiaRain')} note={t('options.nebbiaRainHint')}>
                     <Segmented<NebbiaTuning['rain']>
-                        disabled={!resolved.scenery.includes('spot') || resolved.spot <= 0}
+                        disabled={resolved.behind === 'backdrop' || !resolved.scenery.includes('spot') || resolved.spot <= 0}
                         value={resolved.rain}
                         options={NEBBIA_RAIN.map(rain => ({ value: rain, label: t(`options.nebbiaRain_${rain}`) }))}
                         onChange={rain => onTuningChange({ rain })}

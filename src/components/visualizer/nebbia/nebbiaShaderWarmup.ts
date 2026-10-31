@@ -17,7 +17,7 @@ export const warmNebbiaShaders = (): void => {
     started = true;
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 1;
-    // 上下文参数和运行时（nebbiaGl.ts）一样
+    // 上下文参数和运行时（nebbiaGl.ts）一样；透明时运行时带透明通道，程序缓存按源码命中，不影响
     const gl = canvas.getContext('webgl2', { antialias: false, alpha: false, preserveDrawingBuffer: false });
     if (!gl) {
         console.info('[Nebbia] shader warm-up skipped: no WebGL2');

@@ -71,6 +71,9 @@ uniform vec2 uGlassShift; uniform float uMist, uEdge, uRefract, uGlint;
 uniform sampler2D uFogBlur, uFogGlow;
 // 静态噪声纹理（nebbiaNoiseTex.ts）：按 px 取样；uNoiseOn 为假（还没算好、画布超过纹理尺寸上限）时现算
 uniform bool uNoiseOn; uniform sampler2D uNoise;
+// 透明（窗外是共用背景或桌面）：不画窗外，输出预乘的透明度。雾是一层半透明的白雾，擦开的地方全透明，
+// 光（聚光灯、擦痕边、水珠高光）只加颜色不加不透明度，叠在后面的东西上
+uniform bool uSeeThrough;
 ${STATIC_NOISE}
 void main() {
   // 颠簸：玻璃上的东西（雾、擦痕、水珠）跟车身一起晃，窗外晃得更多
@@ -100,7 +103,8 @@ void main() {
   // 雾：模糊的窗外提亮发灰，光晕散得更开，加浓淡起伏和细颗粒，下半部分略浓
   float dens = uMist * (0.82 + 0.3 * vnoise(px / 380.0 + uTime * 0.015)) * (0.9 + 0.2 * vUv.y) + breath * 0.9;
   vec3 haze = vec3(0.70, 0.74, 0.78);
-  vec3 blur, glow;
+  vec3 blur = vec3(0.0), glow = vec3(0.0);
+  if (!uSeeThrough) {
 #if NEBBIA_FOG_TEX
   // 预渲染纹理的第 0 行是 vUv.y = 1（屏幕底部），所以纵向翻一下
   vec2 fu = vec2(vUv.x, 1.0 - vUv.y);
@@ -110,9 +114,17 @@ void main() {
   blur = scene(q, 0.03);
   glow = scene(q, 0.09);
 #endif
+  }
   // 密到普通雾的范围以上（哈气）时，窗外再暗一点、乳白再多一点
   vec3 fog = blur * max(0.08, 1.0 - 0.45 * dens - 0.25 * breath) + glow * 0.9 * dens + haze * (0.2 * dens + 0.25 * breath);
-  fog += (hash(px) - 0.5) * 0.025;
+  // 透明时雾的浓淡就是不透明度，颜色是乳白
+  float alpha = 1.0;
+  if (uSeeThrough) {
+    alpha = clamp(0.62 * dens + 0.3 * breath, 0.0, 0.92);
+    fog = vec3(0.86, 0.89, 0.92) * alpha;
+  }
+  // 透明时颗粒乘不透明度：雾很淡的地方不在后面的东西上撒亮点
+  fog += (hash(px) - 0.5) * 0.025 * alpha;
   // 聚光灯照到玻璃上：雾里的小水滴把光散开，字周围一圈雾被照成强调色
   vec2 sd = q - uSpotTgt;
   fog += uLa * uSpotI * exp(-dot(sd, sd) / (uSpotR * uSpotR * 2.2)) * (0.18 + 0.4 * dens);
@@ -125,9 +137,10 @@ void main() {
   vec3 col = fog;
   if (clear > 0.001) {
     // 擦开的地方：清晰的窗外，留一层很薄的水膜
-    vec3 wiped = scene(q, 0.0012) * 1.05 + haze * 0.02 * dens;
+    vec3 wiped = (uSeeThrough ? vec3(0.0) : scene(q, 0.0012) * 1.05) + haze * 0.02 * dens;
     float rim = clear * (1.0 - clear) * 4.0;
     col = mix(fog, wiped, clear) + rim * haze * 0.16 * dens;
+    if (uSeeThrough) alpha = mix(alpha, 0.02 * dens, clear) + rim * 0.16 * dens;
   }
   // 合成方式照搬 raindrop-fx 的 compose.glsl：阈值成形、按法线折射清晰的窗外、按光照明暗
   vec4 comp = vec4(rd.rgb + fd.rgb - 2.0 * rd.rgb * fd.rgb, max(rd.a, fd.a));
@@ -136,17 +149,24 @@ void main() {
     vec2 nn = comp.rg - 0.5;
     vec2 ruv = sv + vec2(-nn.x, nn.y) * (comp.b * 0.6 + 0.4) * uRefract;
     // 雾笺 demo 用的是轻度模糊的背景、漫反射 0.2–0.5、高光指数 48
-    vec3 lens = scene(vec2(ruv.x * aspect, ruv.y), 0.006);
+    vec3 lens = uSeeThrough ? vec3(0.0) : scene(vec2(ruv.x * aspect, ruv.y), 0.006);
     vec3 normal = normalize(vec3(nn * 2.0, 1.0));
     vec3 lightDir = normalize(vec3(-1.0, 1.0, 2.0));
     float lambert = clamp(dot(lightDir, normal), 0.0, 1.0);
     float spec = pow(max(dot(normal, normalize(lightDir + vec3(0.0, 0.0, 1.0))), 0.0), 48.0);
     lens += (lambert - 0.8) * vec3(0.3, 0.3, 0.32) + spec * vec3(0.3, 0.3, 0.33) * uGlint;
-    // 车厢里的灯照在水珠表面：比纯透过去的窗外亮一点，不会在灰白的雾上显成黑点
-    lens = max(lens, fog * 0.55) + haze * 0.08 * dens;
+    if (uSeeThrough) {
+      // 透明时水珠本身是一层薄雾（颜色跟它的不透明度走），明暗的那部分只剩高光加上去
+      float da = alpha * 0.55 + 0.08 * dens;
+      lens = vec3(0.86, 0.89, 0.92) * da + max(lens, vec3(0.0));
+      alpha = mix(alpha, da, dmask);
+    } else {
+      // 车厢里的灯照在水珠表面：比纯透过去的窗外亮一点，不会在灰白的雾上显成黑点
+      lens = max(lens, fog * 0.55) + haze * 0.08 * dens;
+    }
     col = mix(col, lens, dmask);
   }
-  outColor = vec4(col, 1.0);
+  outColor = uSeeThrough ? vec4(max(col, 0.0), alpha) : vec4(col, 1.0);
 }`;
 
 /** 主画面：用预渲染的雾。 */

@@ -74,7 +74,7 @@ export class NebbiaRuntime {
         this.glyphs = new NebbiaGlyphCache(resolveThemeFontStack(theme), resolveThemeFontWeight(theme, 600));
         input.host.appendChild(this.canvas);
         try {
-            this.gl = new NebbiaGl(this.canvas);
+            this.gl = new NebbiaGl(this.canvas, input.seeThrough);
             this.gl.onSpriteReady = () => this.requestFrame();
             this.canvas.addEventListener('webglcontextlost', this.handleContextLost);
             this.canvas.addEventListener('webglcontextrestored', this.handleContextRestored);

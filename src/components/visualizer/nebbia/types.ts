@@ -28,6 +28,10 @@ export type NebbiaSceneryPart = typeof NEBBIA_SCENERY[number];
 export const NEBBIA_RAIN = ['slant', 'straight', 'off'] as const;
 export type NebbiaRain = typeof NEBBIA_RAIN[number];
 
+/** 窗外是什么：雾笺自己画的雨夜街景，或者共用背景（雾变成一层半透明的白雾，擦开的字透出后面；透明模式下就是桌面）。 */
+export const NEBBIA_BEHIND = ['night', 'backdrop'] as const;
+export type NebbiaBehind = typeof NEBBIA_BEHIND[number];
+
 export interface NebbiaTuning {
     /** 打开的出现方式，至少一种。 */
     appear: NebbiaAppearStyle[];
@@ -35,6 +39,8 @@ export interface NebbiaTuning {
     fade: NebbiaFadeStyle[];
     /** 打开的构图，至少一种。 */
     layouts: NebbiaLayout[];
+    /** 窗外是街景还是共用背景；播放页透明时总是共用背景（那时背景卸掉，透出桌面）。 */
+    behind: NebbiaBehind;
     /** 窗外打开的几样，可以一样都没有。 */
     scenery: NebbiaSceneryPart[];
     /** 窗外的雨。 */
@@ -101,6 +107,7 @@ export const DEFAULT_NEBBIA_TUNING: NebbiaTuning = {
     appear: ['write', 'fade'],
     fade: ['fog'],
     layouts: [...NEBBIA_LAYOUTS],
+    behind: 'night',
     scenery: [...NEBBIA_SCENERY],
     rain: 'slant',
     credits: true,
@@ -127,6 +134,8 @@ export interface NebbiaSong { lines: Line[]; seed: string | number; title?: stri
 /** React 外壳交给运行时的宿主、两个每帧读的 MotionValue 和回调。 */
 export interface NebbiaRuntimeInput {
     host: HTMLElement;
+    /** 窗外不画，画布带透明通道：雾是半透明的白雾，擦开的地方全透明。建好就不变，要换得重建运行时。 */
+    seeThrough: boolean;
     currentTime: MotionValue<number>;
     vocal: MotionValue<number>;
     onFirstFrame: () => void;

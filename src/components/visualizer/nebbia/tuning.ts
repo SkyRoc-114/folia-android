@@ -2,6 +2,7 @@ import { defineVisualizerTuning, numberWithin, type StoredTuningFields } from '.
 import {
     DEFAULT_NEBBIA_TUNING,
     NEBBIA_APPEAR_STYLES,
+    NEBBIA_BEHIND,
     NEBBIA_FADE_STYLES,
     NEBBIA_LAYOUTS,
     NEBBIA_LIMITS,
@@ -42,6 +43,7 @@ export const normalizeNebbiaTuning = (stored: unknown): NebbiaTuning => {
         appear: subsetOf(NEBBIA_APPEAR_STYLES, appear, base.appear),
         fade: subsetOf(NEBBIA_FADE_STYLES, fade, base.fade),
         layouts: subsetOf(NEBBIA_LAYOUTS, values.layouts, base.layouts),
+        behind: NEBBIA_BEHIND.find(b => b === values.behind) ?? base.behind,
         // 窗外可以全关：只有没存过（旧的 tuning）才用默认
         scenery: Array.isArray(values.scenery) ? NEBBIA_SCENERY.filter(c => (values.scenery as unknown[]).includes(c)) : [...base.scenery],
         rain: NEBBIA_RAIN.find(r => r === values.rain) ?? base.rain,

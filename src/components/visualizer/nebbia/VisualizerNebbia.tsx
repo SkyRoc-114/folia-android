@@ -12,11 +12,13 @@ import { resolveSubtitleFontSizes } from '../subtitleFontSizes';
 import VisualizerShell from '../VisualizerShell';
 import VisualizerSubtitleOverlay from '../VisualizerSubtitleOverlay';
 import { NebbiaRuntime } from './createNebbiaRuntime';
+import { nebbiaSeesThrough } from './nebbiaBehind';
 import { DEFAULT_NEBBIA_TUNING, type NebbiaTuning } from './types';
 
 // src/components/visualizer/nebbia/VisualizerNebbia.tsx
 // 雾笺的 React 外壳：挂共享 shell / 字幕层，运行时建一次，换歌、tuning、主题、暂停都就地推给它。
 // 每帧的时间只在运行时的循环里读 currentTime，不进 React state。WebGL2 不可用或上下文丢了，就退回只显示当前这句。
+// 窗外换成共用背景（或播放页透明）时画布要带透明通道，只能新建上下文：运行时整个重建。
 const EMPTY_LINES: Line[] = [];
 
 type Props = VisualizerSharedProps & { nebbiaTuning?: NebbiaTuning };
@@ -38,6 +40,7 @@ const VisualizerNebbia: React.FC<Props> = (props) => {
     // 着色器在后台编，第一帧之前画布是空的：拿这一刻做小图的（frozenPicture.ts）等它画出来
     const [drawn, setDrawn] = useState(false);
     const firstFrameDrawn = useFirstFrameDrawn();
+    const seeThrough = nebbiaSeesThrough(nebbiaTuning, props.background, props.isPreviewMode);
 
     // 真正在画的歌：切歌时滞后于 props，免得对着还没到的歌词排版（songHandover.ts）
     const committed = useVisualizerSongCommit({ seed, lines, currentTime, readyGraceMs: 3000 });
@@ -58,6 +61,7 @@ const VisualizerNebbia: React.FC<Props> = (props) => {
             const l = latest.current;
             runtime = new NebbiaRuntime({
                 host,
+                seeThrough,
                 currentTime,
                 vocal: audioBands.vocal,
                 onFirstFrame: () => { setDrawn(true); latest.current.firstFrameDrawn(); },
@@ -81,7 +85,7 @@ const VisualizerNebbia: React.FC<Props> = (props) => {
             runtimeRef.current = null;
             runtime.destroy();
         };
-    }, [audioBands.vocal, currentTime, generation]);
+    }, [audioBands.vocal, currentTime, generation, seeThrough]);
 
     useEffect(() => { runtimeRef.current?.setSong(song); }, [song]);
     useEffect(() => { runtimeRef.current?.setTuning(nebbiaTuning); }, [nebbiaTuning]);
@@ -100,8 +104,8 @@ const VisualizerNebbia: React.FC<Props> = (props) => {
     const subtitleFontSizes = resolveSubtitleFontSizes(lyricsFontScale);
 
     return (
-        <VisualizerShell theme={theme} audioPower={audioPower} audioBands={audioBands} sharedProps={props} renderBackground={false}>
-            <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden" style={{ background: '#05070a' }}>
+        <VisualizerShell theme={theme} audioPower={audioPower} audioBands={audioBands} sharedProps={props} renderBackground={seeThrough}>
+            <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden" style={{ background: seeThrough ? undefined : '#05070a' }}>
                 <div ref={hostRef} className="absolute inset-0" aria-hidden="true" {...(drawn ? {} : { [ARRIVING_MARK]: '' })} />
                 {failed && (
                     <div
