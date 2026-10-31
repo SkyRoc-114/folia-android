@@ -27,6 +27,12 @@ interface CappellaMessageRowProps {
     metricsCache: React.MutableRefObject<Map<string, PreparedBubbleMetrics>>;
     intensityConfig: CappellaIntensityConfig;
     customAvatarImages?: CappellaAvatarImage[];
+    /**
+     * 字体就绪计数。主题字体是 Web 字体，未就绪时 pretext 会按回退字体量出偏小的宽度
+     * （见 useFontsEpoch），气泡再用 CSS maxWidth 卡住，最后一个字就被挤到第二排。
+     * 这个值进 memo 依赖，字体换进来之后按新度量重算。
+     */
+    fontsEpoch?: number;
 }
 
 export const CappellaMessageRow = React.forwardRef<HTMLDivElement, CappellaMessageRowProps>(({
@@ -42,6 +48,7 @@ export const CappellaMessageRow = React.forwardRef<HTMLDivElement, CappellaMessa
     metricsCache,
     intensityConfig,
     customAvatarImages,
+    fontsEpoch,
 }, ref) => {
     const isRight = message.side === 'right';
     const timedData: CappellaTimedMessage | null = isTimedMessage(message) ? message : null;
@@ -82,7 +89,7 @@ export const CappellaMessageRow = React.forwardRef<HTMLDivElement, CappellaMessa
             })
             : null,
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [bubbleFontSize, bubblePaddingX, bubblePaddingY, isActiveMessage, lineHeightPx, maxTextWidth, message, metricsCache, theme]
+        [bubbleFontSize, bubblePaddingX, bubblePaddingY, isActiveMessage, lineHeightPx, maxTextWidth, message, metricsCache, theme, fontsEpoch]
     );
     const [visibleCharacterCount, setVisibleCharacterCount] = useState(() => (
         preparedMetrics ? getCharacterCountAtTime(preparedMetrics.revealTimes, currentTime.get()) : 0

@@ -11,6 +11,7 @@ import { getPrefetchedData, prefetchNearbySongs } from '../../../../services/pre
 import { retireBlobUrl } from '../../../../services/playbackBlobUrls';
 import type { ThemeCacheSongKey } from '../../../../services/themeCache';
 import { hasRenderableLyrics } from '../../../../utils/appPlaybackHelpers';
+import { errorMessage } from '../../../../utils/errorText';
 import {
     isLocalPlaybackSong,
     isNavidromePlaybackSong,
@@ -1684,7 +1685,9 @@ export function useLibraryPlaybackController({
                 setStatusMsg({ type: 'success', text: nextLiked ? t('status.liked') : (t('status.unliked') || '') });
             } catch (error) {
                 console.error('Failed to update local favorite playlist', error);
-                setStatusMsg({ type: 'error', text: t('status.likeFailed') });
+                // 只显示「收藏失败」时用户和排查都看不出原因，把给来的说明接在后面（不含凭据）。
+                const detail = errorMessage(error);
+                setStatusMsg({ type: 'error', text: detail ? `${t('status.likeFailed')} (${detail})` : t('status.likeFailed') });
             }
             return;
         }
@@ -1733,7 +1736,8 @@ export function useLibraryPlaybackController({
                     const held = outcome.confirmed ?? starredBefore;
                     showStarred(held);
                     console.warn(`[Like] navidrome:${songId} put back: it shows ${held ? 'liked' : 'not liked'} again, which is what Navidrome holds`);
-                    setStatusMsg({ type: 'error', text: t('status.likeFailed') || '' });
+                    const navidromeDetail = errorMessage(outcome.error);
+                    setStatusMsg({ type: 'error', text: navidromeDetail ? `${t('status.likeFailed')} (${navidromeDetail})` : (t('status.likeFailed') || '') });
                 });
             }
             return;
@@ -1763,11 +1767,14 @@ export function useLibraryPlaybackController({
                 if (outcome.ok || failedLikeRunsSaid.has(press.settled)) return;
                 failedLikeRunsSaid.add(press.settled);
                 console.error('Like failed', outcome.error);
-                setStatusMsg({ type: 'error', text: t('status.likeFailed') });
+                // 一次失败只说一句的语义不变：这里只是把 provider 给的失败原因接在后面。
+                const detail = errorMessage(outcome.error);
+                setStatusMsg({ type: 'error', text: detail ? `${t('status.likeFailed')} (${detail})` : t('status.likeFailed') });
             });
         } catch (error) {
             console.error('Like failed', error);
-            setStatusMsg({ type: 'error', text: t('status.likeFailed') });
+            const detail = errorMessage(error);
+            setStatusMsg({ type: 'error', text: detail ? `${t('status.likeFailed')} (${detail})` : t('status.likeFailed') });
         }
     }, [
         currentSong,

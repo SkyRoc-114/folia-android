@@ -185,6 +185,36 @@ const textOfOpenAiContent = (content: unknown): string => {
     .join('');
 };
 
+/** 一次主题请求的原始结果：正文 + 结束原因 + 正文长度（截断重试要用长度比大小）。 */
+export interface ThemeRawReply {
+    text: string;
+    /** 'length' 表示被输出上限截断，JSON 一定不完整；其余（stop/其他）按完成处理。 */
+    finishReason: 'length' | 'stop';
+    textLength: number;
+}
+
+/**
+ * 被输出上限截断时再要一次（main 线 cff50711 语义移植）。
+ *
+ * `finish_reason=length` 意味着 JSON 一定不完整，`stage=parse` 的「Invalid AI theme JSON format」现场
+ * 报告就是这种形态。截断取决于这一次推理花了多少预算，是偶发的 —— 再要一次通常就是完整的。
+ * 只在这一种情况下多发一次请求；第二次更短（同为截断）时保留第一次，避免用更差的响应替换。
+ */
+export const requestThemeJsonWithTruncationRetry = async (
+    request: () => Promise<ThemeRawReply>,
+): Promise<ThemeRawReply> => {
+    const first = await request();
+    if (first.finishReason !== 'length') return first;
+    try {
+        const second = await request();
+        if (second.finishReason === 'length' && second.textLength < first.textLength) return first;
+        return second;
+    } catch {
+        // 重试失败就沿用第一次的响应与它自带的 finish/chars 诊断。
+        return first;
+    }
+};
+
 const generateThemeWithDirectClient = async (
   lyricsText: string,
   options?: { isPureMusic?: boolean; songTitle?: string },
@@ -193,29 +223,35 @@ const generateThemeWithDirectClient = async (
   const snippet = lyricsText.slice(0, 2000);
   const sourcePrompt = buildThemeSourcePrompt(snippet, options?.isPureMusic === true, options?.songTitle);
   const temperature = directAiTemperature(settings.openaiTemperature);
-  let text = '';
 
-  if (settings.provider === 'openai') {
-    const key = resolveDirectAiKey(settings.openaiApiKey);
-    const reply = await postDirectAiJson(
-      directOpenAiChatCompletionsUrl(settings.openaiApiUrl),
-      { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-      {
-        model: settings.openaiApiModel.trim() || DEFAULT_AI_CLIENT_MODEL,
-        messages: [
-          { role: 'system', content: THEME_GENERATION_PROMPT_PREFIX },
-          { role: 'user', content: sourcePrompt },
-        ],
-        temperature,
-        response_format: { type: 'json_object' },
-      },
-    );
-    const payload = parseJsonText(reply.text);
-    if (!reply.ok) {
-      throw new Error(`${DIRECT_AI_ERROR_PREFIX} (${reply.status}): ${providerErrorOf(payload) || reply.text.slice(0, 300)}`);
+  const requestOnce = async (): Promise<ThemeRawReply> => {
+    if (settings.provider === 'openai') {
+      const key = resolveDirectAiKey(settings.openaiApiKey);
+      const reply = await postDirectAiJson(
+        directOpenAiChatCompletionsUrl(settings.openaiApiUrl),
+        { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+        {
+          model: settings.openaiApiModel.trim() || DEFAULT_AI_CLIENT_MODEL,
+          messages: [
+            { role: 'system', content: THEME_GENERATION_PROMPT_PREFIX },
+            { role: 'user', content: sourcePrompt },
+          ],
+          temperature,
+          response_format: { type: 'json_object' },
+        },
+      );
+      const payload = parseJsonText(reply.text);
+      if (!reply.ok) {
+        throw new Error(`${DIRECT_AI_ERROR_PREFIX} (${reply.status}): ${providerErrorOf(payload) || reply.text.slice(0, 300)}`);
+      }
+      const choice = (payload as { choices?: { message?: { content?: unknown }; finish_reason?: unknown }[] } | null)?.choices?.[0];
+      const text = textOfOpenAiContent(choice?.message?.content);
+      return {
+        text,
+        finishReason: choice?.finish_reason === 'length' ? 'length' : 'stop',
+        textLength: text.length,
+      };
     }
-    text = textOfOpenAiContent((payload as { choices?: { message?: { content?: unknown } }[] } | null)?.choices?.[0]?.message?.content);
-  } else {
     const key = resolveDirectAiKey(settings.geminiApiKey);
     const reply = await postDirectAiJson(
       geminiGenerateContentUrl(AI_CLIENT_GEMINI_MODEL),
@@ -230,15 +266,24 @@ const generateThemeWithDirectClient = async (
     if (!reply.ok) {
       throw new Error(`${DIRECT_AI_ERROR_PREFIX} (${reply.status}): ${providerErrorOf(payload) || reply.text.slice(0, 300)}`);
     }
-    const parts = (payload as { candidates?: { content?: { parts?: unknown } }[] } | null)?.candidates?.[0]?.content?.parts;
-    text = Array.isArray(parts)
+    const candidate = (payload as { candidates?: { content?: { parts?: unknown }; finishReason?: unknown }[] } | null)?.candidates?.[0];
+    const parts = candidate?.content?.parts;
+    const text = Array.isArray(parts)
       ? parts
         .filter((part): part is { text?: unknown } => Boolean(part) && typeof part === 'object')
         .filter(part => typeof part.text === 'string')
         .map(part => String(part.text))
         .join('')
       : '';
-  }
+    return {
+      text,
+      // Gemini 的截断标记是 finishReason: 'LENGTH'（大写枚举）。
+      finishReason: candidate?.finishReason === 'LENGTH' ? 'length' : 'stop',
+      textLength: text.length,
+    };
+  };
+
+  const { text } = await requestThemeJsonWithTruncationRetry(requestOnce);
 
   if (!text.trim()) {
     throw new Error('The AI answered an empty theme; try again or switch models.');

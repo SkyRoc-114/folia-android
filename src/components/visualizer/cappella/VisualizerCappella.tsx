@@ -9,6 +9,7 @@ import VisualizerShell from '../VisualizerShell';
 import VisualizerSubtitleOverlay from '../VisualizerSubtitleOverlay';
 import { builtinEmoImages } from './emoImages';
 import type { PreparedBubbleMetrics } from './cappellaTypes';
+import { useFontsEpoch } from '../../../hooks/useFontsEpoch';
 import { CAPPELLA_PREHEAT_WINDOW } from './cappellaConstants';
 import { getCappellaIntensityConfig } from './cappellaIntensity';
 import { buildCappellaMessages } from './cappellaMessages';
@@ -53,6 +54,13 @@ const VisualizerCappella: React.FC<VisualizerCappellaProps> = (props) => {
             : { width: window.innerWidth, height: window.innerHeight }
     ));
     const bubbleMetricsCacheRef = useRef(new Map<string, PreparedBubbleMetrics>());
+    const fontsEpoch = useFontsEpoch();
+    // 主题字体是 Web 字体：字体换进来之前量出来的气泡宽度偏小，气泡被 CSS maxWidth 卡住会把
+    // 最后一个字挤到第二排。字体就绪（或换主题）后丢掉旧度量，下面各处的 memo 依赖 fontsEpoch
+    // 会按新字体重算。
+    useEffect(() => {
+        bubbleMetricsCacheRef.current.clear();
+    }, [fontsEpoch]);
     const [visibleLineIndex, setVisibleLineIndex] = useState(() => getVisibleLineIndexAtTime(lines, currentTime.get()));
     const visibleLineIndexRef = useRef(visibleLineIndex);
     const titleText = songTitle?.trim() || t('ui.noTrack');
@@ -188,6 +196,7 @@ const VisualizerCappella: React.FC<VisualizerCappellaProps> = (props) => {
                                     metricsCache={bubbleMetricsCacheRef}
                                     intensityConfig={intensityConfig}
                                     customAvatarImages={customAvatarImages}
+                                    fontsEpoch={fontsEpoch}
                                 />
                             ))}
                         </AnimatePresence>

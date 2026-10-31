@@ -10,10 +10,13 @@ import { MACHI_QUALITY_PRESETS, MACHI_RENDER_SCALES, type MachiQuality, type Mac
 
 const LOW = MACHI_QUALITY_PRESETS.low;
 
-/** 域内取不高于上限的最大档（MACHI_RENDER_SCALES 是降序枚举）；上限来自「用户档与低档取小」。 */
+/** 域内取不高于上限的最大档（MACHI_RENDER_SCALES 是降序枚举，取第一个命中）；上限来自「用户档与低档取小」。 */
 const cappedRenderScale = (quality: MachiQuality): MachiQuality['renderScale'] => {
     const limit = Math.min(quality.renderScale, LOW.renderScale);
-    return Math.max(...MACHI_RENDER_SCALES.filter(scale => scale <= limit));
+    for (const scale of MACHI_RENDER_SCALES) {
+        if (scale <= limit) return scale;
+    }
+    return LOW.renderScale;
 };
 
 /** 已在帽下（不高于低档）就不另建对象，调用方 useMemo 可以靠同一引用免掉无谓的重建。 */

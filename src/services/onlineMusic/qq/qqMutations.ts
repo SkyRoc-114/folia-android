@@ -1,4 +1,4 @@
-import type { SongResult } from '../../../types';
+import type { SongResult, UnifiedSong } from '../../../types';
 import type { MediaId, OnlineMutationProvider, ProviderCollection } from '../../../types/onlineMusic';
 import { OnlineProviderError } from '../../../types/onlineMusic';
 import { normalizeQqCollection } from './qqNormalize';
@@ -48,9 +48,13 @@ const qqSongMidOf = (song: MediaId | SongResult): string => {
 
 /**
  * 写入要的是数字歌曲 id（songId），歌单与曲库里的歌正规化时都存了它。只有 songmid 的歌（老缓存、个别搜索结果）
- * 补查一次歌曲详情取回 id；仍拿不到就报错，不拿 songmid 去猜。
+ * 补查一次歌曲详情取回 id；仍拿不到就报错，不拿 songmid 去猜。查不到时把「查到哪一步」写进错误，
+ * 否则报告里只看到「没有数字 id」，分不清是没有 mid、详情请求失败，还是详情里没有 id。
  */
 const resolveQqSongId = async (song: MediaId | SongResult): Promise<number> => {
+    let songMid: string | null = null;
+    let detailFailed = false;
+    let detail: UnifiedSong | null = null;
     if (typeof song !== 'object') {
         const id = positiveInteger(song);
         if (id !== null) return id;
@@ -58,12 +62,24 @@ const resolveQqSongId = async (song: MediaId | SongResult): Promise<number> => {
         const sourceRef = song.sourceRef?.kind === 'online' && song.sourceRef.providerId === 'qq' ? song.sourceRef : undefined;
         const id = positiveInteger(sourceRef?.providerData?.songId) ?? positiveInteger(song.id);
         if (id !== null) return id;
-        const songMid = qqSongMidOf(song);
-        const detail = songMid ? await requestQqSongDetail(songMid) : null;
+        songMid = qqSongMidOf(song);
+        if (songMid) {
+            try {
+                detail = await requestQqSongDetail(songMid);
+            } catch {
+                detailFailed = true;
+            }
+        }
         const detailId = detail ? positiveInteger(detail.id) : null;
         if (detailId !== null) return detailId;
     }
-    throw new OnlineProviderError('invalid-response', 'QQ song has no numeric song id for a playlist write', 'qq');
+    throw new OnlineProviderError(
+        'invalid-response',
+        'QQ song has no numeric song id for a playlist write'
+        + ` (mid=${songMid || 'missing'},`
+        + ` detail=${detailFailed ? 'request-failed' : detail ? 'returned-no-id' : songMid ? 'empty' : 'not-requested'})`,
+        'qq',
+    );
 };
 
 /** 没有改动时，读回的结果是不是已经是用户要的样子（加歌：都在；删歌：都不在）。 */
