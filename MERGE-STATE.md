@@ -9,12 +9,21 @@
 - `origin` = https://github.com/SkyRoc-114/folia-android （Android 移植 fork，工作分支 `android-0.7.22`）
 - `upstream` = https://github.com/chthollyphile/folia-major （上游桌面版）
 - `whycfawa` = 父仓库参考（`https://github.com/whycfawa/folia.git`；2026-10-29 查询 404，可能已改名/转私有，用到时先 `ls-remote` 验证）
-- 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）
+- 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）——**2026-10-31 20:30 沙箱重置后已丢失，待用户重发新 PAT（旧 ghp_kpr8... 已建议撤销）**
 - ⚠️ PAT 绝不能写进仓库任何被跟踪的文件
 
 ## 当前进度（2026-10-31 +08 更新）
 
-- **最新批次：雾笺窗外场景跟进——上游 scenery-toggles + cold-start（2026-10-31，用户指令「大版本跟进/比对差距/不适合则等价实现/发布」放行，随 v0.7.22-android.291 发布）**；计划 `docs/plans/2026-10-31-nebbia-scenery-toggles-cold-start.md`
+- **仓库维护批次：main 重锚定 + 分支清理（2026-10-31 20:30+08，用户指令「清理分支，更新仓库」；沙箱重置后 blobless clone 恢复，凭证丢失待用户重发）**
+  - **沙箱重置恢复**：folia-android/ 与凭证全部丢失；`git clone --filter=blob:none` 恢复（tip 与 .291 tag 一致 1a1fd2b1，零丢失）；upstream 重挂；MERGE-STATE 本文件即接力源
+  - **origin 远端盘点**：仅 3 heads（android-0.7.22 发布线 / main / meta）+ 11 tags（.281-.291）全部有效，**无垃圾分支可删**
+  - **main 重锚定 ✅（本地完成待推）**：`main-relaunch` = android-0.7.22 + 两个 `-s ours` 声明式合并（ad82d546 吸纳 origin/main 207 独有提交、e1a598f2 吸纳 upstream/main，树与发布线 diff=0）。背景：origin/main 与 upstream/main 分叉 207/587，真 merge 冲突 214 文件不可行；main 线工作已全量回流发布线（QQ 批次对账 0 缺口），声明式吸纳=历史可达性恢复（fork 页 behind 提示消除）+ 零丢失。**待 push：`git push origin main-relaunch:main`**
+  - **⚠️ Folium 1.8 新批次侦察（待用户拍板跟进）**：.291 发布后 20:09+08 上游合入 3 个有效提交（v0.7.25 之上）：
+    - `3b4f01a7` **Folium 1.8 大提交：111 文件 +3470/-788**——①町景切换不卡主线程（programWarmup 按真实渲染目标预编 + KHR_parallel_shader_compile 后台编 + 分段建场景，冷启动主线程 1.8s→50-85ms；降级顺序改：先景深/超采样/MSAA 再倒影/辉光/分辨率/后期抗锯齿，阴影最后；稳态开销削减）②歌词画布全局渲染质量挡位 `lyric_render_quality`（分辨率 0.5×-2× + 抗锯齿自动/开/关，10 样式各加「渲染」组可独立覆盖，町景两项加「跟随全局」，雾笺分辨率滑块并入共用设置）③Folium mod API（getRenderQuality/setRenderQuality + electron/modSystem + mods/folium.d.ts + docs——**桌面 mod 系统专属，Android 无 Electron**）
+    - `a390a45b` fix：视频导出固定 1× 画；心象「默认」不重置面板没有的项（11 文件）
+    - `c56bf8ec` fix：雾笺按排版尺寸量画布，预览笔画粗细生效（1 文件）
+    - 适配要点：③建议随树全收保持零分叉（Android 构建不含 electron 代码）；①的 machi 降级顺序改动**与我们 androidVisualizerPerfCap 钳制层交互需重点测试**（钳制在帽下让位、新降级顺序是否穿透）；②与我们旧布尔键 `lyrics_antialias`（useLyricSettingsStore，#929 先行实现）存在键位关系，需设计旧值→新挡位迁移
+- **上一批：雾笺窗外场景跟进——上游 scenery-toggles + cold-start（2026-10-31，用户指令「大版本跟进/比对差距/不适合则等价实现/发布」放行，随 v0.7.22-android.291 发布）**；计划 `docs/plans/2026-10-31-nebbia-scenery-toggles-cold-start.md`
   - 上游状态：`upstream/main` HEAD 仍 = v0.7.25（20c3ecd0，limo tag 对齐）；本批 5 提交来自两条**未合并**分支（PR 状态匿名 API 限流查不到）：`feat/nebbia-scenery-toggles` 4 提交 + `perf/nebbia-cold-start-no-gpu-wait` 1 提交
   - 逐笔 cherry-pick -x 全部干净/语义合并 ✅：
     - bace7cdc ← 69f9fd16（窗外各样单独开关：天气/楼群/路灯等逐项可关，雨可斜/竖/无；新键 nebbiaScenery 4 例）
