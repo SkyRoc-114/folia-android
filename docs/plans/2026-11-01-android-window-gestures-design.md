@@ -44,9 +44,17 @@
 - **不把弹窗做成 Android 原生 Dialog/新 Activity**：WebView 壳里再造原生窗需要把每个弹窗的 UI 重写进原生或再开一个 WebView，18 个弹窗工程量爆炸且丢失全部 web 交互；bottom-sheet 呈现 + 手势补全在用户感知上就是「安卓的独立窗口」（Android 自己的 bottom sheet 也是这么呈现的）。此解读写进 release notes，用户若另有所指（如自由小窗）下轮再议。
 - **不动 phone-fit 默认值**：那是全应用布局开关，本轮只管弹窗；release notes 提示手机用户可开「手机适配」。
 - **fork 侦察**：.293 轮已查 EasonLai96（Capacitor 移植，返回键无定制）、hejunlin1755（同样断签），无手势/弹窗可借鉴实现，本轮不重查。
-- **自主巡检**：全量回归 + tsc 之外，grep `window.confirm`/`alert(` 等原生弹窗残留，有则换 ThemedDialog（预计为零，上游早已自绘）。
+- **自主巡检**：全量回归 + tsc 之外，grep `window.confirm`/`alert(` 原生弹窗残留——查得两处真实 `alert()`（首页端口 `notify` 的 'alert' 类提示、本地曲库自动匹配失败提示），安卓 WebView 里是 Chrome 风格阻塞弹窗，一并改为应用内状态提示（`useStatusMessageStore`，App 层 `onStatusMessage` 本就写同一 store，桌面行为同步受益）；合同里的 'alert' 变体保留不删（上游合并面）。
 
-## 3. 验证与版本
+## 4. 环境地雷：tsc 7 原生版对 zh-CN 编辑会内存爆炸（本轮实证）
+
+沙箱内给 locale 加键的批次三次被 SIGKILL（exit 137），二分定位：**只改 zh-CN.ts 必炸，只改 en.ts 通过**——zh-CN 是构建期繁体派生（traditionalLocalePlugin）的类型层源头，加键触发派生资源类型全量重算，typescript@7.0.2（原生 tsgo）内存越顶（沙箱 4G 无 swap，NODE_OPTIONS 堆上限无效——Go 运行时不吃）；增量缓存（--incremental）首跑即死救不了。低概率加瞬时 OOM 也全量 tsc 挂过一次，重跑即过——连续两次 137 才当真。
+
+**本轮规避**：登录窗返回钮复用现有键 `login.choosePlatform`（目的地就是「选择平台」页，文案更顺），四语言零编辑。
+**补充实证**：地雷不止 zh-CN——给 `createLibraryHomePort.ts` 新增 `useStatusMessageStore` 导入边同样引爆（同类递归类型 chase），改走 surface 现有回调（App 层 `onStatusMessage` 就是同一 store 的写入口）零新导入即过。规律：**新增导入边/资源类型键都可能让 tsc7 在本沙箱越顶，137 连现两次才算真，单次先重跑**。
+**遗留（下轮处理，不扩本批 scope）**：上游同步但凡带 zh-CN 新键就会在本沙箱复现；届时 either CI 类型检查兑底、either 本地装 typescript@5.x 双轨校验、either 给繁体派生做类型层缓存。
+
+## 5. 验证与版本
 
 - 纯函数单测三件套：`sheetPresentation`（6 边界）、`sheetDragDecision`（阈值/fling/closeBlocked）、`pagerSwipeDecision`（轴锁/边界/速度）。
 - 全量 vitest 对照 .293 基线；tsc 0 错；CI 三 APK；签名指纹门禁绿（A8ED29C8 不变）。
