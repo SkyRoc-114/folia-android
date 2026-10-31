@@ -14,7 +14,19 @@
 
 ## 当前进度（2026-10-31 +08 更新）
 
-- **最新批次：上游 v0.7.24/25 全量迁移 + QQ 批次补齐 + 「快捷键显示」（2026-10-31，用户八问拍板后放行，随 v0.7.22-android.290 发布）**；设计 `docs/plans/2026-10-31-upstream-0.7.24-25-qq-shortcut-hints-design.md`（§0 八决策）、计划 `…-hints.md`（14 任务）
+- **最新批次：雾笺窗外场景跟进——上游 scenery-toggles + cold-start（2026-10-31，用户指令「大版本跟进/比对差距/不适合则等价实现/发布」放行，随 v0.7.22-android.291 发布）**；计划 `docs/plans/2026-10-31-nebbia-scenery-toggles-cold-start.md`
+  - 上游状态：`upstream/main` HEAD 仍 = v0.7.25（20c3ecd0，limo tag 对齐）；本批 5 提交来自两条**未合并**分支（PR 状态匿名 API 限流查不到）：`feat/nebbia-scenery-toggles` 4 提交 + `perf/nebbia-cold-start-no-gpu-wait` 1 提交
+  - 逐笔 cherry-pick -x 全部干净/语义合并 ✅：
+    - bace7cdc ← 69f9fd16（窗外各样单独开关：天气/楼群/路灯等逐项可关，雨可斜/竖/无；新键 nebbiaScenery 4 例）
+    - 541a632f ← 37bcf576（窗外可换共用背景 `behind: 'backdrop'` + 播放页透明透出桌面；新文件 nebbiaBehind.ts：nebbiaSeesThrough/nebbiaBackgroundConfig；seeThrough 时画布带 alpha、运行时整建）
+    - 3845ddbc ← 5a382dd7（透明时雾色跟主题日夜、水珠折射街景）
+    - e81ab053 ← 6c9e40d7（节拍钟 fix：只算画出来的背景；smartBeat 45 例）
+    - cf316e34 ← 15152f2c（冷启动：建上下文前按宿主尺寸预设画布 fitNebbiaCanvas + 5760² 面积帽；无 KHR_parallel_shader_compile 时 fenceSync 栅栏替代忙等）
+  - **唯一冲突**：nebbiaPrograms.ts——cold-start 分支基于旧 main（五程序时代），本线 v0.7.25 final-state 已有 noise 第六程序；语义合并=六程序 list + fence 栅栏逻辑共存（nebbiaPrograms.test.ts 8 例绿验证）
+  - **Android 适配判定**：5 提交全部纯 web 层，直接适用（判定矩阵见计划文档 §0）；「播放页透明透出桌面」路径依赖宿主窗口透明（Electron/OBS），Android WebView 不透明为存量基线、该路径行为不变不报错，**等价实现结论=不改壳**（backdrop 核心体验 Android 全量可用；WebView 真透明透壁纸超范围，不做承诺）
+  - 验证：tsc 0 错；unit 全量 **13640 过 + 1 存量失败**（ytmProvider:813 no-browser 用例，.290 基线同败非本批）+ 3 skipped；pin 快照 43 例（上游新增 pin 自动并入）；androidVisualizerPerfCap 7 例绿（machi 钳制不回归）；nebbia 全系测试（scenery 5 + programs 8 + smartBeat 45）绿；`git diff 672f7fe4..HEAD -- android/` 空（壳零改动）；四语言 backdrop 键齐全
+  - **观察项**：①上游这两条分支合并/rebase 后需 `git cherry` 对账增量（尤其 cold-start 若 rebase 到六程序 main，比对语义合并差异）；②scenery-toggles 若新增提交继续跟进
+- **上一批：上游 v0.7.24/25 全量迁移 + QQ 批次补齐 + 「快捷键显示」（2026-10-31，用户八问拍板后放行，随 v0.7.22-android.290 发布）**；设计 `docs/plans/2026-10-31-upstream-0.7.24-25-qq-shortcut-hints-design.md`（§0 八决策）、计划 `…-hints.md`（14 任务）
   - **上游 v0.7.24 (adf86215) + v0.7.25 (20c3ecd0) 全量迁移 ✅**（71 非合并提交，v0.7.23 为 base）：
     - 雾笺 nebbia（WebGL2 雨夜窗景 43 文件）+ 町景 machi（three.js 雨夜街景 71 文件）final-state checkout（c224f24b）；文件级对账：与 upstream/main 仅差 machi Android 钳制接线 7 行（本线专属，非漏迁）；`dev/nebbia/nebbiaStrokesPlugin.mjs` 笔顺构建插件（commit 钉死 + 逐文件 sha256 + 失败软降级 + `FOLIA_NEBBIA_STROKES=off` 逃生门）+ `licenses/nebbia-strokes/`
     - fix 批 cherry-pick -x（1fe89c65）：lucide Path2D、主题默认回套、汽水试听提示×2、AudioContext 输出设备、Spotify 官方限制提示、AI i18n 中性化、remote 队列展开动画、bravais 信息条自动反向；intro「新功能」卡片 0.7.25 Rainy SP1（dad8c34c）；i18n 四语言全键（fca7aacc）
