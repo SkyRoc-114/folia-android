@@ -87,9 +87,13 @@ const IntegrationPage: React.FC = () => {
             </Group>
 
             <Group def={STREAMING}>
-                <Row option={O.transparentBackground} hint={t('options.transparentPlayerBackgroundDesc')}>
-                    <Toggle checked={transparentPlayerBackground} onChange={onToggleTransparentPlayerBackground} />
-                </Row>
+                {/* 透明窗口是 Electron 的能力（OBS 浏览器源/抠像）；安卓 WebView 合成器不透明，
+                    开关是死的，只在桌面构建出现。 */}
+                {isElectron && (
+                    <Row option={O.transparentBackground} hint={t('options.transparentPlayerBackgroundDesc')}>
+                        <Toggle checked={transparentPlayerBackground} onChange={onToggleTransparentPlayerBackground} />
+                    </Row>
+                )}
                 {isElectron && obs && (
                     <>
                         <Row option={O.obs} hint={t('options.obsBrowserSourceDesc')}>
