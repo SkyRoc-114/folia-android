@@ -114,6 +114,9 @@ interface GridViewProps {
     collectTrack?: (songs: SongResult[], origin?: LibraryCollectOrigin) => void;
     /** 收进速记簿：信息面板与命令面板的当前范围（声明了 collect-scope 才给）。 */
     collectScope?: (songs: SongResult[], origin?: LibraryCollectOrigin) => void;
+    /** 卡片上悬浮的「收藏到歌单」：应用的歌单选择器（声明了 save-to-playlist 才给），能不能给某首由 canSaveToPlaylist 说。 */
+    saveToPlaylist?: (songs: SongResult[]) => void;
+    canSaveToPlaylist?: (track: SongResult) => boolean;
     onSelectAlbum?: (albumId: number | string, album?: any, track?: SongResult) => void;
     onSelectArtist?: (artistId: number | string, artist?: any, track?: SongResult) => void;
     /**
@@ -285,6 +288,8 @@ export const GridView: React.FC<GridViewProps> = ({
     onAddAllToQueue,
     collectTrack,
     collectScope,
+    saveToPlaylist,
+    canSaveToPlaylist,
     onSelectAlbum,
     onSelectArtist,
     resource = null,
@@ -1265,9 +1270,12 @@ export const GridView: React.FC<GridViewProps> = ({
                                         onAddTrackToQueue(item.rawTrack);
                                     }
                                 }}
-                                // 只在聚焦的那张上给：每张卡都多一颗按钮太挤（与 Bravais 的聚焦卡「⋯」同一个位置感）。
-                                onCollect={idx === focusedIndex && mode === 'tracks' && onCollectTrack && item.rawTrack
+                                // 封面右上角悬浮才出现的两颗（每张歌曲卡片都有，平时看不见）。
+                                onCollect={mode === 'tracks' && onCollectTrack && item.rawTrack
                                     ? () => onCollectTrack(item.rawTrack!)
+                                    : undefined}
+                                onSaveToPlaylist={mode === 'tracks' && saveToPlaylist && item.rawTrack && canSaveToPlaylist?.(item.rawTrack)
+                                    ? () => saveToPlaylist([item.rawTrack!])
                                     : undefined}
                                 isFocused={idx === focusedIndex}
                                 playbackMark={mode === 'tracks' ? trackPlaybackMark?.(item.rawTrack) ?? null : null}
@@ -1310,6 +1318,8 @@ export const GridView: React.FC<GridViewProps> = ({
         onSelectAlbum,
         onAddTrackToQueue,
         onCollectTrack,
+        saveToPlaylist,
+        canSaveToPlaylist,
         trackPlaybackMark,
         canMatchSong,
         mutations,
