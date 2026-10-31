@@ -105,10 +105,14 @@ type LoginWindowProps = {
     quiet?: boolean;
     /** 窗口放大着淡出，而不是往下收。 */
     leavesThrough?: boolean;
+    /**
+     * Escape/安卓返回键到了窗口这一层先问它（多页窗口先退页，二维码那步退回平台列表）；
+     * 回 true 不关窗，false/不传按原样关。透明传给 Sheet。 */
+    onEscape?: () => boolean;
 };
 
 export const LoginWindow: React.FC<LoginWindowProps> = ({
-    isOpen, onClose, title, closeTip, providerId, providerLabel, rings, column, tile, message, below, origin = null, overlay, quiet = false, leavesThrough = false,
+    isOpen, onClose, title, closeTip, providerId, providerLabel, rings, column, tile, message, below, origin = null, overlay, quiet = false, leavesThrough = false, onEscape,
 }) => {
     const narrow = useNarrow();
     const still = useKitReducedMotion();
@@ -133,6 +137,7 @@ export const LoginWindow: React.FC<LoginWindowProps> = ({
                 quiet={quiet}
                 leave={leavesThrough ? 'through' : undefined}
                 ponderId="sign-in"
+                onEscape={onEscape}
                 titleLead={providerId ? (
                     <span ref={arrival.leadRef} className="inline-flex" style={arrival.onTheWay ? { opacity: 0 } : undefined}>
                         <PlatformMark providerId={providerId} label={providerLabel} size={LEAD} />

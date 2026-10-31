@@ -97,6 +97,8 @@ const LoginHost: React.FC<LoginHostProps> = ({ account }) => {
     return (
         <LoginScreen
             isOpen={isOpen}
+            // 安卓返回键/边缘滑动：选中的那一步（二维码、账号）先退回平台列表，退不动了 Sheet 才关窗。
+            onEscape={() => host.backOut()}
             // 读到账号之后关窗是跳过动画：直接到结束，已经登录了。
             onClose={() => {
                 host.doneEnded();

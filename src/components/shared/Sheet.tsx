@@ -143,6 +143,12 @@ type SheetProps = {
     ponderId?: string;
     /** 手机适配：这一种对话框的稳定类型标记（androidPhoneFit.css 按它挑选择器）。 */
     phoneFitKind?: string;
+    /**
+     * Escape 到了最顶层 sheet、且没有被弹出层拦住时先问它；回 true 表示这一次 Esc 已消费
+     * （多页 sheet 退回上一页），不关窗；false/不传按原样关窗。安卓返回键走合成的 Escape，
+     * 也从这里过。
+     */
+    onEscape?: () => boolean;
 };
 
 type SheetFrameProps = Omit<SheetProps, 'isOpen'>;
@@ -183,6 +189,7 @@ const SheetFrame: React.FC<SheetFrameProps> = ({
     leave,
     from,
     ponderId,
+    onEscape,
 }) => {
     const { t } = useTranslation();
     const kitTheme = useSettingsKitTheme();
@@ -206,6 +213,9 @@ const SheetFrame: React.FC<SheetFrameProps> = ({
     requestCloseRef.current = requestClose;
     const closeDisabledRef = useRef(closeDisabled);
     closeDisabledRef.current = closeDisabled;
+    // Escape 先问多页 sheet 的 onEscape（每次渲染换成最新的）。
+    const onEscapeRef = useRef(onEscape);
+    onEscapeRef.current = onEscape;
 
     useEffect(() => {
         const panel = panelRef.current;
@@ -236,7 +246,10 @@ const SheetFrame: React.FC<SheetFrameProps> = ({
                 });
                 if (closes) {
                     event.preventDefault();
-                    requestCloseRef.current();
+                    // 多页 sheet 先退页：onEscape 吃掉了这一下就不关窗。
+                    if (!(onEscapeRef.current?.() ?? false)) {
+                        requestCloseRef.current();
+                    }
                 }
                 return;
             }

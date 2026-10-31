@@ -55,6 +55,8 @@ export type LoginScreenProps = {
     onDoneLeave?: () => void;
     /** 动画放完了。 */
     onDoneEnd?: () => void;
+    /** Escape/安卓返回键：多页窗口先退页（二维码退回平台列表），退不动了再关窗。 */
+    onEscape?: () => boolean;
 };
 
 const nothing = () => { };
@@ -74,7 +76,7 @@ const useReached = (at: number): boolean => {
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
     isOpen, onClose, rows, activeProviderId, chosen, login, onChoose, onStart, onSelectMethod, onReopenBrowser, onRestartService, onSwitch, onSignOut,
-    buildReport, origin, done = false, onDoneLeave = nothing, onDoneEnd = nothing,
+    buildReport, origin, done = false, onDoneLeave = nothing, onDoneEnd = nothing, onEscape,
 }) => {
     const { t } = useTranslation();
     const still = useKitReducedMotion();
@@ -184,6 +186,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             onClose={onClose}
             title={providerId ? t('home.loginToProvider', { provider: label }) : t('login.title')}
             closeTip={t('home.closeLogin')}
+            onEscape={onEscape}
             providerId={providerId}
             providerLabel={label}
             rings={scene === 'code' || scene === 'browser'}
