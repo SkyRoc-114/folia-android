@@ -68,6 +68,17 @@ jobs:
       - name: Sync Capacitor Android project
         run: npx cap sync android
 
+      # 诊断：keystore 两个文件是否完好检出（对比 MERGE-STATE 记档的 blob sha256），以及
+      # debug 变体实际解析到的签名配置。signingReport 只做配置期工作，开销小。
+      - name: Diagnose signing inputs
+        run: |
+          cd android
+          echo "--- files ---"
+          ls -la keystore.properties app/folia-release.p12
+          sha256sum keystore.properties app/folia-release.p12
+          echo "--- gradle signing report (debug) ---"
+          ./gradlew -Dorg.gradle.java.home="$JAVA_HOME" :app:signingReport --no-daemon 2>&1 | grep -A6 "^Variant: debug$" | head -24
+
       - name: Assemble debug APK (JDK 21)
         run: |
           cd android
