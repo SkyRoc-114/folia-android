@@ -11,6 +11,7 @@ import { type AudioEffectChain } from '../../../../services/audioEffects/effectC
 import { buildPlaybackGraph } from '../../../../services/playbackGraph';
 import { cachePlayedTrackAssets } from '../../../../services/playedTrackCache';
 import { registerPlaybackFadeGraph } from '../../../../services/playbackFade';
+import { applySavedAudioOutputToContext } from '../../../../services/audioOutputSink';
 import { rampGain, type AutomixDeckChain } from '../../../../services/automix/crossfadeGraph';
 import { onTrackProfile } from '../../../../services/automix/profileService';
 import { onPlayWrapped } from '../../../../services/volumeBalance/balanceMeter';
@@ -182,6 +183,7 @@ export function usePlaybackAudioBridge({
             // 音乐播放要稳定优先：安卓 WebView 的 interactive 默认缓冲在负载下容易 underrun（爆音/咔哒）。
             const ctx = new AudioContextClass({ latencyHint: 'playback' });
             audioContextRef.current = ctx;
+            void applySavedAudioOutputToContext(ctx, useAudioSettingsStore.getState().audioOutputDeviceId);
             noteAudioContext(ctx, 'playback');
 
             const analyser = ctx.createAnalyser();
