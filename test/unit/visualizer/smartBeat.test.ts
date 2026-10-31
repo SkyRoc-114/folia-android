@@ -14,9 +14,10 @@ import {
     stopBeatFx,
     tickBeatFx,
 } from '@/services/beatFx/beatFxLive';
-import { liveBeatEffectStrength, visualizerWantsBeatClock, visualizerWantsBeats, visualizerWantsDrumHits, visualizerWantsStems, type BeatClockSettings } from '@/components/visualizer/beatClockTargets';
+import { backgroundOnScreen, liveBeatEffectStrength, visualizerWantsBeatClock, visualizerWantsBeats, visualizerWantsDrumHits, visualizerWantsStems, type BeatClockSettings } from '@/components/visualizer/beatClockTargets';
 import { anyDrumBeatEffectOn, BEAT_EFFECT_IDS, DRUM_BEAT_EFFECT_IDS, resolveBeatEffectSetting, smartBeatActive, smartBeatMayAnalyse } from '@/services/beatFx/beatEffects';
 import { VISUALIZER_REGISTRY } from '@/components/visualizer/registry';
+import { DEFAULT_NEBBIA_TUNING } from '@/components/visualizer/nebbia/types';
 import { VISUALIZER_BACKGROUND_REGISTRY } from '@/components/visualizer/backgrounds/registry';
 import {
     SONNET_BEAT_FX,
@@ -218,6 +219,17 @@ describe('when the beat clock runs', () => {
         visualizerMode: 'partita',
         visualizerBackgroundMode: null,
         ...patch,
+    });
+
+    it('counts the background only where it is drawn', () => {
+        expect(backgroundOnScreen(settings({}))).toBe(true);
+        expect(backgroundOnScreen(settings({ visualizerMode: 'still' }))).toBe(false);
+        expect(backgroundOnScreen(settings({ pageTransparent: true }))).toBe(false);
+        // 雾笺 draws its own night street unless 窗外 is the shared background
+        expect(backgroundOnScreen(settings({ visualizerMode: 'nebbia' }))).toBe(false);
+        const backdrop = { nebbiaTuning: { ...DEFAULT_NEBBIA_TUNING, behind: 'backdrop' as const } };
+        expect(backgroundOnScreen(settings({ visualizerMode: 'nebbia', ...backdrop }))).toBe(true);
+        expect(backgroundOnScreen(settings({ visualizerMode: 'nebbia', pageTransparent: true, ...backdrop }))).toBe(false);
     });
 
     it('never while the switch is off', () => {

@@ -199,6 +199,12 @@ export interface VisualizerRegistryEntry {
      * geometric shapes). Left out: the background in the props, as it is.
      */
     background?: false | ((props: VisualizerSharedProps) => VisualizerBackgroundConfig | undefined);
+    /**
+     * With `background` a function that leaves the background out for some tunings (marks it
+     * transparent): whether the style shows it with these tunings, so the background's beat effects
+     * count only then (beatClockTargets.ts, which leaves it out on a see-through page itself). Left out: it does.
+     */
+    showsBackground?: (tunings: VisualizerTuningBundle) => boolean;
     /*
      * 各模式的 entry.tsx 把真正的 renderer 包成 React.lazy —— registry 用 eager glob 发现
      * entry，如果 entry 静态 import renderer，任何碰 visualizer 设置的模块都会连带拉进 13 个

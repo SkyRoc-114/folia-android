@@ -1,7 +1,7 @@
 import React from 'react';
 import { QuickControlChip } from '../../shared/QuickControlChip';
 import { defineVisualizer, type VisualizerQuickControlsProps } from '../definition';
-import { nebbiaBackgroundConfig } from './nebbiaBehind';
+import { nebbiaBackgroundConfig, nebbiaShowsBackground } from './nebbiaBehind';
 import NebbiaSettingsPanel, { NEBBIA_APPEAR_LABEL_KEYS, NEBBIA_FADE_LABEL_KEYS } from './NebbiaSettingsPanel';
 import nebbiaTuning from './tuning';
 import type { NebbiaTuning } from './types';
@@ -54,6 +54,7 @@ export default defineVisualizer({
     },
     // 画面自己画窗外的夜景时不要共用背景；窗外选了共用背景、或播放页透明时照常画它（nebbiaBehind.ts）。
     background: nebbiaBackgroundConfig,
+    showsBackground: nebbiaShowsBackground,
     usesWordSegmentation: true,
     // 智能动感模式, 疏雨轻车: one effect, two parts, both off the htdemucs run (`source: 'stems'`).
     // - rain (雨点强度): the rain follows the vocal stem (analysis/vocalEnvelope.ts) - small drops as

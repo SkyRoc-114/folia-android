@@ -1,5 +1,6 @@
 import type { VisualizerBackgroundConfig } from '../backgrounds/definition';
 import type { VisualizerSharedProps } from '../definition';
+import type { VisualizerTuningBundle } from '../tuningRegistry';
 import nebbiaTuning from './tuning';
 import type { NebbiaTuning } from './types';
 
@@ -20,4 +21,9 @@ export const nebbiaBackgroundConfig = (props: VisualizerSharedProps): Visualizer
     nebbiaSeesThrough(nebbiaTuning.read(props.visualizerTunings), props.background, props.isPreviewMode)
         ? props.background
         : { ...props.background, transparent: true }
+);
+
+/** entry.tsx 的 showsBackground：不算播放页透明（beatClockTargets.ts 自己算），只看窗外选没选共用背景。 */
+export const nebbiaShowsBackground = (tunings: VisualizerTuningBundle) => (
+    nebbiaSeesThrough(nebbiaTuning.read(tunings), undefined)
 );
