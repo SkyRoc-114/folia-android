@@ -20,7 +20,13 @@
   - **#869 ✅**（162c279c）流式音源 duration=Infinity 时用元数据时长兑底上报 MediaSession 进度
   - **#889 ✅**（500d99bb）平台判死曲目（taken-down/no-audio/audio-unplayable/not-public）不倒数直接切下一首，即时跳过上限 20；新选项 `skipLoadingStatusToast` 让失败提示短暂可见
   - **#843 ✅**（d91f34c6）bravais 拖动相机改 rAF 目标插值（tau=8ms，收敛 snap 半设备像素），renderFrame 从帧状态新增的 renderCenter 出变换；spec 见 /home/z/my-project/spec-issue-fixes-2026-10-29.md
-- **最新发布：v0.7.22-android.288**（三件套批次：#929/#866/轻量模式第一阶段；分片全量回归 3 片全过；workflow run 40981761203 success，三格式 APK assets 齐全，armv7/armv8/universal 各 37.6MB）
+- **最新发布：v0.7.22-android.289（2026-10-31，用户指令「触发workflow发布新版本，自行下载所需工具和依赖辅助审查」放行）**：
+  - **Android 7 闪退修复 ✅**（90072e92，自 main 7ab60536 移植）：FoliaPlaybackService 通知构建用 API 26 双参构造器 Notification.Builder(Context, channelId)，而第一次构建通知恰在「打开歌曲→获取歌曲链接」时，Android 7（API 24/25）上抛 NoSuchMethodError 闪退；按 SDK_INT 分支构造器，setter 链两分支共用（全自 API 21 起存在）
+  - **实时日志落盘 ✅**（d3bc59e3，自 main 578efcd5 移植，对齐桌面 debug 模块）：SAF 选文件夹（ACTION_OPEN_DOCUMENT_TREE 持久授权），每次启动新建 folia-log-<时间戳>.txt（保留最近 8 个、只删自家前缀），console 行 500ms 批量即写即刷，崩溃前最后一行落盘；开卡回放内存缓冲；授权失效/写失败可见化。consoleLogBuffer 增 addConsoleLogSink 双 sink 并存
+  - **审查适配（本线移植时的差异）**：设置卡按本线 pages 结构用 kit Group/Row 写进 DeveloperPage（main 线的 DeveloperSettingsSubview 本线零引用，已删）；FoliaNativePlugin.java 与上游 Spotify 登录段共存（41 个 PluginMethod 全保留）；vi 文案人工翻译非英文占位
+  - **⚠️ main 线与发布线的 QQ 批次缺口（下批需用户拍板）**：main 上的 QQ/NetEase/KuGou 修复系列（970ef5be..d1d11bf7，约 25 提交：QQ 扫码登录/点赞/订阅/vkey/射频，0.7.20 基线）从未进发布线；本次按指令只移植本会话两笔。若要移植需跨 0.7.20→0.7.23 基线，冲突面集中在 qqTransport/nativeBridge/i18n
+  - 验证：tsc 0 错；定向 vitest 304 例全过（consoleLogBuffer/i18n×4/settings 全套 23 文件/nativeBridge×2）；build:capacitor 产物 237 项正常；⚠️ 本环境 4G 内存，tsc 会被残留 Gradle 守护进程挤 OOM（先 `pkill -f GradleDaemon` 再跑，NODE_OPTIONS=--max-old-space-size=3072）
+- **v0.7.22-android.288**（三件套批次：#929/#866/轻量模式第一阶段；分片全量回归 3 片全过；workflow run 40981761203 success，三格式 APK assets 齐全，armv7/armv8/universal 各 37.6MB）
 - fork 仓库 0 issue（开+关均 0）；上游 34 个开放 issue，已筛出 Android 相关角度（见下）
 - **巡检（2026-10-29 17:05 +08，沙箱重置后恢复）**：origin tip 与 tag .286 一致（1695a272）、workflow run#7 completed/success（APK 已发）、上游 **v0.7.24 未发 tag**（最新 v0.7.23，main tip f96c65b2）——无合并动作；发现 android-0.7.22 分支上的 MERGE-STATE.md 漏推 .286 版（已补同步，docs 提交 6db9534d，此后 tip 可领先 tag 一个文档提交属正常）；凭证/仓库/scripts 均已重建（blobless clone）
 - **APK 多格式发布（用户指令「apk少了几个格式armv7 universal armv8」，随 .287 发布）**：`android/app/build.gradle` 加 `splits.abi`（armeabi-v7a + arm64-v8a + universalApk），workflow Rename 步骤改为三产物（`folia-<v>-armv7/-armv8/-universal.apk`）；spec 见 /home/z/my-project/spec-apk-abi-splits.md；提交 1f696ba3。**纯构建配置改动跳过 tsc/vitest，以 CI 构建结果验收**
@@ -54,8 +60,8 @@
 
 1. v0.7.23 已全部收尾；上游 main 已领先 v0.7.23（v0.7.24 开发中，截至 2026-10-29 领先 7 个非 merge 提交：remote 队列展开 #926、底部字幕布局 #924、login 测量修复 #914、fix(dev)、RPM build-id 等），**不要提前去合**，等上游出 v0.7.24 tag 或用户指示
 2. 待办：T3 真机耗电验证（需要实机，沙箱做不了）
-3. ~~#866 / #929 / 轻量模式第一阶段~~ ✅ 已随 .288 完成（见上「三件套批次」）；**tip 遗留两个契约修复提交（0ebb5cff/95bdaf4b，lyrics_antialias 裸字面量→同值常量，运行时零行为变化）待随下一批发布**；轻量模式 v2 候选扩展：列表虚拟化、更多特效降级；下一批收尾时一并 bump 发版
-- **巡检（2026-10-30 09:00 +08）**：.288 workflow success + 三格式 assets 齐全；tip 95bdaf4b 领先 tag .288 两个契约修复（等价重构，不紧急发版）；上游 v0.7.24 仍未发 tag——无合并动作；本文件在 android-0.7.22 分支的副本同步至 .288 版
+3. ~~#866 / #929 / 轻量模式第一阶段~~ ✅ 已随 .288 完成（见上「三件套批次」）；~~tip 遗留两个契约修复提交~~ ✅ 已随 .289 发布；轻量模式 v2 候选扩展：列表虚拟化、更多特效降级
+- **巡检（2026-10-31 11:15 +08）**：.289 已发（5ccf86af 发布提交 + tag，main 线 7ab60536/578efcd5 两笔移植）；上游 v0.7.24 仍未发 tag——无合并动作；main 线 QQ 批次缺口记录在 .289 条目内待用户拍板
 
 ## T5 实现备忘（2026-10-29 完成）
 
