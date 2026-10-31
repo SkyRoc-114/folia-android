@@ -7,7 +7,7 @@ import { getCommandTitle } from '../../../command-palette/commandText';
 import { CUSTOM_SHORTCUT_LETTERS, isCustomShortcutLetterAvailable, isScopeIndependentCommand } from '../../../command-palette/customShortcut';
 import { useInteractionSettingsStore } from '../../../../stores/useInteractionSettingsStore';
 import { useSettingsModalStore } from '../../../../stores/useSettingsModalStore';
-import { PRIMARY_MODIFIER_LABEL } from '../../../../utils/platform';
+import { IS_ANDROID_WEBVIEW, PRIMARY_MODIFIER_LABEL } from '../../../../utils/platform';
 import { Group, KeyCapture, Row, Segmented, Select, Toggle, Value, option, type SettingsGroupDef, type SettingsOptionDef } from '../kit';
 import { GLOBAL_SHORTCUTS_OPTIONS, GlobalShortcutsGroup } from './GlobalShortcutsGroup';
 import { useSettingsPage } from './settingsPageContext';
@@ -21,12 +21,15 @@ import { useSettingsPage } from './settingsPageContext';
 
 const PALETTE: SettingsGroupDef = { id: 'pinnedCommands', titleKey: 'options.settingsHeadingCommandPalette' };
 const GRIDS: SettingsGroupDef = { id: 'gridActionButton', titleKey: 'options.settingsHeadingGrids' };
+// 安卓壳专属：键位徽章/教程按键演示的显隐三态（设计 §3.3）。桌面上键位提示一直有，整组不渲染。
+const SHORTCUT_HINTS: SettingsGroupDef = { id: 'shortcutHints', titleKey: 'options.settingsHeadingShortcutHints' };
 
 const O = {
     pinned: option(PALETTE, 'pinnedCommandSlots', 'options.pinnedCommands'),
     shortcut: option(PALETTE, 'customShortcut', 'options.customShortcut'),
     slideTarget: option(GRIDS, 'gridSlideTarget', 'options.gridSlideTarget', { available: isGridLibraryActive }),
     paletteHotkey: option(GRIDS, 'gridPaletteHotkey', 'options.gridPaletteHotkey'),
+    shortcutHintsMode: option(SHORTCUT_HINTS, 'shortcutHintsMode', 'options.shortcutHintsMode'),
 };
 
 export const OPTIONS: SettingsOptionDef[] = [...Object.values(O), ...GLOBAL_SHORTCUTS_OPTIONS];
@@ -48,6 +51,8 @@ const InteractionPage: React.FC = () => {
         setPaletteHotkey: state.handleToggleGridCommandPaletteHotkey,
         setShortcutLetter: state.setCustomShortcutLetter,
         setShortcutCommandId: state.setCustomShortcutCommandId,
+        shortcutHintsMode: state.shortcutHintsMode,
+        setShortcutHintsMode: state.setShortcutHintsMode,
     })));
 
     // The titles of the whole registry, resolved once per language: every pick list here reads them.
@@ -107,6 +112,23 @@ const InteractionPage: React.FC = () => {
             </Group>
 
             {isElectron && <GlobalShortcutsGroup />}
+
+            {/* 安卓壳才有键鼠接入判定，三态只在它上面渲染（设计决策 #6/#7）。 */}
+            {IS_ANDROID_WEBVIEW && (
+                <Group def={SHORTCUT_HINTS}>
+                    <Row option={O.shortcutHintsMode} hint={t('options.shortcutHintsModeDesc')}>
+                        <Segmented
+                            value={interaction.shortcutHintsMode}
+                            options={[
+                                { value: 'auto', label: t('options.shortcutHintsAuto') },
+                                { value: 'on', label: t('options.shortcutHintsOn') },
+                                { value: 'off', label: t('options.shortcutHintsOff') },
+                            ]}
+                            onChange={interaction.setShortcutHintsMode}
+                        />
+                    </Row>
+                </Group>
+            )}
 
             <Group def={GRIDS}>
                 {isGridActive && (
