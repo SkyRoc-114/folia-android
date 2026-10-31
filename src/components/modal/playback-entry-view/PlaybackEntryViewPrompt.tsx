@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 import { PlaybackEntryViewOptions } from './PlaybackEntryViewOptions';
@@ -8,6 +8,7 @@ import { useThemeSettingsStore } from '../../../stores/useThemeSettingsStore';
 import { resolveReducedMotion, useMotionSettingsStore } from '../../../stores/useMotionSettingsStore';
 import { confirmOnboardingLibrarySuite } from '../../../library/app/librarySuiteChoice';
 import { OVERLAY_CALM_TRANSITION, OVERLAY_TRANSITION } from '../../shared/overlayEntranceMotion';
+import { pagerSwipeDecision } from '../../shared/sheetPresentation';
 import type { Theme } from '../../../types';
 
 // src/components/modal/playback-entry-view/PlaybackEntryViewPrompt.tsx
@@ -67,6 +68,60 @@ export const PlaybackEntryViewPrompt: React.FC<{ theme?: Theme | null }> = ({ th
     );
 };
 
+/**
+ * 横滑 flick 翻页（不跟手：页由 AnimatePresence 自己动）。与登录窗同一套 pagerSwipeDecision：
+ * 轴锁让纵向滚动优先，真的拖起来了就吃掉收尾的 click（选项卡不误触）。
+ */
+const useFlickPaging = (page: number, count: number, goTo: (to: number) => void) => {
+    const rootRef = useRef<HTMLDivElement>(null);
+    const gesture = useRef<{ id: number; startX: number; startY: number; lastX: number; lastT: number; vx: number; paged: boolean } | null>(null);
+    const swallowClick = useRef(false);
+
+    const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        gesture.current = { id: event.pointerId, startX: event.clientX, startY: event.clientY, lastX: event.clientX, lastT: event.timeStamp, vx: 0, paged: false };
+    };
+    const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+        const state = gesture.current;
+        if (!state || event.pointerId !== state.id) return;
+        const dx = event.clientX - state.startX;
+        const dy = event.clientY - state.startY;
+        if (!state.paged) {
+            if (Math.abs(dx) < 10 || Math.abs(dx) <= Math.abs(dy)) return;
+            state.paged = true;
+            event.currentTarget.setPointerCapture?.(event.pointerId);
+        }
+        const dt = event.timeStamp - state.lastT;
+        if (dt > 0) state.vx = state.vx * 0.8 + ((event.clientX - state.lastX) / dt) * 0.2;
+        state.lastX = event.clientX;
+        state.lastT = event.timeStamp;
+    };
+    const endGesture = (event: React.PointerEvent<HTMLDivElement>) => {
+        const state = gesture.current;
+        gesture.current = null;
+        if (!state || event.pointerId !== state.id) return;
+        if (state.paged) {
+            swallowClick.current = true;
+            const decision = pagerSwipeDecision({
+                dx: event.clientX - state.startX,
+                dy: event.clientY - state.startY,
+                vx: state.vx,
+                width: rootRef.current?.clientWidth ?? 1,
+                page,
+                count,
+            });
+            if (decision !== 0) goTo(page + decision);
+        }
+    };
+    const onClickCapture = (event: React.MouseEvent<HTMLDivElement>) => {
+        if (!swallowClick.current) return;
+        swallowClick.current = false;
+        event.preventDefault();
+        event.stopPropagation();
+    };
+    return { rootRef, onPointerDown, onPointerMove, onPointerUp: endGesture, onPointerCancel: endGesture, onClickCapture };
+};
+
 const PromptPanel: React.FC<{ theme?: Theme | null; pages: readonly PromptPage[]; onClose: () => void }> = ({ theme, pages, onClose }) => {
     const { t } = useTranslation();
     const playbackEntryView = usePlaybackEntryViewStore(state => state.playbackEntryView);
@@ -80,11 +135,6 @@ const PromptPanel: React.FC<{ theme?: Theme | null; pages: readonly PromptPage[]
     const page = pages[pageIndex];
     const isLastPage = pageIndex === pages.length - 1;
 
-    const goTo = (nextIndex: number) => {
-        setDirection(nextIndex > pageIndex ? 1 : -1);
-        setPageIndex(Math.max(0, Math.min(pages.length - 1, nextIndex)));
-    };
-
     const accentColor = theme?.accentColor || (isDaylight ? '#3b82f6' : '#60a5fa');
     const bgClass = isDaylight ? 'bg-white border-zinc-200' : 'bg-[#18181b] border-zinc-800';
     const textPrimary = isDaylight ? 'text-zinc-900' : 'text-zinc-50';
@@ -97,9 +147,20 @@ const PromptPanel: React.FC<{ theme?: Theme | null; pages: readonly PromptPage[]
         : 'bg-white/[0.06] hover:bg-white/10 text-zinc-200';
     const namespace = page === 'library-suite' ? 'librarySuiteOnboarding' : 'playbackEntryView';
     const motionContext: PageMotionContext = { direction, calm };
+    const goTo = useCallback((nextIndex: number) => {
+        setDirection(nextIndex > pageIndex ? 1 : -1);
+        setPageIndex(Math.max(0, Math.min(pages.length - 1, nextIndex)));
+    }, [pageIndex, pages.length]);
+    const flick = useFlickPaging(pageIndex, pages.length, goTo);
 
     return (
         <motion.div
+            ref={flick.rootRef}
+            onPointerDown={flick.onPointerDown}
+            onPointerMove={flick.onPointerMove}
+            onPointerUp={flick.onPointerUp}
+            onPointerCancel={flick.onPointerCancel}
+            onClickCapture={flick.onClickCapture}
             initial={{ scale: 0.95, opacity: 0, y: 20 }}
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 10 }}
