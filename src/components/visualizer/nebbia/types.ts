@@ -20,6 +20,14 @@ export type NebbiaFadeStyle = typeof NEBBIA_FADE_STYLES[number];
 export const NEBBIA_LAYOUTS = ['ribbon', 'lines2', 'lines3', 'cross', 'pillar', 'header', 'badge', 'columns', 'orbit'] as const;
 export type NebbiaLayout = typeof NEBBIA_LAYOUTS[number];
 
+/** 窗外画哪几样（每样一个开关，可以全关）：聚光灯、楼群、霓虹路灯招牌的光斑、车灯、湿路面和倒影。 */
+export const NEBBIA_SCENERY = ['spot', 'buildings', 'lights', 'cars', 'road'] as const;
+export type NebbiaSceneryPart = typeof NEBBIA_SCENERY[number];
+
+/** 窗外的雨：跟着车速斜着落、竖直落、不下。 */
+export const NEBBIA_RAIN = ['slant', 'straight', 'off'] as const;
+export type NebbiaRain = typeof NEBBIA_RAIN[number];
+
 export interface NebbiaTuning {
     /** 打开的出现方式，至少一种。 */
     appear: NebbiaAppearStyle[];
@@ -27,6 +35,10 @@ export interface NebbiaTuning {
     fade: NebbiaFadeStyle[];
     /** 打开的构图，至少一种。 */
     layouts: NebbiaLayout[];
+    /** 窗外打开的几样，可以一样都没有。 */
+    scenery: NebbiaSceneryPart[];
+    /** 窗外的雨。 */
+    rain: NebbiaRain;
     /** 最后一句唱完后在玻璃上写出曲名和歌手（nebbiaCredits.ts）。 */
     credits: boolean;
     /** 手写歪斜：整字转动、上下错落、整行倾斜。 */
@@ -89,6 +101,8 @@ export const DEFAULT_NEBBIA_TUNING: NebbiaTuning = {
     appear: ['write', 'fade'],
     fade: ['fog'],
     layouts: [...NEBBIA_LAYOUTS],
+    scenery: [...NEBBIA_SCENERY],
+    rain: 'slant',
     credits: true,
     jitter: 0.6,
     warp: 0.6,

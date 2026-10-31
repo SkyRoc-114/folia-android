@@ -6,6 +6,8 @@ export interface NebbiaUniforms {
     time: number; mist: number; edge: number; refract: number; bus: number; glint: number; neon: number;
     glassShift: [number, number]; sceneShift: [number, number];
     spotSrc: [number, number]; spotSrc2: [number, number]; spotTgt: [number, number]; spotR: number; spotI: number;
+    /** 窗外画哪几样，位和着色器的 SCN_* 对应（nebbiaFrameUniforms.ts 的 SCENERY_BITS）。 */
+    scenery: number;
 }
 
 /** 提交编译，不等结果（结果在链接时一起查，见 checkLinked）。 */

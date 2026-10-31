@@ -17,6 +17,8 @@ uniform vec2 uRes, uSceneShift; uniform float uTime, uBus, uNeon;
 uniform vec3 uSky0, uSky1, uLa, uLb, uLc;
 // 聚光灯：光源（远处楼底）、照到玻璃上的点、光斑半径，都在 scene 坐标；uSpotI 强度
 uniform vec2 uSpotSrc, uSpotSrc2, uSpotTgt; uniform float uSpotR, uSpotI;
+// 窗外画哪几样（位见 nebbiaSceneGlsl.ts 的 SCN_*）
+uniform int uScenery;
 // 楼群缓存（nebbiaBuildingCache.ts）：三档模糊 × 远近两层，预乘颜色；uBldOn 每档画好了没有，uBldGeo 每档 (y0, y1, 横向周期)
 uniform bvec3 uBldOn; uniform sampler2D uBld0, uBld1, uBld2, uBld3, uBld4, uBld5; uniform vec3 uBldGeo[3];
 in vec2 vUv; layout(location = 0) out vec4 outColor;

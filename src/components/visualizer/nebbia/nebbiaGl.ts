@@ -20,8 +20,12 @@ type Locations = Record<string, WebGLUniformLocation | null>;
 
 // 街景（两个程序都有）读的 uniform；其余只在主画面
 const PALETTE_UNIFORMS = ['uSky0', 'uSky1', 'uLa', 'uLb', 'uLc'];
-const SCENE_UNIFORMS = ['uRes', 'uSceneShift', 'uTime', 'uBus', 'uNeon', ...PALETTE_UNIFORMS, 'uSpotSrc', 'uSpotSrc2', 'uSpotTgt', 'uSpotR', 'uSpotI', 'uBldOn', 'uBldGeo'];
+const SCENE_UNIFORMS = ['uRes', 'uSceneShift', 'uTime', 'uBus', 'uNeon', ...PALETTE_UNIFORMS, 'uSpotSrc', 'uSpotSrc2', 'uSpotTgt', 'uSpotR', 'uSpotI', 'uScenery', 'uBldOn', 'uBldGeo'];
 const MAIN_UNIFORMS = [...SCENE_UNIFORMS, 'uMist', 'uEdge', 'uRefract', 'uGlint', 'uGlassShift', 'uBreathOn', 'uBreathThick', 'uNoiseOn'];
+
+/** uScenery 里楼群那一位（nebbiaFrameUniforms.ts 的 SCENERY_BITS），和关着时给着色器的楼群缓存状态。 */
+const SCN_BUILDINGS = 1;
+const NO_BUILDINGS: NebbiaBuildingState = { on: [0, 0, 0], geo: [0, 1, 1, 0, 1, 1, 0, 1, 1] };
 
 const locate = (gl: WebGL2RenderingContext, prog: WebGLProgram, names: string[]): Locations => (
     Object.fromEntries(names.map(n => [n, gl.getUniformLocation(prog, n)]))
@@ -209,6 +213,7 @@ export class NebbiaGl {
         gl.uniform2fv(L.uSceneShift, u.sceneShift);
         gl.uniform2fv(L.uSpotSrc, u.spotSrc); gl.uniform2fv(L.uSpotSrc2, u.spotSrc2); gl.uniform2fv(L.uSpotTgt, u.spotTgt);
         gl.uniform1f(L.uSpotR, u.spotR); gl.uniform1f(L.uSpotI, u.spotI);
+        gl.uniform1i(L.uScenery, u.scenery);
     }
 
     // 楼群缓存的取样状态（两个程序都设）
@@ -234,7 +239,8 @@ export class NebbiaGl {
         this.renderDrops(this.drop, drops);
         this.renderDrops(this.field, field);
         gl.bindVertexArray(this.quadVao);
-        const buildings = this.bld.update(u.time * u.bus, bldFill, this.B);
+        // 楼群关着时不补画缓存；再打开时缓存发现位置对不上，自己整张重画
+        const buildings = u.scenery & SCN_BUILDINGS ? this.bld.update(u.time * u.bus, bldFill, this.B) : NO_BUILDINGS;
         const noiseOn = this.noise.update(noise);
         if (fog) {
             gl.useProgram(fog);
