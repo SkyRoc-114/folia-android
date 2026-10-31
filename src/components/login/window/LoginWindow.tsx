@@ -223,8 +223,10 @@ export const LoginWindow: React.FC<LoginWindowProps> = ({
                         onClick={() => { onEscape?.(); }}
                         className="st-t-fast inline-flex h-8 shrink-0 items-center gap-1 rounded-lg px-2.5 text-[13px] text-[color:var(--st-t2)] transition-[background-color,color] hover:bg-[var(--st-fill)] hover:text-[color:var(--st-t1)]"
                     >
+                        {/* 复用 choosePlatform：返回钮的目的地就是「选择平台」那页，标题即文案。
+                            （新加 i18n 键会触发 tsc7 原生版对 zh-CN 繁体派生资源类型的内存爆炸，见设计文档 §4。） */}
                         <ChevronLeft size={15} />
-                        {t('login.backToPlatforms')}
+                        {t('login.choosePlatform')}
                     </button>
                 ) : undefined}
                 titleLead={providerId ? (
