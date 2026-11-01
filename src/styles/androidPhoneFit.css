@@ -540,3 +540,21 @@ html[data-folia-phone-fit='true'] [data-folia-track-title='true'] [data-folia-tr
   width: 100%;
   text-align: center;
 }
+/* 触点：bravais Seam 信息带（横条/竖排书脊两变体）是手机上的主导航（页签/搜索/设置/更多），
+   桌面像素（页签 26-34px、图标钮 34px）低于 44px 触点标准，难点准。
+   只在 phone-fit 下放大命中面积，视觉样式不动；关掉=上游逐字节不变（实测 .294 竖屏截图审计 P3）。 */
+html[data-folia-phone-fit='true'] .bravais-seam button {
+  min-width: 44px !important;
+  min-height: 44px !important;
+}
+
+html[data-folia-phone-fit='true'] .bravais-seam .bravais-seam-home-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+}
+
+html[data-folia-phone-fit='true'] .bravais-seam .bravais-seam-home-tab > * {
+  pointer-events: none;
+}
