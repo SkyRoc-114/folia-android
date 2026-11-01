@@ -1,8 +1,8 @@
 # MERGE-STATE.md — folia-android 合并状态（会话间接力文档）
 
-> 本文件与 `scripts/` 一起提交在 origin 的 `meta` 孤儿分支上，沙箱重置后用
-> `git fetch origin meta && git checkout origin/meta -- MERGE-STATE.md scripts/` 恢复。
-> 未推送的本地提交会在重置后丢失 —— 每批做完立即 push。
+> **2026-11-01 起本文件直接跟踪在 `android-0.7.22` 分支**（随发布线提交，clone 即得）；
+> meta 孤儿分支已退役（远端指向=发布线 tip，勿再向其提交）。
+> 未推送的本地提交会在沙箱重置后丢失 —— 每批做完立即 push。
 
 ## 仓库关系
 
@@ -12,7 +12,14 @@
 - 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）——**2026-11-01 用户重发 PAT（ghp_kpr8...，用户拍板复用）并已持久化，沙箱重置后从 `git clone https://@github.com/...` 自动走 credential.helper 恢复**
 - ⚠️ PAT 绝不能写进仓库任何被跟踪的文件
 
-## 当前进度（2026-11-01 +08 更新）
+## 当前进度（2026-11-01 09:35 +08 更新）
+
+- **同步批次（2026-11-01 09:00+08，用户指令「我远端更新了，获取并diff，更新，完善cron job」）**：本沙箱快照落后六大发布批次（.289-.294，均为并行实例完成）——fetch 对账后 ff 到 eb4da2cb（.294 tip），npm install 重装 1344 包；补三件：
+  - ①`package-lock.json` version 字段 .294 发布时漏改（停在 .293，npm install 自动纠正致工作区常脏）→ 提交 1c5f9f57
+  - ②`scripts/sync-vi-to-en.cjs` 入库防丢失（meta 退役后全网只剩沙箱外部一份，重置即丢）——force-add 与 apk_cert.py 同例，并修路径解析支持 `<repo>/scripts/` 与外部两种安放位置，.294 基线 5435 键双位置 --check 通过 → 提交 3f9b3572
+  - ③cron 巡检载荷刷新至 .294 后状态（旧载荷停在 .287 时代）
+  - 核实：.294 workflow success、三 APK assets 各 39.8MB；main 重锚定已推（24be43a5，树停在 .291 时点、与发布线差 158 文件属正常，勿在其上开发）；main 上「Publish Limo Nightly」定时 workflow 属上游继承，success 不产 release 属正常勿惊
+  - ⚠️ ff 时 blobless clone 需拉 blob，HTTP2 framing 错误重试 + `git config http.version HTTP/1.1` 后成功；被 kill 的 git 命令会残留 index.lock——先 ps 确认无进程再删
 
 - **最新批次：弹窗「独立窗口」化 + 手势补全（2026-11-01，用户反馈「手势无效…把所有的弹窗换成适用于安卓的独立窗口」，随 v0.7.22-android.294 发布）**；设计 `docs/plans/2026-11-01-android-window-gestures-design.md`、计划 `…-window-gestures.md`
   - **背景判定**：.293 已修返回键（合成 Escape→焦点元素）与签名；用户「手势无效」的剩余缺口=①全仓库没有任何下拉关闭/横滑翻页触摸手势（.293 只把边缘滑动等同系统返回，页内横滑从未存在）②呈现仍是桌面居中定宽卡片——phone-fit 是 opt-in 设置且存储默认 false，默认安装下弹窗就是「网页里浮的一块 div」。返回键链路复核无误；老版本用户手上还是旧壳（签名断签装不上 .293）也放大了「无效」观感
@@ -142,7 +149,7 @@
 - 数组项按数组内位置编号（`#N`），不能用行号（两文件行号天然错位）
 - 用法：无参=对齐+写回；`--check`=只校验（漂移退出 1）。en 有 vi 无的键 → en 原文占位插入 vi，待人工翻译
 - 副不变式：in.ts ↔ zh-CN.ts ↔ en.ts 键同步（missingTranslation.test.ts 把关）
-- 本文件所在 meta 分支与 `/home/z/my-project/scripts/` 各存一份
+- 本文件所在发布线与 `/home/z/my-project/scripts/` 各存一份（双位置自适应，入库版为准）
 
 ## 全量回归的可靠跑法（沙箱实测结论）
 
@@ -160,15 +167,14 @@ printf 'https://SkyRoc-114:<PAT>@github.com\n' > /home/z/my-project/.gh-credenti
 chmod 600 /home/z/my-project/.gh-credentials && cp /home/z/my-project/.gh-credentials ~/.git-credentials
 git config --global credential.helper store && git config --global http.version HTTP/1.1
 
-# 克隆（网络抖动时用 HTTP/1.1 + blobless；GnuTLS recv error 就重试）
+# 克隆（网络抖动时用 HTTP/1.1 + blobless；GnuTLS recv error / HTTP2 framing 就重试）
 git clone --filter=blob:none --single-branch --branch android-0.7.22 https://github.com/SkyRoc-114/folia-android.git /home/z/my-project/folia-android
 cd /home/z/my-project/folia-android
 git remote add upstream https://github.com/chthollyphile/folia-major.git
 git fetch --filter=blob:none upstream
 
-# 恢复接力文档与脚本
-git fetch origin meta && git checkout origin/meta -- MERGE-STATE.md scripts/
-mkdir -p /home/z/my-project/scripts && cp scripts/sync-vi-to-en.cjs /home/z/my-project/scripts/
+# MERGE-STATE.md 与 scripts/ 已直接跟踪在 android-0.7.22 分支（meta 已退役）；
+# sync-vi-to-en.cjs 双位置自适应：<repo>/scripts/ 或 /home/z/my-project/scripts/ 均可跑
 
 # 依赖（必须官方源 + ignore-scripts）
 npm install --registry=https://registry.npmjs.org --ignore-scripts --no-audit --no-fund
@@ -200,7 +206,7 @@ node /home/z/my-project/scripts/sync-vi-to-en.cjs
 1. cherry-pick / 改动 → 冲突按「fork 的 nativeBridge/android 增量优先，上游语义不丢」解
 2. `node /home/z/my-project/scripts/sync-vi-to-en.cjs`（动了 en.ts / zh-CN.ts 时）
 3. `npm install --registry=https://registry.npmjs.org --ignore-scripts --no-audit --no-fund`（动了依赖时）
-4. `npx tsc --noEmit` 0 错 + 定向 vitest；大批次全量回归用 `--shard` 分片前台跑
-5. 更新本文件 → push `android-0.7.22` → 本文件+scripts 提交推 `meta` 分支
-6. 推 tag 前先查上次 workflow：`curl -H "Authorization: Bearer $PAT" .../actions/runs?per_page=2`，确认 success 再 `git tag v0.7.22-android.NNN && git push origin <tag>`
+4. `npx tsc --noEmit` 0 错 + 定向 vitest；大批次全量回归用 `--shard` 分片前台跑（当前基线：~13743 过 + 1 存量败 ytmProvider:813 + 3 skip）
+5. 更新本文件（+scripts/ 若有新增）→ push `android-0.7.22`（meta 已退役不再推）
+6. 推 tag 前先查上次 workflow：`curl -H "Authorization: Bearer $PAT" .../actions/runs?per_page=2`，确认 success 再 `git tag v0.7.22-android.NNN && git push origin <tag>`；发布提交必须同改 package.json **与 package-lock.json 两处 version**（.294 曾漏改 lock）
 7. 勿用 android-actions/setup-android@v3（runner 预装 sdkmanager 冲突）
