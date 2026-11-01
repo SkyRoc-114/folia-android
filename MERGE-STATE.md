@@ -12,7 +12,20 @@
 - 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）——**2026-11-01 用户重发 PAT（ghp_kpr8...，用户拍板复用）并已持久化，沙箱重置后从 `git clone https://@github.com/...` 自动走 credential.helper 恢复**
 - ⚠️ PAT 绝不能写进仓库任何被跟踪的文件
 
-## 当前进度（2026-11-01 09:35 +08 更新）
+## 当前进度（2026-11-01 20:30 +08 更新）
+
+- **手机适配默认值批次（2026-11-01，用户指令「这是Android程序，由web端迁移过来导致UI不适合手机端，抓取相关代码绘制真实原理图再自己视觉查看并优化修复，更新cron job」，随 .295 发布）**；spec 见 /home/z/my-project/spec-phone-fit-defaults.md，原理图 download/folia-android-ui-arch.png（四层：壳→WebView→桌面本体→适配层）
+  - 侦察法：vite build + agent-browser Pixel 7 视口（412×915）真实截图 6 张（phone-fit 开/关对照）+ DOM 几何测量；三问题实锤：
+    - **P1** phone-fit（541 行紧凑 CSS）opt-in 默认关——手机默认安装=桌面浮卡（设置页两侧黑边/页签截断）
+    - **P2** index.html viewport 缺 viewport-fit=cover——env(safe-area-inset-*) 恒 0，11 处避让规则失效
+    - **P3** Seam 信息带触点 26-34px（页签/搜索/设置=手机主导航），低于 44px 标准
+  - 修复（0f19ad21/5007a709/6d9a370f）：
+    - P1：readStoredAndroidPhoneFitRaw 三态 + shouldDefaultAndroidPhoneFit（coarse+短边<720，对齐 sheetPresentation 阈值）+ resolveAndroidPhoneFitEnabled（存储优先/显式关不拉回）；install 生效时同步 native（修「web 开了 native 不知道」——锁转向/挖孔联动存量缺口）；isAndroidShell 调用侧给，零新导入边（tsc7 规避）
+    - P2：viewport-fit=cover 一行；非挖孔设备行为不变
+    - P3：`html[data-folia-phone-fit] .bravais-seam button` min 44×44 **!important**（上游 .is-short 的 min-width:34 特异性更高，必须压）；横条/竖排书脊两变体统一覆盖
+  - ⚠️ 审计工具坑：①PWA Service Worker 会供旧包——浏览器验证前必须 unregister SW + caches.delete + 双刷 ②agent-browser 的 device 模拟会在重开 URL 后丢失（viewport 变 1280×577 假桌面）——测量前必核 innerWidth ③seam 有横条/竖排两变体（随墙面几何切换），CSS 覆盖须按 `.bravais-seam button` 全变体选择器
+  - 验证：tsc EXIT=0 显式（首跑 137=残留 vite/chromium 挤占假阳性，清进程复跑即 0——印证「连现两次才算真」）；全量分片 13748 过+1 基线败（ytmProvider:813）+3 skip 与 .294 零差；定向 8+19 例；触点实测 12 按钮 0 低于 44px；清存储→默认生效/显式关→保持关
+- **同步批次（2026-11-01 09:00+08，用户指令「我远端更新了，获取并diff，更新，完善cron job」）**：本沙箱快照落后六大发布批次（.289-.294，均为并行实例完成）——fetch 对账后 ff 到 eb4da2cb（.294 tip），npm install 重装 1344 包；补三件：
 
 - **同步批次（2026-11-01 09:00+08，用户指令「我远端更新了，获取并diff，更新，完善cron job」）**：本沙箱快照落后六大发布批次（.289-.294，均为并行实例完成）——fetch 对账后 ff 到 eb4da2cb（.294 tip），npm install 重装 1344 包；补三件：
   - ①`package-lock.json` version 字段 .294 发布时漏改（停在 .293，npm install 自动纠正致工作区常脏）→ 提交 1c5f9f57
