@@ -6,6 +6,9 @@ import { proxyNativeRemoteAudioUrl } from '../nativeRemoteAudio';
 import { noteOnlinePlaybackError, noteOnlinePlaybackOutcome } from '../../utils/onlinePlaybackDiagnostics';
 import type {
     AudioQualityPreference,
+    DailyStyleGroup,
+    DailyStyleSelection,
+    DailyStyleSongs,
     LoginStep,
     MediaId,
     OmniAudioSource,
@@ -938,6 +941,26 @@ export const omni = {
 
     async getRecommendationHistorySongs(entry: OmniHistoryEntry | string): Promise<UnifiedSong[]> {
         return withActiveProvider(async provider => provider.recommendations?.getHistorySongs?.(entry) ?? []);
+    },
+
+    // Style recommendations (capability `dailyStyleRecommendations`): the style groups, the daily songs
+    // of the picked styles, and saving a pick.
+    async getDailyStyleGroups(): Promise<DailyStyleGroup[]> {
+        return withActiveProvider(async provider => provider.recommendations?.getDailyStyleGroups?.() ?? []);
+    },
+
+    async getDailyStyleSongs(): Promise<DailyStyleSongs> {
+        return withActiveProvider(async provider => (
+            provider.recommendations?.getDailyStyleSongs?.() ?? { songs: [], selection: null }
+        ));
+    },
+
+    async setDailyStyle(selection: DailyStyleSelection): Promise<void> {
+        return withActiveProvider(async provider => {
+            const setStyle = provider.recommendations?.setDailyStyle;
+            if (!setStyle) throw new OnlineProviderError('unsupported', `Daily styles are not supported by ${provider.id}`, provider.id);
+            await setStyle.call(provider.recommendations, selection);
+        });
     },
 
     supportsExplore(providerId: OmniProviderId): boolean {
