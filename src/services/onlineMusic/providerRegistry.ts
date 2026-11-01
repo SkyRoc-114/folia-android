@@ -10,6 +10,7 @@ import { ytmProvider } from './ytm/ytmProvider';
 import { spotifyProvider } from './spotify/spotifyProvider';
 import { qishuiProvider } from './qishui/qishuiProvider';
 import { fnmusicProvider } from './fnmusic/fnmusicProvider';
+import { appleMusicProvider } from './appleMusic/appleMusicProvider';
 
 // src/services/onlineMusic/providerRegistry.ts
 
@@ -95,7 +96,14 @@ export const keepProviderSongAudio = (song: SongResult, url: string): Promise<bo
 
 export const canPlayOnlineMusicSong = (song: SongResult): boolean => {
     const provider = getOnlineMusicProviderForSong(song);
-    return providerSupports(provider, 'playback') && Boolean(provider?.playback);
+    return (providerSupports(provider, 'playback') && Boolean(provider?.playback))
+        || (providerSupports(provider, 'externalPlayback') && Boolean(provider?.externalPlayback) && provider?.externalPlayback?.canPlay?.(song) !== false);
+};
+
+/** The provider sounds this song in a player of its own outside this app. */
+export const canPlaySongExternally = (song: SongResult): boolean => {
+    const provider = getOnlineMusicProviderForSong(song);
+    return providerSupports(provider, 'externalPlayback') && Boolean(provider?.externalPlayback);
 };
 
 export const requireOnlineMusicProviderForSong = (song: SongResult): OnlineMusicProvider => {
@@ -115,3 +123,5 @@ registerOnlineMusicProvider(spotifyProvider);
 
 registerOnlineMusicProvider(qishuiProvider);
 registerOnlineMusicProvider(fnmusicProvider);
+
+registerOnlineMusicProvider(appleMusicProvider);

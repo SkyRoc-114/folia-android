@@ -420,6 +420,7 @@ export default {
     "aiFallbackThemeUsed": "AI belum dikonfigurasi, menggunakan tema bawaan",
     "playbackError": "Kesalahan Pemutaran",
     "loadingSong": "Memuat URL lagu...",
+    "preparingExternalPlayback": "Menyiapkan pemutaran...",
     "dataSynced": "Data berhasil disinkronkan",
     "syncFailed": "Sinkronisasi gagal",
     "loginExpired": "Login kedaluwarsa. Silakan login lagi",
@@ -451,6 +452,7 @@ export default {
     "providerUserAlbumsUnavailable": "{{provider}} tidak menyediakan koleksi album pengguna.",
     "providerLibraryUnavailable": "{{provider}} tidak menyediakan perpustakaan playlist.",
     "songUnavailable": "Lagu telah dihapus",
+    "externalPlayerMovedOn": "Pemutar berpindah ke lagu lain; pemutaran dijeda",
     "songUnavailableAlternativeTitle": "Versi alternatif tersedia",
     "songUnavailableAlternativeDescription": "\"{{song}}\" tidak tersedia. {{typeDesc}}. Mainkan versi alternatif?",
     "songUnavailableAlternativeDefaultType": "Versi lain bisa diputar",
@@ -1573,6 +1575,8 @@ export default {
     "loginTitleFnMusic": "Masuk ke fnOS Music",
     "loginNoteFnMusic": "Masukkan alamat server dan akun fnOS Music untuk memutar musik NAS Anda",
     "loginTitleYtm": "Masuk ke YouTube Music",
+    "loginTitleAppleMusic": "Masuk ke Apple Music",
+    "loginNoteAppleMusic": "Masuk melalui jendela Apple. Kata sandi Anda hanya diberikan kepada Apple.",
     "loginNoteYtmBrowser": "Jendela browser terpisah akan terbuka. Masuk ke Google di sana, lalu tutup jendela itu setelah YouTube Music menampilkan akun Anda.",
     "loginNoteYtmBrowserMac": "Jendela browser terpisah akan terbuka. Masuk ke Google di sana, lalu keluar dari browser itu (⌘Q) setelah YouTube Music menampilkan akun Anda.",
     "loginNoBrowserYtm": "Masuk ke YouTube Music memerlukan Chrome (Beta, Dev, atau Canary juga bisa), Edge, Chromium, Brave, atau Helium yang terpasang.",
@@ -1840,6 +1844,7 @@ export default {
     "qq": "QQ Music",
     "kugou": "Kugou Music",
     "spotify": "Spotify",
+    "appleMusic": "Apple Music",
     "amll": "AMLLDB"
   },
   "globalLyricOffset": {

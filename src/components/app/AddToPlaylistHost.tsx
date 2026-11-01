@@ -180,8 +180,8 @@ export const AddToPlaylistHost: React.FC<AddToPlaylistHostProps> = ({
             const playlists = songPlaylists.map((playlist: ProviderCollection): PlaylistEntry => ({
                 id: String(playlist.id),
                 name: playlist.name,
-                description: trackCount(playlist.trackCount || 0),
-                coverUrl: playlist.coverUrl,
+                description: typeof playlist.trackCount === 'number' && Number.isFinite(playlist.trackCount) && playlist.trackCount >= 0
+                    ? `${playlist.trackCount} ${t('playlist.tracks')}` : undefined,
             }));
             if (!canLike) return playlists;
             return [likedRow(targetSongs.length > 0 && targetSongs.every(song => omni.isSongLiked(song))), ...playlists];
