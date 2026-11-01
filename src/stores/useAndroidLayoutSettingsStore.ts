@@ -3,8 +3,9 @@ import { IS_ANDROID_WEBVIEW } from '../utils/platform';
 import { getStoredBoolean, setStoredBoolean } from './storagePrimitives';
 import {
     applyAndroidPhoneFit,
+    detectPhoneFitFacts,
     readStoredAndroidPhoneFitOrientation,
-    readStoredAndroidPhoneFit,
+    resolveAndroidPhoneFitEnabled,
     syncAndroidPhoneFitNative,
     writeStoredAndroidPhoneFitOrientation,
     writeStoredAndroidPhoneFit,
@@ -32,7 +33,8 @@ type AndroidLayoutSettingsState = {
 const LITE_MODE_STORAGE_KEY = 'android_lite_mode';
 
 export const useAndroidLayoutSettingsStore = create<AndroidLayoutSettingsState>((set, get) => ({
-    phoneFitEnabled: readStoredAndroidPhoneFit(),
+    // 存储值优先；从未动过开关的触屏手机默认开（与启动接线 installAndroidPhoneFitPreference 同一解析）。
+    phoneFitEnabled: resolveAndroidPhoneFitEnabled(IS_ANDROID_WEBVIEW, detectPhoneFitFacts()),
     phoneFitOrientation: readStoredAndroidPhoneFitOrientation(),
     keepScreenOnEnabled: readStoredKeepScreenOn(),
     // 只有无存储记录时才按平台给默认：用户显式关掉后不再被拉回。
