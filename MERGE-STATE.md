@@ -12,8 +12,15 @@
 - 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）——**2026-11-01 用户重发 PAT（ghp_kpr8...，用户拍板复用）并已持久化，沙箱重置后从 `git clone https://@github.com/...` 自动走 credential.helper 恢复**
 - ⚠️ PAT 绝不能写进仓库任何被跟踪的文件
 
-## 当前进度（2026-11-01 20:45 +08 更新）
+## 当前进度（2026-11-02 17:40 +08 更新）
 
+- **手机适配跟进批次（2026-11-02，用户指令「修，此外这个图片为什么英文界面重复？推送，发布pre。使用技能，复渲染确认。删除旧的截图」，随 .296 发布）**
+  - 背景：1080×1920 多界面 1:1 渲染集（16 屏，download/mobile-ui-preview/）审计出 P1 seam 互压（README 审计发现①）；用户追问的「英文界面重复」= 渲染脚本未设 locale，headless 默认 en-US → 应用「跟随系统」解析英文界面——真机中文系统显示中文，截图与真机不符。两件都修
+  - **①P1 seam 互压（真机同样命中，纯几何不可满足）**：360 竖屏 + auto 方向 → compact 横条（home-spine，条高恒 52px）一行要放下折叠+五页签+账户+搜索/设置/队列/更多+展开，≥44px 触点下 ≈650px —— 退让链（useBravaisSeamRowFit）到底后导航段被压进零宽滚动段（页签不可达）+ flex:none 段总宽超容器溢出右缘。修复 = `libraryWallSeamDirection.ts` 新增 `resolveLibraryWallSeamHorizontalForTouch`：触屏窄视口（coarse + 宽<720，与 phone-fit/sheetPresentation 阈值族一致）上 auto/auto-reverse 兜底走竖排书脊（竖缝页签竖列、工具成格，.295 的 44px 规则两变体都覆盖）；用户显式选「横向」仍尊重（对齐「显式优先」原则）；非触屏窄窗零变化。BravaisStage 用 `(pointer:coarse)` + `(max-width:719.98px)` 两媒体查询合成 narrowTouch（该模块本就被导入，零新导入边）。探针复测：12 触点全 44×44、**0 相交**（修复前 9 处）、aria-label/axis/variant 均验
+  - **②P3 aria-label 泄漏**：BottomCommandPaletteButton 引用的 `help.commandPaletteButton` 键从未存在（i18n 回退把键名原样漏进 aria-label/title）→ 复用现成 `help.openCommandPalette`，零 i18n 改动
+  - **③渲染管线语言**：render 脚本 context 加 `locale: 'zh-CN'`，此后截图=真机中文界面
+  - ⚠️ **环境新坑（tsc OOM 第三形态）**：`npx tsc` 会多出一个 npm exec 包装 node 进程（~226MB RSS），4G 沙箱上把 tsc 挤到 3.48GB RSS 触发 global OOM（EXIT 137 连现两次、无竞争进程）——直跑 `node --max-old-space-size=2048 node_modules/typescript/bin/tsc --noEmit --skipLibCheck` EXIT=0。此法替代 npx
+  - 验证：tsc EXIT=0（直跑法）；定向 vitest 57 例（seamDirection 4 + wallLook 系 53）全绿；vite build OK；探针 0 相交；发布后全量复渲染 17 屏（zh-CN）
 - **手机适配默认值批次（2026-11-01，用户指令「这是Android程序，由web端迁移过来导致UI不适合手机端，抓取相关代码绘制真实原理图再自己视觉查看并优化修复，更新cron job」，随 .295 发布）**；spec 见 /home/z/my-project/spec-phone-fit-defaults.md，原理图 download/folia-android-ui-arch.png（四层：壳→WebView→桌面本体→适配层）
   - 侦察法：vite build + agent-browser Pixel 7 视口（412×915）真实截图 6 张（phone-fit 开/关对照）+ DOM 几何测量；三问题实锤：
     - **P1** phone-fit（541 行紧凑 CSS）opt-in 默认关——手机默认安装=桌面浮卡（设置页两侧黑边/页签截断）
