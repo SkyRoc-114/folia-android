@@ -94,6 +94,7 @@ export default function Lattice({
     const posterTintUseCustomColor = useLatticeSettingsStore(state => state.latticePosterTintUseCustomColor);
     const posterTintColor = useLatticeSettingsStore(state => state.latticePosterTintColor);
     const posterTintIntensity = useLatticeSettingsStore(state => state.latticePosterTintIntensity);
+    const badgeCurrentOnly = useLatticeSettingsStore(state => state.latticeBadgeCurrentOnly);
     // Set by the way the wall was opened, and the same for as long as it is up.
     const isExplore = useAppViewStore(state => state.latticeSource) === 'explore';
     const explore = useExploreWall({ isOn: isExplore, currentSong, providerId: exploreProviderId, accountId: exploreAccountId });
@@ -194,8 +195,7 @@ export default function Lattice({
         <LatticeLyricsProvider source={lyricSource} songKey={currentSong ? getPlaybackSongKey(currentSong) : ''}
             keywordColoringEnabled={lyricKeywordColoringEnabled}>
         <section
-            className={`lattice-root lattice-queue-root ${isDaylight ? 'is-daylight' : ''} ${latticePerformanceMode ? 'is-performance' : ''} ${vignette ? 'has-vignette' : ''} ${lightsOn ? '' : 'is-lights-out'} ${posterTintEnabled ? 'has-poster-tint' : ''} ${posterTintUseCustomColor ? 'uses-custom-poster-tint' : ''} ${surfaceOff ? 'is-handoff-surface-off' : ''} ${fadesIn && !reducedMotion ? 'is-returning' : ''}`}
-            data-wall-handoff={handoffRole ?? undefined}
+            className={`lattice-root lattice-queue-root ${isDaylight ? 'is-daylight' : ''} ${latticePerformanceMode ? 'is-performance' : ''} ${vignette ? 'has-vignette' : ''} ${lightsOn ? '' : 'is-lights-out'} ${posterTintEnabled ? 'has-poster-tint' : ''} ${posterTintUseCustomColor ? 'uses-custom-poster-tint' : ''} ${badgeCurrentOnly ? 'has-badge-current-only' : ''} ${surfaceOff ? 'is-handoff-surface-off' : ''} ${fadesIn && !reducedMotion ? 'is-returning' : ''}`}            data-wall-handoff={handoffRole ?? undefined}
             data-wall-handoff-phase={handoffPhase}
             data-wall-handoff-mode={handoffSession?.mode}
             data-wall-handoff-see-through={handoffSession?.seeThrough || undefined}
