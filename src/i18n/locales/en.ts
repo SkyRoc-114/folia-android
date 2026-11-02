@@ -2715,6 +2715,8 @@ export default {
     "partitaSemanticLayout": "CJK Semantic Layout",
     "partitaStaggerMin": "Stagger Min",
     "partitaStaggerMax": "Stagger Max",
+    "avoidOverlap": "Prevent Overlap",
+    "avoidOverlapHint": "Space words by their size when scaled and turned",
     "fumeSettings": "Fume Tuning",
     "fumeHidePrintSymbols": "Hide Print Stamp",
     "fumeGeometricBackground": "Geometric Shapes",

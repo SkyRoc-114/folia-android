@@ -2713,6 +2713,8 @@ export default {
     "partitaSemanticLayout": "Tata Letak Semantik CJK",
     "partitaStaggerMin": "Stagger Min",
     "partitaStaggerMax": "Stagger Max",
+    "avoidOverlap": "Cegah Tumpang Tindih",
+    "avoidOverlapHint": "Beri jarak kata sesuai ukurannya saat diperbesar dan diputar",
     "fumeSettings": "Penyetelan Fume",
     "fumeHidePrintSymbols": "Sembunyikan Cap Cetak",
     "fumeGeometricBackground": "Bentuk Geometris",
