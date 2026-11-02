@@ -12,8 +12,14 @@
 - 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）——**2026-11-01 用户重发 PAT（ghp_kpr8...，用户拍板复用）并已持久化，沙箱重置后从 `git clone https://@github.com/...` 自动走 credential.helper 恢复**
 - ⚠️ PAT 绝不能写进仓库任何被跟踪的文件
 
-## 当前进度（2026-11-03 00:50 +08 更新）
+## 当前进度（2026-11-03 07:30 +08 更新）
 
+- **.298 书脊工具格右偏修复批次（2026-11-03 早晨，用户实测「首页（无界布局）的字体按钮似乎右偏」）**
+  - **定位**：非渲染精度（页签竖排文字中心偏移 0.91px 亚像素）——真凶是 .295 触点规则 `min-width:44px !important` 把上游定宽的工具格按钮（书脊 36px/窄缝 40px）真实撑大到 44px，溢出 grid 轨道且 item 默认左对齐 → 搜索/设置/队列拼贴/更多四格右偏（书脊 4px、窄缝 2px/格，列间 8px 设计间隙被吃成 4px）。探针实测：书脊四格 cx=181.92 vs 其余按钮 177.92
+  - **修法**：androidPhoneFit.css 末尾追加 phone-fit 作用域规则——`.bravais-seam-tools .bravais-seam-icon:not(.is-wide) { justify-self: center }`（+is-compact is-wide 同样居中；窄缝 is-wide stretch 占满两列保持不居中）。触点 44px 不变、关 phone-fit 上游零变化
+  - **验证**：探针复测书脊四格 cx→177.92 同轴、窄缝对齐轨道中心（153.92/201.92）+ 间隙恢复 8px；vite build EXIT=0；15 屏渲染集重出人工查验；vitest unit 不涉（纯 CSS）
+  - **持久化新规（用户指令「完成任务都持久化当前仓库状态（删除旧的）」）**：渲染集 15 屏 + README 清单**入库 `docs/ui-preview/`**（沙箱 download/ 每窗口被回退清空，仓库是持久正本；每次重渲染整组替换不留旧版）；新增几何探针 `scripts/probe-spine-geometry.mjs` + `probe-seam-expanded.mjs` 入库（-f，scripts/* 被 .gitignore）
+  - **cron 巡检频次改每日一次（用户指令）**：job 重建为每天 09:00 Asia/Shanghai；沙箱快照每窗口回滚到 .287 是常态，每轮先 depth-1 克隆 cp -a 替换恢复
 - **多界面渲染集补齐批次（2026-11-03 凌晨，用户遗留任务「多界面全量枚举渲染 16+ 屏」收口，docs 推送无发布）**
   - **沙箱回退恢复新路径（API tarball 法）**：本轮快照回退到 .287（1f696ba3）+ **github.com 主站通道不通**（depth-1 clone 三连败，curl -I github.com 无响应但 api.github.com/registry.npmjs.org 正常）→ `curl -L -H "Authorization: token $PAT" api.github.com/repos/SkyRoc-114/folia-android/tarball/android-0.7.22`（58MB 一次到手，302→codeload 跟随可达）解压替换工作树；随后网络窗口恢复 depth-1 clone 成功，`cp -a /tmp/folia-git/.git <repo>/` + `git reset --hard` 补回 .git。**快照回退波及沙箱外部目录**：download/mobile-ui-preview/ 旧 4 张、scripts/render-mobile-ui.mjs 全丢——渲染脚本从此入库防丢（本批 scripts/render-mobile-ui.mjs + render-extra.mjs + probe-{dom,palette,player}.mjs 五件入库）
   - **渲染集 15 屏重建（download/mobile-ui-preview/，1080×1920、phone-fit 显式开、zh-CN，README.md 有清单）**：01 home 墙 / 02 本地页签 / 03 lattice / 04 player / 05-07,09 面板 4 tab（**未登录下 TabDock 只渲染 cover/controls/queue/account 四个**，local/navi/onlineLyrics 不可用不出现） / 08 均衡器 / 10-11 设置 options+主题 section / 12 搜索激活态 / 13 命令面板 / 14 登录窗 / 15 搜索覆盖层。逐张人工查验通过
