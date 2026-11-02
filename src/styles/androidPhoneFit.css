@@ -558,3 +558,16 @@ html[data-folia-phone-fit='true'] .bravais-seam .bravais-seam-home-tab {
 html[data-folia-phone-fit='true'] .bravais-seam .bravais-seam-home-tab > * {
   pointer-events: none;
 }
+/* 修 .295 触点放大对 bravais 工具格（.bravais-seam-tools）的副作用：上游按钮有定宽
+   （书脊 36px、窄缝 40px），min-width:44px 把盒子真实撑大、溢出 grid 轨道——grid item
+   默认从轨道左缘排，搜索/设置/队列/更多四格整体右偏（书脊 4px、窄缝 2px/格，
+   1080×1920 截图上可见，用户实测报告）。phone-fit 作用域内让按钮在轨道里居中即可对齐，
+   触点尺寸与命中面积不变；关掉 phone-fit 仍是上游逐字节不变。
+   （is-wide 舞台行在窄缝里 stretch 占满两列，不居中；书脊单列里同四格一样居中。） */
+html[data-folia-phone-fit='true'] .bravais-seam .bravais-seam-tools .bravais-seam-icon:not(.is-wide) {
+  justify-self: center;
+}
+
+html[data-folia-phone-fit='true'] .bravais-seam .bravais-seam-home.is-compact .bravais-seam-tools .bravais-seam-icon.is-wide {
+  justify-self: center;
+}
