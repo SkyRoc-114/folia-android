@@ -4232,6 +4232,7 @@ export default {
     "slotSuggestionReplace": "Thay",
     "slotSuggestionReplacePrimary": "Thay nút bên trái ({{action}})",
     "slotSuggestionReplaceSecondary": "Thay nút bên phải ({{action}})",
+    "capsuleQuickActions": "Thao tác nhanh",
   },
   "localMusic": {
     "foldersAndPlaylists": "Thư mục",
