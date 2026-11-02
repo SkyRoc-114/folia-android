@@ -428,6 +428,7 @@ const FloatingPlayerControls: React.FC<FloatingPlayerControlsProps> = ({
                                     slotSecondary={slotSecondary}
                                     onReplace={slotCustomization.acceptSuggestion}
                                     onDismiss={slotCustomization.dismissSuggestion}
+                                    isDaylight={isDaylight}
                                 />
                             )}
                         </AnimatePresence>
@@ -516,6 +517,7 @@ const FloatingPlayerControls: React.FC<FloatingPlayerControlsProps> = ({
                         openSettings('options', 'player', null, 'bottomUiSettings', 'playerControlSlots');
                     }}
                     onClose={closeSlotPicker}
+                    isDaylight={isDaylight}
                 />
             )}
 
