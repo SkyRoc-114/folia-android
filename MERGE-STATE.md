@@ -12,8 +12,15 @@
 - 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）——**2026-11-01 用户重发 PAT（ghp_kpr8...，用户拍板复用）并已持久化，沙箱重置后从 `git clone https://@github.com/...` 自动走 credential.helper 恢复**
 - ⚠️ PAT 绝不能写进仓库任何被跟踪的文件
 
-## 当前进度（2026-11-02 19:50 +08 更新）
+## 当前进度（2026-11-03 00:50 +08 更新）
 
+- **多界面渲染集补齐批次（2026-11-03 凌晨，用户遗留任务「多界面全量枚举渲染 16+ 屏」收口，docs 推送无发布）**
+  - **沙箱回退恢复新路径（API tarball 法）**：本轮快照回退到 .287（1f696ba3）+ **github.com 主站通道不通**（depth-1 clone 三连败，curl -I github.com 无响应但 api.github.com/registry.npmjs.org 正常）→ `curl -L -H "Authorization: token $PAT" api.github.com/repos/SkyRoc-114/folia-android/tarball/android-0.7.22`（58MB 一次到手，302→codeload 跟随可达）解压替换工作树；随后网络窗口恢复 depth-1 clone 成功，`cp -a /tmp/folia-git/.git <repo>/` + `git reset --hard` 补回 .git。**快照回退波及沙箱外部目录**：download/mobile-ui-preview/ 旧 4 张、scripts/render-mobile-ui.mjs 全丢——渲染脚本从此入库防丢（本批 scripts/render-mobile-ui.mjs + render-extra.mjs + probe-{dom,palette,player}.mjs 五件入库）
+  - **渲染集 15 屏重建（download/mobile-ui-preview/，1080×1920、phone-fit 显式开、zh-CN，README.md 有清单）**：01 home 墙 / 02 本地页签 / 03 lattice / 04 player / 05-07,09 面板 4 tab（**未登录下 TabDock 只渲染 cover/controls/queue/account 四个**，local/navi/onlineLyrics 不可用不出现） / 08 均衡器 / 10-11 设置 options+主题 section / 12 搜索激活态 / 13 命令面板 / 14 登录窗 / 15 搜索覆盖层。逐张人工查验通过
+  - **.297 双语修复复渲染实证**：13 屏命令面板行=zh 标题+zh 分类 chip（`队列 [播放]` 形态）；12 屏搜索激活 placeholder=zh「在当前来源搜索歌曲」——两处修复在 1080×1920 真机分辨率确认无英文等价物
+  - **导航侦察结论（渲染脚本导航手段）**：无 window 调试句柄、hash 只写不读（无直达）→ 三条路：①命令面板命令（⌘ 按钮 → `[role="combobox"]` 输入**英文关键词**（primaryTerm 检索词语义仍在）→ 点 `[data-testid="command-palette-match-row"]`，行含 zh 文本可按文本选行）；②书脊 aria-label——**页签 role=tab 非 button**（`button[aria-label="本地"]` MISS 根因，用 `[aria-label=…]` 或 getByRole('tab')）；③播放页 `[data-testid="panel-toggle"]` → `[data-ponder-panel-tab-button="<id>"]`
+  - 首启门控预置五键（渲染/审计必带）：`folia_android_phone_fit='true'`、`playback_entry_view_chosen='true'`、`library_suite_prompt_seen='true'`、`folia_last_seen_ponder_onboarding_version=<pkg version>`、`folia_last_seen_guide_version=<pkg version>`（__APP_VERSION__=package.json version，当前 0.7.22-android.297）
+  - 观察项（非阻塞，见渲染集 README）：①面板 × 关闭钮与末 tab「音质」360 宽空态下轻微重叠；②命令面板 placeholder 与 ？ 帮助钮轻微重叠；③空态大量入口不渲染（player-bar/lattice pill/登录后才有 3 tab）——登录+有播放内容后可再补
 - **命令面板英文等价冗余清除批次（2026-11-02，用户截图命令面板 zh 界面并指令「这种为什么右边还有英文对应的，这样语言切换为en-us不会重复？去掉（不止一处）」，随 .297 发布）**
   - 根因两处（用户「不止一处」实证为二）：①CommandPalette 匹配行的等宽提示 chip——数据源 searchIndex 的 `primaryTerm`（=英文标题规范化，en 标题恒为触发词），**所有语言都上屏**：en 界面与标题逐字重复（`Queue [queue]`），zh 界面是游离英文等价物（用户截图的 `队列 [queue]`/`搜索歌曲 [search songs]`）；②searchCommands 的 placeholder 覆写 `` `${keywords[0]} ${description}` ``——激活搜索命令后输入框漏英文（keywords[0]='search' + 硬编码英文描述），其余 20+ 命令的 placeholder 全走 i18n 键，唯此一处硬编码
   - 修复：①删 chip（行=本地化标题+本地化分类，布局不动）；②删 placeholder 覆写（回落 renderQueryInput 的 `getCommandDescription` 本地化描述链）。**primaryTerm 字段保留**——语义收窄为「全部命令点选回填 + 激活命令 Backspace 回退」的检索词（commandPaletteVirtualList.spec L102 的 ASCII 回填断言锁定该功能：回填必须能原样搜出命令，本地化标题也能命中但测试语义是「回填词」而非展示文案，不动）；行上加 `data-testid="command-palette-match-row"`，commandPaletteSizing.spec 的「匹配列表已渲染」信号从 `span.font-mono` 换成该 testid（chip 删了信号就没了）
