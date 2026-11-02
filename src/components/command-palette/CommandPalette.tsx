@@ -237,13 +237,18 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
     );
 
     /**
-     * The short mono hint shown on a row, and the text a click on the all-commands list types
-     * back into the box.
+     * The text a click on the all-commands list types back into the box (and what Backspace
+     * restores after leaving an active command).
      *
      * This used to be `command.keywords[0]`, which only worked while every command carried a
      * hand-written English alias first in its array. Keywords are synonyms now — some commands
      * have none, and the first one is not guaranteed to be Latin — so the search index resolves
      * a primary term instead (first ASCII trigger, else the English title's first word, else id).
+     *
+     * It is deliberately NOT shown on rows anymore: under an English UI the term repeated the
+     * localized title verbatim ("Queue [queue]"), and under every other locale it read as an
+     * untranslated English equivalent bolted onto a localized row. Rows show title + group only;
+     * this term survives purely as the type-back-to-find mechanism.
      */
     const primaryTermOf = useMemo(() => (
         (command: CommandPaletteCommand) => getCommandPrimaryTerm(availableCommands, command, i18n.language)
@@ -549,11 +554,11 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
                                     const groupLabel = t(groupLabelKey[match.command.group] || 'commandPalette.groupOther') || match.command.group;
                                     const title = getCommandTitle(match.command, t);
                                     const displayDescription = match.previewText || getCommandDescription(match.command, t);
-                                    const commandHint = primaryTermOf(match.command);
                                     const Icon = match.command.icon ?? Command;
                                     return (
                                         <button
                                             key={match.command.id}
+                                            data-testid="command-palette-match-row"
                                             ref={isActive ? activeMatchRowRef : undefined}
                                             type="button"
                                             disabled={isExecuting}
@@ -582,12 +587,6 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex items-center gap-2">
                                                     <span className="truncate text-sm font-medium">{title}</span>
-                                                    <span
-                                                        className={`shrink-0 rounded-md px-1.5 py-0.5 font-mono text-[10px] ${isDaylight ? 'bg-black/8 text-zinc-700' : 'bg-white/10 text-zinc-200'
-                                                            }`}
-                                                    >
-                                                        {commandHint}
-                                                    </span>
                                                     <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] opacity-50">
                                                         {groupLabel}
                                                     </span>

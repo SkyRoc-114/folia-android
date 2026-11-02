@@ -86,7 +86,11 @@ const createSearchCommand = (
     // and for callers that match without a context.
     isAvailable: context => !context || id === 'search-current',
     icon: Search,
-    placeholder: () => `${keywords[0]} ${description}`,
+    // No `placeholder` override: the old one printed `${keywords[0]} ${description}` — an
+    // untranslated English keyword glued to a hardcoded English sentence — into the box the
+    // moment a search command went active, in every locale. Commands without an override fall
+    // back to the localized description (see CommandPalette's renderQueryInput), which is what
+    // the active search row shows now.
     requiresInput: true,
     getPreview: (input, context) => buildSearchPreview(
         input,

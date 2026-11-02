@@ -61,7 +61,7 @@ export type CommandSearchEntry = {
      * 也让长度惩罚回到有效量级。
      */
     fuzzyTargets: string[];
-    /** 取代 command.keywords[0]：UI 上那个等宽提示 chip 和「全部命令」点击回填都用它。 */
+    /** 「全部命令」点击回填与激活命令 Backspace 回退用的词；不再上屏当行内提示 chip（英文与本地化标题重复）。 */
     primaryTerm: string;
 };
 

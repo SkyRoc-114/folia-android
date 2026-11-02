@@ -117,10 +117,12 @@ const measure = async (page: Page) => {
 };
 
 /**
- * 匹配行数：每一行都带一个等宽的提示 chip，「全部命令」那套行没有，所以它正好只数匹配列表。
+ * 匹配行数：匹配行带 command-palette-match-row 标记，「全部命令」那套行没有，所以它正好只数匹配列表。
  * 用它当「列表已经渲染出来」的信号，比睡够 120ms 防抖再赌一把可靠。
+ * （曾经的信号是 span.font-mono——行内那个英文提示 chip 已删：英文界面下它与标题逐字重复，
+ * 其他语言下则是一枚游离的英文等价物。现在改用行上显式的 testid。）
  */
-const matchRows = (page: Page) => palette(page).locator('span.font-mono');
+const matchRows = (page: Page) => palette(page).locator('[data-testid="command-palette-match-row"]');
 
 /** 输入查询，并等匹配列表铺满（MAX_COMMAND_MATCHES 是 10）。 */
 const typeUntilFullList = async (page: Page, query: string) => {
