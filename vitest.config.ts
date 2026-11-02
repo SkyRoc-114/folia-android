@@ -32,6 +32,7 @@ export default defineConfig({
     // 真的卡住，而不是「机器正好忙」。
     testTimeout: 20_000,
     hookTimeout: 20_000,
-    include: ['test/unit/**/*.test.ts']
-  }
+    include: ['test/unit/**/*.test.ts'],
+    // Node 25 起自带的 localStorage 占位会盖住 jsdom 的那份，jsdom 用例在这里统一补内存实现。
+    setupFiles: ['test/unit/jsdomLocalStorage.ts']  }
 });
