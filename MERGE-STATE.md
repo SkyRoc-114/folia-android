@@ -12,8 +12,14 @@
 - 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）——**2026-11-01 用户重发 PAT（ghp_kpr8...，用户拍板复用）并已持久化，沙箱重置后从 `git clone https://@github.com/...` 自动走 credential.helper 恢复**
 - ⚠️ PAT 绝不能写进仓库任何被跟踪的文件
 
-## 当前进度（2026-11-02 17:40 +08 更新）
+## 当前进度（2026-11-02 19:50 +08 更新）
 
+- **命令面板英文等价冗余清除批次（2026-11-02，用户截图命令面板 zh 界面并指令「这种为什么右边还有英文对应的，这样语言切换为en-us不会重复？去掉（不止一处）」，随 .297 发布）**
+  - 根因两处（用户「不止一处」实证为二）：①CommandPalette 匹配行的等宽提示 chip——数据源 searchIndex 的 `primaryTerm`（=英文标题规范化，en 标题恒为触发词），**所有语言都上屏**：en 界面与标题逐字重复（`Queue [queue]`），zh 界面是游离英文等价物（用户截图的 `队列 [queue]`/`搜索歌曲 [search songs]`）；②searchCommands 的 placeholder 覆写 `` `${keywords[0]} ${description}` ``——激活搜索命令后输入框漏英文（keywords[0]='search' + 硬编码英文描述），其余 20+ 命令的 placeholder 全走 i18n 键，唯此一处硬编码
+  - 修复：①删 chip（行=本地化标题+本地化分类，布局不动）；②删 placeholder 覆写（回落 renderQueryInput 的 `getCommandDescription` 本地化描述链）。**primaryTerm 字段保留**——语义收窄为「全部命令点选回填 + 激活命令 Backspace 回退」的检索词（commandPaletteVirtualList.spec L102 的 ASCII 回填断言锁定该功能：回填必须能原样搜出命令，本地化标题也能命中但测试语义是「回填词」而非展示文案，不动）；行上加 `data-testid="command-palette-match-row"`，commandPaletteSizing.spec 的「匹配列表已渲染」信号从 `span.font-mono` 换成该 testid（chip 删了信号就没了）
+  - 验证：tsc 直跑 EXIT=0；command-palette 单测 **313 例全绿**；vite build OK；agent-browser 实证 zh/en 双语言 `span.font-mono` 计数=0、en 行=`Queue/PLAYBACK` 无重复、搜索激活 placeholder zh=`在当前来源搜索歌曲` en=`Search songs in the current source`（都无英文关键词前缀）
+  - 复渲染确认（用户指令「使用技能，复渲染确认」+「删除旧的截图」）：download/mobile-ui-preview/ **旧截图全删重做**，现 4 张 1080×1920 phone-fit 显式开（folia_android_phone_fit='true'）zh-CN：01 home 墙 / 02 palette zh 修复后 / 03 palette en 修复后 / 04 搜索激活态（本地化 placeholder）。多界面全量枚举渲染（16+屏）仍未完——本轮只交付修复确认集
+  - ⚠️ 环境坑更新：①blobless clone `git fetch origin`/`git fetch /tmp/folia-fresh` 回填 blob 均超时卡死（150s×2），**depth-1 全量克隆 `cp -a` 整体替换 `<repo>` 的 .git+工作树**最稳（损失历史但 push/tag 正常，快照回退恢复时优先此法）；②tsc OOM 新形态：**vite preview + headless chromium 常驻会把可用内存压到 ~2.9G**，2400 堆也 137 三连——`agent-browser close` + 杀 preview 后 2400 堆 EXIT=0（内存敏感验证前先清浏览器进程）；③preview 5 分钟被回收后重起，localStorage 全新（语言/phone-fit/引导键全要重写，截图前先查 `library_suite_prompt_seen` + `folia_last_seen_ponder_onboarding_version`=<version> 防首启引导弹窗入镜）
 - **手机适配跟进批次（2026-11-02，用户指令「修，此外这个图片为什么英文界面重复？推送，发布pre。使用技能，复渲染确认。删除旧的截图」，随 .296 发布）**
   - 背景：1080×1920 多界面 1:1 渲染集（16 屏，download/mobile-ui-preview/）审计出 P1 seam 互压（README 审计发现①）；用户追问的「英文界面重复」= 渲染脚本未设 locale，headless 默认 en-US → 应用「跟随系统」解析英文界面——真机中文系统显示中文，截图与真机不符。两件都修
   - **①P1 seam 互压（真机同样命中，纯几何不可满足）**：360 竖屏 + auto 方向 → compact 横条（home-spine，条高恒 52px）一行要放下折叠+五页签+账户+搜索/设置/队列/更多+展开，≥44px 触点下 ≈650px —— 退让链（useBravaisSeamRowFit）到底后导航段被压进零宽滚动段（页签不可达）+ flex:none 段总宽超容器溢出右缘。修复 = `libraryWallSeamDirection.ts` 新增 `resolveLibraryWallSeamHorizontalForTouch`：触屏窄视口（coarse + 宽<720，与 phone-fit/sheetPresentation 阈值族一致）上 auto/auto-reverse 兜底走竖排书脊（竖缝页签竖列、工具成格，.295 的 44px 规则两变体都覆盖）；用户显式选「横向」仍尊重（对齐「显式优先」原则）；非触屏窄窗零变化。BravaisStage 用 `(pointer:coarse)` + `(max-width:719.98px)` 两媒体查询合成 narrowTouch（该模块本就被导入，零新导入边）。探针复测：12 触点全 44×44、**0 相交**（修复前 9 处）、aria-label/axis/variant 均验
