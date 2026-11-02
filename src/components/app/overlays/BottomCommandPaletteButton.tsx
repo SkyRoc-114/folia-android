@@ -69,9 +69,10 @@ const BottomCommandPaletteButton: React.FC = () => {
         <button
             type="button"
             data-folia-command-palette-button="true"
-            // 文案键和 `openCommandPalette` 同属 help 块（键盘快捷键那一组），不是 ui。
-            aria-label={t('help.commandPaletteButton')}
-            title={t('help.commandPaletteButton')}
+            // 复用 help 块的 openCommandPalette（键盘快捷键那一组）；此前引用的 help.commandPaletteButton
+            // 从未存在过，i18n 回退把键名原样漏进了 aria-label / title。
+            aria-label={t('help.openCommandPalette')}
+            title={t('help.openCommandPalette')}
             onClick={() => openCommandPalette()}
             tabIndex={shown ? 0 : -1}
             aria-hidden={!shown}

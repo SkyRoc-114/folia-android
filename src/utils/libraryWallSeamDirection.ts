@@ -32,9 +32,28 @@ export const LIBRARY_WALL_SEAM_DIRECTION_TEXT: Readonly<Record<LibraryWallSeamDi
 /** 「竖着的屏幕」：高 ≥ 宽 × 1.1（宽高比 ≤ 10 / 11）。 */
 export const LIBRARY_WALL_PORTRAIT_QUERY = '(max-aspect-ratio: 10/11)';
 
+/** 「触屏窄视口」的宽度半边：宽 < 720（短边阈值与 phone-fit / sheetPresentation 一族一致）。 */
+export const LIBRARY_WALL_SEAM_ROW_NARROW_QUERY = '(max-width: 719.98px)';
+
 /** 此刻信息条该不该横着开：自动时竖着的屏幕横着开，自动（反向）时横着的屏幕横着开。 */
 export const resolveLibraryWallSeamHorizontal = (direction: LibraryWallSeamDirection, portrait: boolean): boolean => {
     if (direction === 'auto') return portrait;
     if (direction === 'auto-reverse') return !portrait;
+    return direction === 'horizontal';
+};
+
+/**
+ * 生效的横条判定（触屏窄视口兜底）：compact 横条一行要放下折叠 + 五个一级页签 + 账户 + 搜索 / 设置 / 队列 / 更多 +
+ * 展开，44px 触点下约 650px——手机宽度物理不可满足，退让链到底后页签被压进零宽滚动段不可点、行还溢出右缘
+ * （纯几何，与 headless 伪影无关）。触屏窄视口（coarse + 宽 < 720，`narrowTouch` 由调用侧按两个媒体查询合成）
+ * 上两种「自动」一律改走竖排书脊（竖缝里页签竖排、工具成格，44px 触点规则两变体都覆盖）；用户显式选
+ * 「横向」仍尊重其选择（对齐 phone-fit「显式优先」的原则）。
+ */
+export const resolveLibraryWallSeamHorizontalForTouch = (
+    direction: LibraryWallSeamDirection,
+    portrait: boolean,
+    narrowTouch: boolean,
+): boolean => {
+    if (!narrowTouch) return resolveLibraryWallSeamHorizontal(direction, portrait);
     return direction === 'horizontal';
 };

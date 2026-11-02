@@ -3,9 +3,11 @@ import {
     DEFAULT_LIBRARY_WALL_SEAM_DIRECTION,
     LIBRARY_WALL_PORTRAIT_QUERY,
     LIBRARY_WALL_SEAM_DIRECTIONS,
+    LIBRARY_WALL_SEAM_ROW_NARROW_QUERY,
     isLibraryWallSeamDirection,
     normalizeLibraryWallSeamDirection,
     resolveLibraryWallSeamHorizontal,
+    resolveLibraryWallSeamHorizontalForTouch,
 } from '@/utils/libraryWallSeamDirection';
 
 // test/unit/utils/libraryWallSeamDirection.test.ts
@@ -47,5 +49,23 @@ describe('libraryWallSeamDirection', () => {
         expect(matchesPortraitQuery(900, 950)).toBe(false);
         expect(matchesPortraitQuery(1440, 900)).toBe(false);
         expect(matchesPortraitQuery(852, 393)).toBe(false);
+    });
+
+    it('falls back to the vertical spine on narrow touch viewports for both automatic modes, explicit row still wins', () => {
+        // 宽度半边与 phone-fit / sheetPresentation 的 720 阈值一族。
+        expect(LIBRARY_WALL_SEAM_ROW_NARROW_QUERY).toBe('(max-width: 719.98px)');
+        // 手机竖屏：自动 / 自动（反向）都改走竖缝——compact 横条 44px 触点下约 650px，物理放不进手机宽度。
+        expect(resolveLibraryWallSeamHorizontalForTouch('auto', true, true)).toBe(false);
+        expect(resolveLibraryWallSeamHorizontalForTouch('auto-reverse', true, true)).toBe(false);
+        // 手机横屏（宽 640-719 也算窄）：自动本就走竖缝，自动（反向）的横条同样被兜底。
+        expect(resolveLibraryWallSeamHorizontalForTouch('auto', false, true)).toBe(false);
+        expect(resolveLibraryWallSeamHorizontalForTouch('auto-reverse', false, true)).toBe(false);
+        // 显式选择仍尊重：横向照开、竖向照竖。
+        expect(resolveLibraryWallSeamHorizontalForTouch('horizontal', true, true)).toBe(true);
+        expect(resolveLibraryWallSeamHorizontalForTouch('vertical', true, true)).toBe(false);
+        // 非触屏窄视口（桌面窄窗）：维持原判定，行为零变化。
+        expect(resolveLibraryWallSeamHorizontalForTouch('auto', true, false)).toBe(true);
+        expect(resolveLibraryWallSeamHorizontalForTouch('auto-reverse', false, false)).toBe(true);
+        expect(resolveLibraryWallSeamHorizontalForTouch('horizontal', true, false)).toBe(true);
     });
 });
