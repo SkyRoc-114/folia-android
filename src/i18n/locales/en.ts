@@ -4236,6 +4236,7 @@ export default {
     "slotSuggestionReplacePrimary": "Replace the left button ({{action}})",
     "slotSuggestionReplaceSecondary": "Replace the right button ({{action}})",
     "capsuleQuickActions": "Quick actions",
+    "capsuleOpensPalette": "Click to open the command palette",
   },
   "localMusic": {
     "foldersAndPlaylists": "Folders",

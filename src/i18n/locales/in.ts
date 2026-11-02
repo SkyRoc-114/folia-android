@@ -4233,7 +4233,8 @@ export default {
     "slotSuggestionReplace": "Ganti",
     "slotSuggestionReplacePrimary": "Ganti tombol kiri ({{action}})",
     "slotSuggestionReplaceSecondary": "Ganti tombol kanan ({{action}})",
-    "capsuleQuickActions": "Aksi cepat"
+    "capsuleQuickActions": "Aksi cepat",
+    "capsuleOpensPalette": "Klik untuk membuka palet perintah"
   },
   "localMusic": {
     "foldersAndPlaylists": "Folder",
