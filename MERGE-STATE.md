@@ -8,12 +8,19 @@
 
 - `origin` = https://github.com/SkyRoc-114/folia-android （Android 移植 fork，工作分支 `android-0.7.22`）
 - `upstream` = https://github.com/chthollyphile/folia-major （上游桌面版）
-- `whycfawa` = 父仓库参考（`https://github.com/whycfawa/folia.git`；2026-10-29 查询 404，可能已改名/转私有，用到时先 `ls-remote` 验证）
+- `whycfawa` = **Android 上游**（`https://github.com/whycfawa/folia-android`，2026-11-03 用户确权）：分支 `android-0.7.22`（本 fork 直接父本，2026-11-03 tip=55af65d）、`android-0.7.21`、`main`（0.7.20-android.194）；书脊/phone-fit 行为以其为准（对齐即"看上游"）。旧记录的 `whycfawa/folia` 已 404，勿再引用
 - 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）——**2026-11-01 用户重发 PAT（ghp_kpr8...，用户拍板复用）并已持久化，沙箱重置后从 `git clone https://@github.com/...` 自动走 credential.helper 恢复**
 - ⚠️ PAT 绝不能写进仓库任何被跟踪的文件
 
-## 当前进度（2026-11-03 07:30 +08 更新）
+## 当前进度（2026-11-03 09:40 +08 更新）
 
+- **.299 书脊横排回归 + 设置传统化 + 平板双栏批次（2026-11-03 上午，用户指令「就是万象这个布局，书脊在android上应该是横着的，看上游(folia android)，继续安卓化，设置界面跟随传统音乐软件，平板端分成2部分，记得删除截图」）**
+  - **关键情报修正：Android 上游确权 = `whycfawa/folia-android`**（用户给出 URL；此前 MERGE-STATE 记的 whycfawa/folia 404 已过时）——分支 `android-0.7.22`（tip 55af65d）是本 fork 直接父本，`main` 在 0.7.20-android.194；另有 `android-0.7.21`。另调研 `CYJ316457/folia-android` = Kotlin+Compose 原生重写垂直切片（非 WebView），其顶部 TabRow+列表+底部浮条 = 传统安卓音乐 UI 参照；技能 `superpowers-cn` 已按用户指令安装（clawhub → /home/z/my-project/skills/superpowers-cn，方法论框架：澄清→设计→执行→审核）
+  - **①书脊横排回归上游（撤销 .296 触屏竖排兜底 + .295 seam 44px 触点规则）**：上游 `libraryWallSeamDirection.ts` 仅有 `resolveLibraryWallSeamHorizontal`（auto+竖屏→横条）、BravaisStage 直接调用、phone-fit CSS 零 seam 规则（541 行内 bravais-seam 零命中）——本 fork 的 44px seam 规则与竖排兜底都是自增偏差。删除：`resolveLibraryWallSeamHorizontalForTouch` + `LIBRARY_WALL_SEAM_ROW_NARROW_QUERY` + BravaisStage 两媒体查询 + androidPhoneFit.css 末尾 seam 段（44px/ home-tab/工具格居中共 32 行）；测试文件整文件恢复上游版（-20 行）。探针复测 360×640：全按钮 34px 上游原生、页签文字偏移 0.00、行无溢出（页签导航段 60px 横滑触达五页签=上游退让链 short+overflowing 终态，与上游 Android 真机一致）
+  - **②设置传统移动端化（跟随传统音乐软件：根列表→子页返回，M3 官方「设置=list-detail 典型场景」）**：窄窗（<768px）抽屉式——`settingsLandingOpen` 状态（深链子视图/锚点/help 直达子页，裸开=根列表）；SettingsSideList 新增 `stacked` 变体（分组竖排列表任意宽度生效，data-folia-settings-landing 钩子，children 支持搜索结果替换列表）；PageHeader 新增 `onBack`/`backLabel`（← 返回箭头）+ `data-folia-page-header-bar` 钩子；phone-fit CSS 全屏 edge-to-edge（padding 0/100dvh/方角/安全区 padding，替换原 6px 内缩浮动卡）+ 落地页行/页头钮 44px 触点。locale 双语加 `options.settingsBack`（返回/Back）+ sync-vi-to-en。渲染实证：10-settings-landing（全屏搜索+分组类目）、11-settings-section（←+外观+锚点页签）
+  - **③平板双栏（「分成2部分」，M3 expanded 两栏 canonical）**：缝=墙中间裂开的那道缝，竖缝把墙分成左右两部分。新增 `resolveLibraryWallSeamHorizontalForTablet`（fork 增量，纯函数+单测）：触屏平板（coarse+宽≥720+高≥720，LIBRARY_WALL_SEAM_TABLET_{MIN,TALL}_QUERY 合成）上两种「自动」一律竖缝、两种朝向一致；显式「横向」仍尊重；手机（短边<720）与非触屏走上游语义零变化。探针 `scripts/probe-tablet-seam.mjs`（入库）四断言全过：平板竖 800×1280 竖缝 x=365 w=64 全高 / 横 1280×800 x=577 w=120 / 桌面 800×1280 横条 / 手机 360×640 横条
+  - **④验证**：tsc EXIT=0；vitest 全量 3 分片 = 13749 过 + 1 存量败（ytmProvider:813，基线内）+ 3 skip（新增 1 平板用例）；vite build EXIT=0；15 屏渲染集重出（**10-settings-options 改名 10-settings-landing**，旧截图按「删除旧的」指令清除，README 清单+探针实证段同步更新）
+  - 教训：上游确权要先 ls-remote 各分支再下结论（404 的 repo 可能改名，且同名 org 下有新 repo）；「上游零 seam 规则」是书脊问题的正解而非继续叠 fork 补丁
 - **.298 书脊工具格右偏修复批次（2026-11-03 早晨，用户实测「首页（无界布局）的字体按钮似乎右偏」）**
   - **定位**：非渲染精度（页签竖排文字中心偏移 0.91px 亚像素）——真凶是 .295 触点规则 `min-width:44px !important` 把上游定宽的工具格按钮（书脊 36px/窄缝 40px）真实撑大到 44px，溢出 grid 轨道且 item 默认左对齐 → 搜索/设置/队列拼贴/更多四格右偏（书脊 4px、窄缝 2px/格，列间 8px 设计间隙被吃成 4px）。探针实测：书脊四格 cx=181.92 vs 其余按钮 177.92
   - **修法**：androidPhoneFit.css 末尾追加 phone-fit 作用域规则——`.bravais-seam-tools .bravais-seam-icon:not(.is-wide) { justify-self: center }`（+is-compact is-wide 同样居中；窄缝 is-wide stretch 占满两列保持不居中）。触点 44px 不变、关 phone-fit 上游零变化
