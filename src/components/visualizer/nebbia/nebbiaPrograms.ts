@@ -2,6 +2,7 @@ import { checkLinked, compileShader, startProgram } from './nebbiaGlUtils';
 import { NEBBIA_MASK_FS, NEBBIA_MASK_VS } from './nebbiaMaskGl';
 import { NEBBIA_BLD_FILL_FS, NEBBIA_NOISE_FS, NEBBIA_SPRITE_FS, NEBBIA_SPRITE_VS, NEBBIA_VS, nebbiaSceneShaders } from './nebbiaShaders';
 import { NEBBIA_FLAKE_FS, NEBBIA_FLAKE_VS } from './nebbiaSnowGl';
+import { NEBBIA_FIREFLY_FS, NEBBIA_FIREFLY_VS } from './nebbiaFireflyGl';
 import type { NebbiaGlass, NebbiaWindowScene } from './types';
 
 // src/components/visualizer/nebbia/nebbiaPrograms.ts
@@ -9,7 +10,7 @@ import type { NebbiaGlass, NebbiaWindowScene } from './types';
 // 每帧问一次编好没有，编好才查链接结果（查结果会一直等到编完，D3D11 上冷编要将近 1 秒）；问编好没有只读共享内存，不等 GPU 进程。
 // 没有这个扩展时提交后插一个栅栏，栅栏到了再查：栅栏是异步查的，到了说明 GPU 进程已经处理完前面的链接，查结果不用再等。
 // 运行时（nebbiaGl.ts）和启动时的预热（nebbiaShaderWarmup.ts）都从这里编：源码、属性位置一样，GPU 进程的程序缓存才对得上。
-// 雾的预渲染和主画面按窗外场景编（街景或水族箱）；楼群缓存的补画只有街景要；雪花（nebbiaSnowGl.ts）只有雪窗要。
+// 雾的预渲染和主画面按窗外场景编（街景或水族箱）；楼群缓存的补画只有街景要；雪花（nebbiaSnowGl.ts）只有雪窗要，玻璃上的萤虫（nebbiaFireflyGl.ts）只有凝露要。
 
 export interface NebbiaPrograms {
     /** 雾的预渲染；不能渲染到浮点纹理时没有（主画面自己算雾）。 */
@@ -24,6 +25,8 @@ export interface NebbiaPrograms {
     noise: WebGLProgram;
     /** 雪窗的雪花（nebbiaSnowGl.ts）；别的玻璃没有。 */
     flake: WebGLProgram | null;
+    /** 凝露玻璃上的萤虫（nebbiaFireflyGl.ts）；别的玻璃没有。 */
+    firefly: WebGLProgram | null;
 }
 
 type ParallelCompile = { COMPLETION_STATUS_KHR: number };
@@ -68,6 +71,7 @@ export class NebbiaProgramBuild {
             bldFill: scene === 'night' ? startProgram(gl, vs, frag(NEBBIA_BLD_FILL_FS), { aPos: 0 }) : null,
             noise: startProgram(gl, vs, frag(NEBBIA_NOISE_FS), { aPos: 0 }),
             flake: glass === 'snow' ? startProgram(gl, compileShader(gl, gl.VERTEX_SHADER, NEBBIA_FLAKE_VS), frag(NEBBIA_FLAKE_FS), { aCorner: 0, aA: 1, aB: 2, aC: 3 }) : null,
+            firefly: glass === 'dew' ? startProgram(gl, compileShader(gl, gl.VERTEX_SHADER, NEBBIA_FIREFLY_VS), frag(NEBBIA_FIREFLY_FS), { aCorner: 0, aA: 1, aB: 2, aC: 3 }) : null,
         };
         this.fence = this.parallel ? null : gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
         gl.flush();
@@ -83,8 +87,7 @@ export class NebbiaProgramBuild {
             gl.deleteSync(fence);
             this.fence = null;
         }
-        const list = [this.programs.fog, this.programs.main, this.programs.sprite, this.programs.mask, this.programs.bldFill, this.programs.noise, this.programs.flake].filter((p): p is WebGLProgram => !!p);
-        if (parallel && !list.every(p => gl.getProgramParameter(p, parallel.COMPLETION_STATUS_KHR))) return false;
+        const list = [this.programs.fog, this.programs.main, this.programs.sprite, this.programs.mask, this.programs.bldFill, this.programs.noise, this.programs.flake, this.programs.firefly].filter((p): p is WebGLProgram => !!p);        if (parallel && !list.every(p => gl.getProgramParameter(p, parallel.COMPLETION_STATUS_KHR))) return false;
         for (const p of list) checkLinked(gl, p);
         // 链接好了，着色器对象不再要：删掉（挂在程序上的等程序删了才真正释放）
         for (const p of list) for (const s of gl.getAttachedShaders(p) ?? []) gl.deleteShader(s);
