@@ -1886,6 +1886,16 @@ export default {
     "appleMusic": "Apple Music",
     "amll": "AMLLDB",
   },
+  "onlineProviderName": {
+    "netease": "网易云",
+    "kugou": "酷狗",
+    "qq": "QQ音乐",
+    "bodian": "波点",
+    "ytm": "YT Music",
+    "spotify": "Spotify",
+    "qishui": "汽水",
+    "fnmusic": "飞牛",
+  },
   "globalLyricOffset": {
     "title": "全局时间偏移",
     "subtitle": "补偿蓝牙耳机等输出设备造成的音画不同步",

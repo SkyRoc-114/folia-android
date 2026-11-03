@@ -1887,6 +1887,16 @@ export default {
     "appleMusic": "Apple Music",
     "amll": "AMLLDB",
   },
+  "onlineProviderName": {
+    "netease": "NetEase",
+    "kugou": "Kugou",
+    "qq": "QQ Music",
+    "bodian": "Bodian",
+    "ytm": "YT Music",
+    "spotify": "Spotify",
+    "qishui": "Qishui",
+    "fnmusic": "fnOS",
+  },
   "globalLyricOffset": {
     "title": "Độ lệch thời gian toàn cục",
     "subtitle": "Bù độ trễ âm thanh/hình ảnh từ tai nghe Bluetooth hoặc thiết bị đầu ra khác",
