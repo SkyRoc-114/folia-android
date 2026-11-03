@@ -1309,6 +1309,7 @@ export default {
     "sourceNavidrome": "Navidrome",
     "playTrack": "Play track",
     "error": "Search failed. Please try again.",
+    "offline": "No network connection. Check your connection and try again.",
     "retry": "Retry",
     "catalogUnavailable": "This album or artist cannot be opened because the provider did not return a valid catalog ID."
   },

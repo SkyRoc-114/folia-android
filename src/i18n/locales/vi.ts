@@ -1310,6 +1310,7 @@ export default {
     "sourceNavidrome": "Navidrome",
     "playTrack": "Phát bài hát",
     "error": "Tìm kiếm thất bại. Thử lại sau.",
+    "offline": "No network connection. Check your connection and try again.",
     "retry": "Thử lại",
     "catalogUnavailable": "Không thể mở album hoặc nghệ sĩ này do nguồn nhạc không trả về ID danh mục hợp lệ."
   },

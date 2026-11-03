@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AlertCircle, Loader2, Search, X } from 'lucide-react';
+import { AlertCircle, Loader2, Search, WifiOff, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import type { Theme, UnifiedSong } from '../../../types';
 import type { MediaId } from '../../../types/onlineMusic';
 import {
+    SEARCH_OFFLINE_ERROR,
     type SearchSource,
     useSearchNavigationStore,
 } from '../../../stores/useSearchNavigationStore';
+import { useNetworkOffline } from '../../../utils/networkStatus';
 import SearchResultsList from './SearchResultsList';
 import { useCollectionNavigationStore } from '../../../stores/useCollectionNavigationStore';
 import { useOnlineProviderAccountStore } from '../../../stores/useOnlineProviderAccountStore';
@@ -79,6 +81,10 @@ const SearchWorkspace: React.FC<SearchWorkspaceProps> = ({
     const activeOnlineProviderId = useOnlineProviderAccountStore(state => state.activeProviderId);
     const sources = useMemo<SearchSource[]>(() => [activeOnlineProviderId, 'local', 'navidrome'], [activeOnlineProviderId]);
     const hasCollection = useCollectionNavigationStore(state => Boolean(state.snapshot?.stack.length));
+    // 离线态文案：searchError 是 store 的离线哨兵，或者当前明确断网（比如带着旧错误时网络掉了），都显示「未连接网络」。
+    const networkOffline = useNetworkOffline();
+    const isOfflineError = networkOffline || searchError === SEARCH_OFFLINE_ERROR;
+    const errorText = isOfflineError ? t('search.offline') : t('search.error');
     const getSourceLabel = (source: SearchSource) => {
         if (source === 'local') return t('search.sourceLocal');
         if (source === 'navidrome') return t('search.sourceNavidrome');
@@ -184,8 +190,8 @@ const SearchWorkspace: React.FC<SearchWorkspaceProps> = ({
                             </div>
                         ) : searchError && results.length === 0 ? (
                             <div className="flex h-full flex-col items-center justify-center gap-3 text-center opacity-65">
-                                <AlertCircle size={32} />
-                                <p>{t('search.error')}</p>
+                                {isOfflineError ? <WifiOff size={32} /> : <AlertCircle size={32} />}
+                                <p>{errorText}</p>
                                 <button
                                     type="button"
                                     onClick={() => onSubmitSearch()}
@@ -214,7 +220,7 @@ const SearchWorkspace: React.FC<SearchWorkspaceProps> = ({
                                 </div>
                                 {searchError ? (
                                     <div className="flex shrink-0 items-center justify-center gap-3 py-3 text-sm">
-                                        <span className="opacity-60">{t('search.error')}</span>
+                                        <span className="opacity-60">{errorText}</span>
                                         <button
                                             type="button"
                                             disabled={isLoadingMore}

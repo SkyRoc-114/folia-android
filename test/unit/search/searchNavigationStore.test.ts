@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { resolveCommandPaletteSearchSource, useSearchNavigationStore } from '@/stores/useSearchNavigationStore';
+// @vitest-environment jsdom
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resolveCommandPaletteSearchSource, SEARCH_OFFLINE_ERROR, useSearchNavigationStore } from '@/stores/useSearchNavigationStore';
 import { neteaseApi } from '@/services/onlineMusic/netease/netease';
 import { getNavidromeConfig, navidromeApi } from '@/services/navidromeService';
 import type { LocalLibraryAssignment, LocalLibraryEntity } from '@/types/localLibrary';
@@ -28,6 +29,15 @@ describe('useSearchNavigationStore', () => {
         localSongs: [],
         t: (_key: string, fallback?: string) => fallback || '',
     };
+
+    // jsdom 的 navigator.onLine 在原型上且恒 true：实例上覆盖一个可配置的同名属性来模拟断网，用完删掉还原。
+    const setNavigatorOnline = (online: boolean) => {
+        Object.defineProperty(window.navigator, 'onLine', { value: online, configurable: true });
+    };
+
+    afterEach(() => {
+        Reflect.deleteProperty(window.navigator, 'onLine');
+    });
 
     beforeEach(() => {
         cloudSearchMock.mockReset();
@@ -375,5 +385,99 @@ describe('useSearchNavigationStore', () => {
         useSearchNavigationStore.setState({ searchSourceTab: 'navidrome' });
         useSearchNavigationStore.getState().followOnlineProvider('kugou');
         expect(useSearchNavigationStore.getState().searchSourceTab).toBe('navidrome');
+    });
+
+    it('reports an offline state instead of a failed search when the device has no network', async () => {
+        setNavigatorOnline(false);
+
+        const didSearch = await useSearchNavigationStore.getState().submitSearch({
+            query: 'offline song',
+            sourceTab: 'netease',
+            deps,
+        });
+
+        const state = useSearchNavigationStore.getState();
+
+        expect(didSearch).toBe(true);
+        expect(state.isSearchOpen).toBe(true);
+        expect(state.isSearching).toBe(false);
+        expect(state.searchError).toBe(SEARCH_OFFLINE_ERROR);
+        expect(state.searchResults).toBeNull();
+        // 离线时不允许发起注定失败的网络请求
+        expect(cloudSearchMock).not.toHaveBeenCalled();
+    });
+
+    it('keeps local searches working while the device is offline', async () => {
+        setNavigatorOnline(false);
+
+        const didSearch = await useSearchNavigationStore.getState().submitSearch({
+            query: 'offline',
+            sourceTab: 'local',
+            deps: {
+                ...deps,
+                localSongs: [{
+                    id: '1',
+                    fileName: 'offline.mp3',
+                    filePath: '/tmp/offline.mp3',
+                    duration: 1000,
+                    fileSize: 1,
+                    mimeType: 'audio/mpeg',
+                    addedAt: 1,
+                    title: 'Offline Song',
+                    titleOrigin: 'import',
+                    importedMetadata: { title: 'Offline Song', titleSource: 'filename', artistNames: [], albumName: '' },
+                }],
+            },
+        });
+
+        const state = useSearchNavigationStore.getState();
+
+        expect(didSearch).toBe(true);
+        expect(state.searchError).toBeNull();
+        expect(state.searchResults).toHaveLength(1);
+    });
+
+    it('flags the offline sentinel instead of requesting the next page while offline', async () => {
+        useSearchNavigationStore.setState({
+            searchQuery: 'paged',
+            searchSourceTab: 'netease',
+            searchResults: [{ id: 1, name: 'First' }] as any,
+            hasMore: true,
+            offset: 1,
+        });
+        setNavigatorOnline(false);
+
+        await useSearchNavigationStore.getState().loadMoreSearchResults({ deps });
+
+        expect(useSearchNavigationStore.getState()).toMatchObject({
+            isLoadingMore: false,
+            searchError: SEARCH_OFFLINE_ERROR,
+        });
+        expect(cloudSearchMock).not.toHaveBeenCalled();
+    });
+
+    it('keeps the offline sentinel across the history restore that follows the same attempt', () => {
+        // 首页搜索提交离线：submitSearch 置哨兵 → onSearchCommitted 压历史 → restoreSearch 同词同源恢复。
+        // 哨兵必须活过恢复路径，否则「未连接网络」被洗成「未找到相关结果」。
+        setNavigatorOnline(false);
+        useSearchNavigationStore.setState({
+            searchQuery: 'offline song',
+            searchSourceTab: 'netease',
+            searchError: SEARCH_OFFLINE_ERROR,
+        });
+
+        useSearchNavigationStore.getState().restoreSearch({ query: 'offline song', sourceTab: 'netease' });
+        expect(useSearchNavigationStore.getState().searchError).toBe(SEARCH_OFFLINE_ERROR);
+
+        // 回网后再恢复同一搜索：哨兵清掉，回落到缓存/空结果
+        setNavigatorOnline(true);
+        useSearchNavigationStore.getState().restoreSearch({ query: 'offline song', sourceTab: 'netease' });
+        expect(useSearchNavigationStore.getState().searchError).toBeNull();
+
+        // 仍然离线、但恢复的是另一次搜索（后退导航等）：旧错误照旧清掉
+        setNavigatorOnline(false);
+        useSearchNavigationStore.setState({ searchError: SEARCH_OFFLINE_ERROR, searchQuery: 'offline song' });
+        useSearchNavigationStore.getState().restoreSearch({ query: 'another', sourceTab: 'netease' });
+        expect(useSearchNavigationStore.getState().searchError).toBeNull();
     });
 });

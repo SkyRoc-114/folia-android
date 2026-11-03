@@ -10,9 +10,13 @@ import {
 } from '../services/playbackAdapters';
 import { omni } from '../services/onlineMusic/omni';
 import { isLocalPlaybackSong, isNavidromePlaybackSong } from '../utils/appPlaybackGuards';
+import { isNetworkOffline } from '../utils/networkStatus';
 
 const LAST_HOME_VIEW_TAB_KEY = 'last_home_view_tab';
 const DEFAULT_SEARCH_LIMIT = 30;
+// searchError 的离线哨兵：显示层据此换成「未连接网络」文案，与真实的搜索失败（服务器/解析问题）区分开。
+// 不用布尔字段是为了复用 searchError 的现有管线（空态/底部条都由它驱动），加字段要动 store、缓存与重置的全部路径。
+export const SEARCH_OFFLINE_ERROR = 'offline';
 export type SearchSource = OnlineProviderId | 'local' | 'navidrome';
 export type SearchReturnView = 'home' | 'player';
 
@@ -215,6 +219,13 @@ export const useSearchNavigationStore = create<SearchNavigationState>((set, get)
     }),
     restoreSearch: ({ query, sourceTab, returnView = 'home' }) => set(state => {
         const cached = state.searchCache[getSearchCacheKey(query, sourceTab)];
+        // 离线哨兵要跨过恢复路径活下来：首页搜索提交离线时，submitSearch 先置哨兵、随后 onSearchCommitted 压历史
+        // 又立即触发本函数，无脑清 error 会把「未连接网络」洗成「未找到相关结果」。只有还是同一次尝试（同词同源）
+        // 且此刻仍离线才保留——回网后再恢复就自然回落到缓存/空结果，后退返回的旧错误也照旧清掉。
+        const keepOfflineSentinel = state.searchError === SEARCH_OFFLINE_ERROR
+            && state.searchQuery === query
+            && state.searchSourceTab === sourceTab
+            && isNetworkOffline();
         return {
             searchQuery: query,
             searchSourceTab: sourceTab,
@@ -223,7 +234,7 @@ export const useSearchNavigationStore = create<SearchNavigationState>((set, get)
             offset: cached?.offset ?? 0,
             hasMore: cached?.hasMore ?? false,
             scrollTop: cached?.scrollTop ?? 0,
-            searchError: null,
+            searchError: keepOfflineSentinel ? SEARCH_OFFLINE_ERROR : null,
             isSearching: false,
             isLoadingMore: false,
             isSearchOpen: true,
@@ -257,6 +268,26 @@ export const useSearchNavigationStore = create<SearchNavigationState>((set, get)
         const trimmedQuery = (query ?? get().searchQuery).trim();
         if (!trimmedQuery) {
             return false;
+        }
+
+        // 离线预检：本地源不走网络，不受影响；在线源与 Navidrome 在断网时请求必然失败，
+        // 直接给出离线态（isSearchOpen 照常打开，工作区显示「未连接网络」而不是转圈后报搜索失败）。
+        if (sourceTab !== 'local' && isNetworkOffline()) {
+            set({
+                searchQuery: trimmedQuery,
+                searchSourceTab: sourceTab,
+                searchReturnView: returnView,
+                isSearchOpen: true,
+                isSearching: false,
+                isLoadingMore: false,
+                searchError: SEARCH_OFFLINE_ERROR,
+                requestId: get().requestId + 1,
+                searchResults: null,
+                offset: 0,
+                hasMore: false,
+                scrollTop: 0,
+            });
+            return true;
         }
 
         const requestId = get().requestId + 1;
@@ -331,6 +362,12 @@ export const useSearchNavigationStore = create<SearchNavigationState>((set, get)
             || isLoadingMore
             || !searchQuery.trim()
         ) {
+            return;
+        }
+
+        // 走到这里一定是在线源的加载更多：断网时不再发起注定失败的请求，把底部条换成离线文案。
+        if (isNetworkOffline()) {
+            set({ isLoadingMore: false, searchError: SEARCH_OFFLINE_ERROR });
             return;
         }
 

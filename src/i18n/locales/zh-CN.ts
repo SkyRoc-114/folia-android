@@ -1309,6 +1309,7 @@ export default {
     "sourceNavidrome": "Navidrome",
     "playTrack": "播放歌曲",
     "error": "搜索失败，请重试。",
+    "offline": "未连接网络，请检查网络后重试。",
     "retry": "重试",
     "catalogUnavailable": "无法打开该专辑或歌手：在线平台未返回有效的目录 ID。"
   },
