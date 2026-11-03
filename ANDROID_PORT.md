@@ -378,3 +378,107 @@ AI 合并上游模型发现/预设接口并保留安卓直连运行时；`packag
 - latent 背景的节奏脉动在 automix 可听过渡期间保持当前速度，settle 后再交回新歌；
   避免两条 deck 的 analyser 能量叠加造成背景抽动/闪烁（同一首歌重复过渡同样生效）。
 - 不改智能动感模式本身，也不改音频输出。
+
+### 0.7.22-android.281：修复酷狗扫码登录被非 ASCII Cookie 打断
+
+- OkHttp 拒绝 Cookie 头里的非 ASCII 字符（真机报 `Unexpected char 0x5fb5 at 414 in Cookie value`），
+  而 WebView 的 cookie 罐可能存着带中文的 cookie。
+- FoliaNative.httpRequest 在发送前把 Cookie 值按 UTF-8 百分号编码，非法 cookie 名丢弃；
+  显式 Cookie 头和 WebView 自动补的 Cookie 都走同一套清洗。
+- 补 Java 单测覆盖中文值、空格和非法名字。
+
+### 0.7.24-android.282：同步上游 v0.7.24
+
+- 合并上游 0.7.24（含町景/雾笺/花火等歌词样式、HiFi 信号路径、音量平衡、YTM 等更新）。
+- 保留 Android 适配：底部命令面板按钮、手机适配布局标记、原生桥、酷狗 Cookie 清洗、酷狗歌手解析、latent 过渡脉动保护。
+- 版本 0.7.24-android.282 / versionCode 320。
+
+### 0.7.24-android.283：雾笺性能优化
+
+- 安卓壳把雾笺限制在 30fps，并把默认像素比压到约 0.65 倍，避免高 DPI 全屏雾/玻璃着色器把 GPU 占满；渲染分辨率设置仍可调高。
+- 笔迹、水痕、雨点改用当前 Canvas 路径描边，去掉每帧大量 Path2D 分配。
+
+### 0.7.24-android.284：雾笺继续降单帧成本
+
+- 去掉安卓 30fps 限制。
+- 安卓默认像素比约 0.5 倍；遮罩分辨率 0.5→0.42。
+- 字迹描边三层→两层，水痕/雨点/擦痕单层；水痕段距 4→8 像素。
+- 写完的笔画整条路径缓存，每帧不再重建。
+
+### 0.7.25-android.285：同步上游 v0.7.25 雾笺性能优化
+
+- 合并上游 v0.7.25：雾笺擦痕遮罩改 WebGL2、楼群缓存、雾 1/8 预渲染、静态噪声纹理、着色器拆分与预热等。
+- 采用上游的 `NebbiaSegments` 遮罩实现，移除本分支临时的 Canvas 描边优化。
+- 保留安卓适配与之前的酷狗/布局修复。
+
+### 0.7.25-android.286：汽水加密音频解密代理
+
+- 移植 sonnet 分支的 `QishuiAudioDecryptor` / `QishuiAudioServer`：spade_a 还原、AES-CTR、mp4/flac 解包，按 Range 本地回环输出。
+- 新增 `FoliaQishuiAudio` 插件；汽水 `audio` 解析遇到带 spade_a/PlayAuth 的加密完整音源时，先尝试解密代理，失败再退回试听片段。
+- 不改变免费/明文音源的原有路径。
+
+### 0.7.25-android.287：播放诊断补歌名
+
+- `online playback trace` 每条记录新增 `song=标题 - 歌手`，覆盖取流失败、媒体失败、omni 解析与代理失败。
+- 反馈时能直接看到失败/成功的是哪首歌，不用再猜。
+
+### 0.7.25-android.288：安卓端 Beat This! / HTDemucs 模型
+
+- 模型权重（beat_this-wgsl.bin、htdemucs-wgsl.bin）随 APK 打包，构建时从根 models/ 复制。
+- 新增 FoliaAnalysisModels 插件与本地回环模型服务，供 WebGPU 运行时读取。
+- modelAvailability、智能动感可用性、鼓点/分轨检查接入安卓模型桥。
+
+### 0.7.25-android.289：模型改为按需下载
+
+- APK 不再内置 Beat This! / HTDemucs 权重，体积回到约 27MB。
+- 设置 → 通用 → 安卓外壳新增模型管理：下载、进度、删除；镜像优先，GitHub 最后。
+- 下载完成校验 SHA-256；模型落在私有目录，运行时经本地回环读取。
+
+### 0.7.25-android.290：模型下载镜像修正
+
+- hf-mirror / huggingface / AZURE 对这两个文件已 404/超时；改为 ghproxy.net → gh-proxy.com → GitHub 直连。
+- 第一个镜像先用 Range 验证，再整份下载并校验 SHA-256。
+
+### 0.7.25-android.291：模型检测与重试
+
+- 模型行增加「检测」：校验字节数与 SHA-256，显示通过/文件不完整。
+- 下载失败后按钮变「重试」；重试强制重新下载。
+- UI busy 与原生 downloading 集合双重防重复下载。
+
+### 0.7.25-android.292：雾笺笔画粘连修正
+
+- 笔画最小宽度从 8 CSS 像素降到 1.5；原来 40px 字号下下限等于 0.2em，盖过 strokeWidth，密集笔画会叠成一团。
+
+### 0.7.25-android.293：模型下载合并、删除移到存储
+
+- 安卓外壳里两个模型合成一行，一个按钮依次下载 Beat This! 与 HTDemucs；保留检测/重试。
+- 删除入口移到「存储」页，一次删除两个模型。
+
+### 0.7.25-android.294：模型下载状态恢复
+
+- 原生记录每个模型的下载中状态与百分比；页面切走再回来会恢复进度，而不是显示重新下载。
+- 组件轮询 status，下载结束后刷新模型可用性。
+
+### 0.7.25-android.295：嵌入背景支持自定义图片
+
+- 「嵌入背景」可上传一张本地静态图片，压到最长边 1920px 的 JPEG 后存 localStorage。
+- 图片作为独立条目参与选择；重复上传只保留一张，可在网页与图片之间切换。
+
+### 0.7.25-android.296：旧 WebView 底栏居中修复
+
+- Tailwind v4 的 -translate-x-1/2 编译成独立 translate 属性，Chrome 99 不认，底栏偏右。
+- 底栏定位层改内联 transform: translateX(-50%)。
+
+### 0.7.25-android.297：模型本地导入
+
+- 安卓外壳的模型行新增「本地导入」，系统文件选择器可一次选一个或两个 .bin。
+- 导入时校验字节数与 SHA-256，匹配才写入；不匹配不会覆盖现有模型。
+
+### 0.7.25-android.298：模型 ZIP 导入
+
+- 本地导入同时支持单个 .bin 与包含两个模型的 .zip；ZIP 内逐条校验 SHA-256。
+- 输出 Folia-Analysis-Models.zip，一次选择导入两个模型。
+
+### 0.7.25-android.299：启动图压缩
+
+- 26 张 splash PNG（约 21.4MB）转为 WebP，约 0.32MB；APK 体积下降约 21MB。
