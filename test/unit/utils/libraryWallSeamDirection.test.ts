@@ -3,11 +3,12 @@ import {
     DEFAULT_LIBRARY_WALL_SEAM_DIRECTION,
     LIBRARY_WALL_PORTRAIT_QUERY,
     LIBRARY_WALL_SEAM_DIRECTIONS,
-    LIBRARY_WALL_SEAM_ROW_NARROW_QUERY,
+    LIBRARY_WALL_SEAM_TABLET_MIN_QUERY,
+    LIBRARY_WALL_SEAM_TABLET_TALL_QUERY,
     isLibraryWallSeamDirection,
     normalizeLibraryWallSeamDirection,
     resolveLibraryWallSeamHorizontal,
-    resolveLibraryWallSeamHorizontalForTouch,
+    resolveLibraryWallSeamHorizontalForTablet,
 } from '@/utils/libraryWallSeamDirection';
 
 // test/unit/utils/libraryWallSeamDirection.test.ts
@@ -51,21 +52,22 @@ describe('libraryWallSeamDirection', () => {
         expect(matchesPortraitQuery(852, 393)).toBe(false);
     });
 
-    it('falls back to the vertical spine on narrow touch viewports for both automatic modes, explicit row still wins', () => {
-        // 宽度半边与 phone-fit / sheetPresentation 的 720 阈值一族。
-        expect(LIBRARY_WALL_SEAM_ROW_NARROW_QUERY).toBe('(max-width: 719.98px)');
-        // 手机竖屏：自动 / 自动（反向）都改走竖缝——compact 横条 44px 触点下约 650px，物理放不进手机宽度。
-        expect(resolveLibraryWallSeamHorizontalForTouch('auto', true, true)).toBe(false);
-        expect(resolveLibraryWallSeamHorizontalForTouch('auto-reverse', true, true)).toBe(false);
-        // 手机横屏（宽 640-719 也算窄）：自动本就走竖缝，自动（反向）的横条同样被兜底。
-        expect(resolveLibraryWallSeamHorizontalForTouch('auto', false, true)).toBe(false);
-        expect(resolveLibraryWallSeamHorizontalForTouch('auto-reverse', false, true)).toBe(false);
-        // 显式选择仍尊重：横向照开、竖向照竖。
-        expect(resolveLibraryWallSeamHorizontalForTouch('horizontal', true, true)).toBe(true);
-        expect(resolveLibraryWallSeamHorizontalForTouch('vertical', true, true)).toBe(false);
-        // 非触屏窄视口（桌面窄窗）：维持原判定，行为零变化。
-        expect(resolveLibraryWallSeamHorizontalForTouch('auto', true, false)).toBe(true);
-        expect(resolveLibraryWallSeamHorizontalForTouch('auto-reverse', false, false)).toBe(true);
-        expect(resolveLibraryWallSeamHorizontalForTouch('horizontal', true, false)).toBe(true);
+    // 平板双栏（fork 增量）：触屏平板上两种「自动」一律开竖缝（墙分成左右两部分），显式「横向」仍尊重；
+    // 手机与非触屏走上游原语义。
+    it('splits touch tablets into two panes with a vertical seam on both autos, while phones and desktops keep the upstream semantics', () => {
+        expect(LIBRARY_WALL_SEAM_TABLET_MIN_QUERY).toBe('(min-width: 720px)');
+        expect(LIBRARY_WALL_SEAM_TABLET_TALL_QUERY).toBe('(min-height: 720px)');
+        // 触屏平板：两种自动两种朝向都开竖缝；显式横向仍开横条；显式竖缝不变。
+        expect(resolveLibraryWallSeamHorizontalForTablet('auto', true, true)).toBe(false);
+        expect(resolveLibraryWallSeamHorizontalForTablet('auto', false, true)).toBe(false);
+        expect(resolveLibraryWallSeamHorizontalForTablet('auto-reverse', true, true)).toBe(false);
+        expect(resolveLibraryWallSeamHorizontalForTablet('auto-reverse', false, true)).toBe(false);
+        expect(resolveLibraryWallSeamHorizontalForTablet('horizontal', true, true)).toBe(true);
+        expect(resolveLibraryWallSeamHorizontalForTablet('vertical', false, true)).toBe(false);
+        // 手机（短边 < 720）与非触屏：原语义，零变化。
+        expect(resolveLibraryWallSeamHorizontalForTablet('auto', true, false)).toBe(true);
+        expect(resolveLibraryWallSeamHorizontalForTablet('auto', false, false)).toBe(false);
+        expect(resolveLibraryWallSeamHorizontalForTablet('auto-reverse', true, false)).toBe(false);
+        expect(resolveLibraryWallSeamHorizontalForTablet('horizontal', true, false)).toBe(true);
     });
 });

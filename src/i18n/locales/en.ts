@@ -1981,6 +1981,7 @@ export default {
     "settingsHeadingShortcutHints": "Shortcut hints",
     "settingsSearchTitle": "Search",
     "settingsWindowName": "Settings",
+    "settingsBack": "Back",
     "settingsSearchCount": "{{n}} found",
     "settingsRowDetails": "Details",
     "settingsCopy": "Copy",

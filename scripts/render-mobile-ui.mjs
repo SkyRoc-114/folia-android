@@ -147,9 +147,22 @@ async function main() {
         await shot('05-panel-cover');
     }
 
-    // 10 设置-选项（命令 settings-options）
+    // 10 设置（命令 options；360 宽 phone-fit 窄窗 = 落地页根列表，传统移动端形态）
     if (await runCommand('options', '打开选项设置')) await sleep(1500);
-    await shot('10-settings-options');
+    const onLanding = await page.evaluate(() => Boolean(document.querySelector('[data-folia-settings-landing]')));
+    log('SETTINGS_LANDING', onLanding);
+    await shot(onLanding ? '10-settings-landing' : '10-settings-options');
+    // 11 设置-子页：落地页点第一组类目进页（页头应有返回箭头）；桌面形态沿用当前页。
+    if (onLanding) {
+        const entered = await page.evaluate(() => {
+            const btns = Array.from(document.querySelectorAll('[data-folia-settings-landing] nav button'));
+            const target = btns.find((b) => b.textContent && !b.textContent.includes('帮助'));
+            if (target) { target.click(); return (target.textContent || '').trim(); }
+            return null;
+        });
+        log('SETTINGS_ENTERED', entered);
+        await sleep(1500);
+    }
     // 设置内 anchor（dump 后点有者，第 2 个起）
     const anchors = await page.evaluate(() => Array.from(document.querySelectorAll('[data-settings-anchor]')).map((el) => ({
         id: el.getAttribute('data-settings-anchor'),

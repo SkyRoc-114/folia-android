@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef, startTransition } from 're
 import { AnimatePresence, motion } from 'framer-motion';
 import type { MotionValue } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
+import { X } from 'lucide-react';
 import { getCacheUsageByCategory, clearCacheByCategory } from '../../services/db';
 import { forgetSettledDrumHits } from '../../services/analysis/drumHits';
 import { clearBalanceRuntime } from '../../services/volumeBalance/balanceRecords';
@@ -303,12 +304,14 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
         setSearchQuery('');
         setLandingTarget(null);
         setActiveSettingsSection(section);
+        setSettingsLandingOpen(false);
         writeLastSettingsSection(section, { isElectron: hasElectronBridge() });
     };
     const handleSelectHelp = () => {
         setActiveTab('help');
         setSearchQuery('');
         setLandingTarget(null);
+        setSettingsLandingOpen(false);
     };
     const handleSearchQueryChange = (query: string) => {
         setSearchQuery(query);
@@ -323,6 +326,11 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
     const contentScrollRef = useRef<HTMLDivElement>(null);
     // Matches the md: split of the window: under it the side list is a strip that scrolls sideways.
     const isWideSettingsLayout = useMediaQuery('(min-width: 768px)');
+    // 窄窗（<768px）上的传统移动端形态（跟随传统音乐软件的设置）：先看根列表（分组类目 + 搜索），
+    // 点进一页后页头出返回箭头回根列表；搜索时结果替换列表，点结果进页。深链（子视图 / 锚点 / 帮助）
+    // 直接落在页上；宽布局忽略此状态，一直是双栏。
+    const [settingsLandingOpen, setSettingsLandingOpen] = useState(() => initialSubview === null && initialAnchor === null && initialTab !== 'help');
+    const openSettingsLanding = () => setSettingsLandingOpen(true);
     const settingsAnchorStore = useSettingsAnchorStore();
     const settingsAnchors = useSettingsAnchorList(settingsAnchorStore);
 
@@ -1259,32 +1267,68 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                 onClick={(event) => event.stopPropagation()}
             >
                 <SettingsKitThemeContext.Provider value={kitTheme}>
-                    <SettingsSideList
-                        groups={settingsNavGroups}
-                        activeId={isSearching ? null : activeTab === 'help' ? 'help' : activeSettingsSection}
-                        onSelectSection={handleSelectSettingsSection}
-                        onSelectHelp={handleSelectHelp}
-                        query={searchQuery}
-                        onQueryChange={handleSearchQueryChange}
-                        onSubmitQuery={() => {
-                            if (searchHits.length > 0) handleSelectSearchHit(searchHits[0]);
-                        }}
-                        isWide={isWideSettingsLayout}
-                    />
-                    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                        <PageHeader
-                            title={isSearching
-                                ? t('options.settingsSearchTitle')
-                                : activeTab === 'help' ? t('help.title') : activeSettingsNavItem?.label ?? ''}
-                            contents={settingsAnchors}
-                            activeId={activeAnchorId}
-                            onSelect={landOnGroup}
-                            summary={isSearching
-                                ? (searchHits.length > 0 ? t('options.settingsSearchCount', { n: searchHits.length }) : t('options.settingsSearchEmpty'))
-                                : undefined}
-                            closeLabel={t('ui.close')}
-                            onClose={onClose}
-                        />
+                    {!isWideSettingsLayout && (settingsLandingOpen || isSearching) ? (
+                        <>
+                            {/* 窄窗落地页（传统移动端设置的根）：标题行 + 关闭，下面是分组类目列表；搜索时结果替换列表。 */}
+                            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[var(--st-line)] pb-3 pl-4 pr-3 pt-4">
+                                <h2 className="min-w-0 truncate text-xl font-semibold leading-8 text-[color:var(--st-t1)]">{t('options.settingsWindowName')}</h2>
+                                <button
+                                    type="button"
+                                    onClick={onClose}
+                                    aria-label={t('ui.close')}
+                                    className="st-t-fast grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[color:var(--st-t2)] transition-colors hover:bg-[var(--st-fill)] hover:text-[color:var(--st-t1)]"
+                                >
+                                    <X size={16} />
+                                </button>
+                            </div>
+                            <SettingsSideList
+                                groups={settingsNavGroups}
+                                activeId={null}
+                                onSelectSection={handleSelectSettingsSection}
+                                onSelectHelp={handleSelectHelp}
+                                query={searchQuery}
+                                onQueryChange={handleSearchQueryChange}
+                                onSubmitQuery={() => {
+                                    if (searchHits.length > 0) handleSelectSearchHit(searchHits[0]);
+                                }}
+                                isWide={isWideSettingsLayout}
+                                stacked
+                            >
+                                {isSearching ? <SettingsSearchResults hits={searchHits} onSelect={handleSelectSearchHit} /> : undefined}
+                            </SettingsSideList>
+                        </>
+                    ) : (
+                        <>
+                            {isWideSettingsLayout && (
+                                <SettingsSideList
+                                    groups={settingsNavGroups}
+                                    activeId={isSearching ? null : activeTab === 'help' ? 'help' : activeSettingsSection}
+                                    onSelectSection={handleSelectSettingsSection}
+                                    onSelectHelp={handleSelectHelp}
+                                    query={searchQuery}
+                                    onQueryChange={handleSearchQueryChange}
+                                    onSubmitQuery={() => {
+                                        if (searchHits.length > 0) handleSelectSearchHit(searchHits[0]);
+                                    }}
+                                    isWide={isWideSettingsLayout}
+                                />
+                            )}
+                            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                                <PageHeader
+                                    title={isSearching
+                                        ? t('options.settingsSearchTitle')
+                                        : activeTab === 'help' ? t('help.title') : activeSettingsNavItem?.label ?? ''}
+                                    contents={settingsAnchors}
+                                    activeId={activeAnchorId}
+                                    onSelect={landOnGroup}
+                                    summary={isSearching
+                                        ? (searchHits.length > 0 ? t('options.settingsSearchCount', { n: searchHits.length }) : t('options.settingsSearchEmpty'))
+                                        : undefined}
+                                    closeLabel={t('ui.close')}
+                                    onClose={onClose}
+                                    onBack={isWideSettingsLayout ? undefined : openSettingsLanding}
+                                    backLabel={t('options.settingsBack')}
+                                />
                         <div
                             ref={contentScrollRef}
                             data-folia-settings-content="true"
@@ -1313,7 +1357,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                                 </SettingsAnchorProvider>
                             ) : null}
                         </div>
-                    </div>
+                            </div>
+                        </>
+                    )}
                 </SettingsKitThemeContext.Provider>
 
                 {/* Footer (Empty now) */}

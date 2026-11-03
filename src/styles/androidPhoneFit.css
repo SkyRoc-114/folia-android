@@ -52,30 +52,37 @@ html[data-folia-phone-fit='true'] [data-folia-grid-tabs] [data-folia-grid-tab-li
   min-width: 0;
 }
 
-/* Settings: use the full safe viewport and always use the compact chip navigation. */
+/* Settings on a phone: a traditional full-screen page (跟随传统音乐软件) — edge-to-edge with no
+   floating card. The narrow layout is the landing/drill-down stack (root list → page with a back
+   arrow), so the panel covers the whole safe viewport with square corners and safe-area padding. */
 html[data-folia-phone-fit='true'] [data-folia-settings-overlay] {
   align-items: stretch;
-  padding:
-    max(6px, env(safe-area-inset-top))
-    max(6px, env(safe-area-inset-right))
-    max(6px, env(safe-area-inset-bottom))
-    max(6px, env(safe-area-inset-left));
+  padding: 0;
 }
 
 html[data-folia-phone-fit='true'] [data-folia-settings-panel] {
   width: 100% !important;
   max-width: 100% !important;
-  height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 12px) !important;
-  max-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 12px) !important;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
   min-height: 0;
-  padding: 14px !important;
-  border-radius: 20px !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  padding-top: max(10px, env(safe-area-inset-top)) !important;
+  padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
 }
 
-html[data-folia-phone-fit='true'] [data-folia-settings-tabs] {
-  align-items: flex-start;
-  flex-wrap: wrap;
-  gap: 8px 16px;
+/* Landing category rows and the page header bar buttons (back / close) are the phone settings'
+   primary touch surfaces: ≥44px targets. Rows only grow vertically; the grouped list keeps its look. */
+html[data-folia-phone-fit='true'] [data-folia-settings-landing] button {
+  min-height: 44px;
+}
+
+html[data-folia-phone-fit='true'] [data-folia-page-header-bar] button {
+  min-width: 44px;
+  min-height: 44px;
 }
 
 html[data-folia-phone-fit='true'] [data-folia-settings-content] {
@@ -539,35 +546,4 @@ html[data-folia-phone-fit='true'] [data-folia-track-title='true'] [data-folia-tr
 html[data-folia-phone-fit='true'] [data-folia-track-title='true'] [data-folia-track-title-text='true'] span {
   width: 100%;
   text-align: center;
-}
-/* 触点：bravais Seam 信息带（横条/竖排书脊两变体）是手机上的主导航（页签/搜索/设置/更多），
-   桌面像素（页签 26-34px、图标钮 34px）低于 44px 触点标准，难点准。
-   只在 phone-fit 下放大命中面积，视觉样式不动；关掉=上游逐字节不变（实测 .294 竖屏截图审计 P3）。 */
-html[data-folia-phone-fit='true'] .bravais-seam button {
-  min-width: 44px !important;
-  min-height: 44px !important;
-}
-
-html[data-folia-phone-fit='true'] .bravais-seam .bravais-seam-home-tab {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-}
-
-html[data-folia-phone-fit='true'] .bravais-seam .bravais-seam-home-tab > * {
-  pointer-events: none;
-}
-/* 修 .295 触点放大对 bravais 工具格（.bravais-seam-tools）的副作用：上游按钮有定宽
-   （书脊 36px、窄缝 40px），min-width:44px 把盒子真实撑大、溢出 grid 轨道——grid item
-   默认从轨道左缘排，搜索/设置/队列/更多四格整体右偏（书脊 4px、窄缝 2px/格，
-   1080×1920 截图上可见，用户实测报告）。phone-fit 作用域内让按钮在轨道里居中即可对齐，
-   触点尺寸与命中面积不变；关掉 phone-fit 仍是上游逐字节不变。
-   （is-wide 舞台行在窄缝里 stretch 占满两列，不居中；书脊单列里同四格一样居中。） */
-html[data-folia-phone-fit='true'] .bravais-seam .bravais-seam-tools .bravais-seam-icon:not(.is-wide) {
-  justify-self: center;
-}
-
-html[data-folia-phone-fit='true'] .bravais-seam .bravais-seam-home.is-compact .bravais-seam-tools .bravais-seam-icon.is-wide {
-  justify-self: center;
 }

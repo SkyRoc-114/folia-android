@@ -6,7 +6,9 @@ import type { SettingsNavGroup, SettingsSectionId } from './settingsNavModel';
 // src/components/modal/settings/navigation/SettingsSideList.tsx
 // The settings' side list: a search field, then the categories under their group names, and Help at
 // the foot. It lists categories only; what a page holds is in that page's header. Under 768px the
-// same list is a search field over one strip of category names that scrolls sideways.
+// same list is a search field over one strip of category names that scrolls sideways — unless
+// `stacked` asks for the grouped vertical presentation regardless of the breakpoint, which the
+// narrow-window landing page (traditional mobile settings: root list, then drill into a page) uses.
 
 type SettingsSideListProps = {
     groups: SettingsNavGroup[];
@@ -19,6 +21,10 @@ type SettingsSideListProps = {
     /** Enter in the search field. */
     onSubmitQuery: () => void;
     isWide: boolean;
+    /** Grouped vertical list at any width (narrow-window landing page). */
+    stacked?: boolean;
+    /** Stacked only: renders in place of the category list (search results on the landing). */
+    children?: React.ReactNode;
 };
 
 export const SettingsSideList: React.FC<SettingsSideListProps> = ({
@@ -30,11 +36,16 @@ export const SettingsSideList: React.FC<SettingsSideListProps> = ({
     onQueryChange,
     onSubmitQuery,
     isWide,
+    stacked = false,
+    children,
 }) => {
     const { t } = useTranslation();
     const stripRef = useRef<HTMLDivElement>(null);
     // The strip scrolls sideways under a dragging mouse; the wide list has nothing to drag.
     const { isDragging, hasDragged, handlers } = useDragToScroll(stripRef);
+    // The wide presentation, either because the window is wide enough or because the landing
+    // page asked for the stacked shape.
+    const wide = isWide || stacked;
 
     const handleSearchKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
         if (event.key === 'Enter') {
@@ -58,7 +69,7 @@ export const SettingsSideList: React.FC<SettingsSideListProps> = ({
                 type="button"
                 aria-current={isActive ? 'page' : undefined}
                 onClick={() => {
-                    if (!isWide && hasDragged()) return;
+                    if (!wide && hasDragged()) return;
                     onSelect();
                 }}
                 className={`flex h-8 shrink-0 items-center gap-2.5 whitespace-nowrap rounded-lg px-2.5 text-left text-[13px] transition-colors md:w-full ${isActive ? 'bg-[var(--st-fill2)] text-[color:var(--st-t1)]' : 'text-[color:var(--st-t2)] hover:bg-[var(--st-fill)]'}`}
@@ -68,6 +79,57 @@ export const SettingsSideList: React.FC<SettingsSideListProps> = ({
             </button>
         );
     };
+
+    // Stacked rendering: the wide (grouped, vertical) shape with the breakpoints flattened so it
+    // holds at any width. The list fills the panel height and scrolls vertically.
+    if (stacked) {
+        return (
+            <aside
+                data-folia-settings-landing="true"
+                className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--st-side)] px-3 pb-2 pt-1"
+            >
+                <label className="flex h-8 shrink-0 items-center gap-2 rounded-lg border border-transparent bg-[var(--st-fill)] px-2.5 text-[color:var(--st-t3)] transition-colors focus-within:border-[var(--st-line2)]">
+                    <Search size={14} className="shrink-0" />
+                    <input
+                        type="search"
+                        value={query}
+                        onChange={event => onQueryChange(event.target.value)}
+                        onKeyDown={handleSearchKeyDown}
+                        placeholder={t('options.settingsSearchPlaceholder')}
+                        aria-label={t('options.settingsSearchPlaceholder')}
+                        className="min-w-0 flex-1 bg-transparent text-[13px] text-[color:var(--st-t1)] outline-none placeholder:text-[color:var(--st-t3)] [&::-webkit-search-cancel-button]:hidden"
+                    />
+                    {query && (
+                        <button
+                            type="button"
+                            onClick={() => onQueryChange('')}
+                            aria-label={t('options.settingsSearchClear')}
+                            className="shrink-0 transition-colors hover:text-[color:var(--st-t1)]"
+                        >
+                            <X size={14} />
+                        </button>
+                    )}
+                </label>
+                <nav className="mt-1 flex min-h-0 flex-1 flex-col gap-px overflow-y-auto">
+                    {children ?? (
+                        <>
+                            {groups.map(group => (
+                                <div key={group.id} className="flex flex-col gap-px">
+                                    <div className="px-2.5 pb-1 pt-3.5 text-xs leading-[18px] text-[color:var(--st-t3)]">
+                                        {group.label}
+                                    </div>
+                                    {group.items.map(section => renderItem(section.id, section.icon, section.label, () => onSelectSection(section.id)))}
+                                </div>
+                            ))}
+                            <div className="mt-auto block pt-3">
+                                {renderItem('help', CircleHelp, t('help.title'), onSelectHelp)}
+                            </div>
+                        </>
+                    )}
+                </nav>
+            </aside>
+        );
+    }
 
     return (
         <aside className="flex min-h-0 shrink-0 flex-col border-b border-[var(--st-line)] bg-[var(--st-side)] px-3 pb-2 pt-3 md:border-b-0 md:border-r md:px-2.5 md:pb-2.5 md:pt-3.5">

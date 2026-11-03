@@ -1982,6 +1982,7 @@ export default {
     "settingsHeadingShortcutHints": "Hiện phím tắt",
     "settingsSearchTitle": "Tìm kiếm",
     "settingsWindowName": "Cài đặt",
+    "settingsBack": "Back",
     "settingsSearchCount": "{{n}} mục",
     "settingsRowDetails": "Chi tiết",
     "settingsCopy": "Sao chép",

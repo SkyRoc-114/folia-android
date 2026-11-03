@@ -1981,6 +1981,7 @@ export default {
     "settingsHeadingShortcutHints": "快捷键显示",
     "settingsSearchTitle": "搜索",
     "settingsWindowName": "设置",
+    "settingsBack": "返回",
     "settingsSearchCount": "{{n}} 项",
     "settingsRowDetails": "详情",
     "settingsCopy": "复制",

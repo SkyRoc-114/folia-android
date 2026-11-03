@@ -6,8 +6,9 @@ import { FLIP_MAX_TILES } from '../../../components/wall/flipPlan';
 import { useDevicePixelRatio, useMediaQuery } from '../../../hooks/useMediaQuery';
 import {
     LIBRARY_WALL_PORTRAIT_QUERY,
-    LIBRARY_WALL_SEAM_ROW_NARROW_QUERY,
-    resolveLibraryWallSeamHorizontalForTouch,
+    LIBRARY_WALL_SEAM_TABLET_MIN_QUERY,
+    LIBRARY_WALL_SEAM_TABLET_TALL_QUERY,
+    resolveLibraryWallSeamHorizontalForTablet,
 } from '../../../utils/libraryWallSeamDirection';
 import { useReducedMotionFor } from '../../../hooks/useReducedMotionFor';
 import { useLatticeSettingsStore } from '../../../stores/useLatticeSettingsStore';
@@ -156,11 +157,13 @@ const BravaisStage: React.FC<LibrarySuiteStageProps> = ({
     const stackEdges = useLibraryWallLookStore(state => state.collectionStackEdges);
     const seamDirection = useLibraryWallLookStore(state => state.seamDirection);
     const portrait = useMediaQuery(LIBRARY_WALL_PORTRAIT_QUERY);
-    // 触屏窄视口（手机几何，coarse + 宽 < 720）上 compact 横条放不下全部 ≥44px 触点：两种「自动」改走竖排书脊
-    // （见 resolveLibraryWallSeamHorizontalForTouch）；显式选「横向」的用户仍尊重其选择。
+    // 平板双栏（fork 增量）：触屏平板（coarse + 宽 ≥ 720 + 高 ≥ 720）上两种「自动」开竖缝——缝是墙
+    // 中间裂开的那道缝，竖缝把墙分成左右两部分（M3 expanded 双栏）；手机与非触屏走上游语义，
+    // 显式选「横向」的用户在任何设备上仍尊重其选择（见 resolveLibraryWallSeamHorizontalForTablet）。
     const coarsePointer = useMediaQuery('(pointer: coarse)');
-    const narrowSeamViewport = useMediaQuery(LIBRARY_WALL_SEAM_ROW_NARROW_QUERY);
-    const seamHorizontal = resolveLibraryWallSeamHorizontalForTouch(seamDirection, portrait, coarsePointer && narrowSeamViewport);
+    const tabletWideEnough = useMediaQuery(LIBRARY_WALL_SEAM_TABLET_MIN_QUERY);
+    const tabletTallEnough = useMediaQuery(LIBRARY_WALL_SEAM_TABLET_TALL_QUERY);
+    const seamHorizontal = resolveLibraryWallSeamHorizontalForTablet(seamDirection, portrait, coarsePointer && tabletWideEnough && tabletTallEnough);
     // 换层编排里按层算开口时读最新的（不进回调的依赖）。
     const seamHorizontalRef = useRef(seamHorizontal);
     seamHorizontalRef.current = seamHorizontal;
