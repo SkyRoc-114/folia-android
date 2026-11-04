@@ -45,6 +45,10 @@ const VisualizerNebbia: React.FC<Props> = (props) => {
     // 分辨率（#929）：全屏着色器没有 MSAA，只跟分辨率倍数；预览的小图保持原来的像素密度
     const renderQuality = useLyricRenderQuality(nebbiaTuning.render);
     const renderScale = isPreviewMode ? 1 : renderQuality.scale;
+    const seeThrough = nebbiaSeesThrough(nebbiaTuning, props.background, props.isPreviewMode);
+    // 透出后面时（播放页透明）窗外不画，但选了水族箱时水珠里折射的还是水族箱（水母照样游，车不颠）；选了共用背景就折射街景
+    const scene = nebbiaTuning.behind === 'aquarium' ? 'aquarium' : 'night';
+    const glass = nebbiaTuning.glass;
 
     // 真正在画的歌：切歌时滞后于 props，免得对着还没到的歌词排版（songHandover.ts）
     const committed = useVisualizerSongCommit({ seed, lines, currentTime, readyGraceMs: 3000 });
