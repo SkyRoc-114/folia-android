@@ -12,8 +12,13 @@
 - 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）——**2026-11-01 用户重发 PAT（ghp_kpr8...，用户拍板复用）并已持久化，沙箱重置后从 `git clone https://@github.com/...` 自动走 credential.helper 恢复**
 - ⚠️ PAT 绝不能写进仓库任何被跟踪的文件
 
-## 当前进度（2026-11-03 10:00 +08 更新）
+## 当前进度（2026-11-04 +08 更新）
 
+- **.301 命令面板分类徽章删除批次（2026-11-04，用户指令「是13号图片右侧的徽章」= 命令面板行标题右侧分类小标签）**
+  - **改动**：删除 match 行（CommandPalette.tsx）与「全部命令」行（CommandPaletteAllCommandsRow.tsx）标题右侧的 groupLabel 圆角小标签（搜索/设置/导航/播放等），连带清掉 `groupLabelKey` 常量、match 行 groupLabel 计算与 AllCommandsList→Row 的 props 链路；i18n `commandPalette.group*` 键保留未删（防上游回用，零风险）。队列视图里时长/元数据小 chip 不在本次范围，保留
+  - **连带**：render-mobile-ui.mjs 行匹配串去掉徽章拼文（'Lattice 打开导航'→'Lattice 打开'、'打开选项设置'→'打开选项'、'回到主页'→'回到首页'——最后一个本就是旧错串，靠徽章删后暴露）；补交 .300 漏入库的 `docs/ui-preview/16-offline-search.png`；lockfile 根 version 补齐后随本批跳 .301（.300 重蹈 .294 漏改 lock 覆辙）
+  - **验证**：tsc EXIT=0；command-palette 定向 28 文件 313 例全绿；vite build EXIT=0；13 屏重渲实证徽章消失（01-14 全套重出，10-settings-landing 恢复 landing 命中）
+  - **⚠️ 沙箱 npm 新坑（EALLOWREMOTE，排查久）**：`npm install` 全量失败 `Fetching non-root packages of type "remote" have been disabled`——根因是沙箱环境变量 `NPM_CONFIG_REGISTRY=https://registry.npmmirror.com` 覆盖项目 .npmrc 的 npmjs 源，npm 11.19 新 allowRemote 策略下 lockfile 里的 registry.npmjs.org tarball 与生效 registry 主机不匹配 → reify extract 阶段 `#isRegistryResolvedTarball` 判否 → 一切 registry 包被当 remote 拒装。**解法：`NPM_CONFIG_REGISTRY=https://registry.npmjs.org/ npm install --ignore-scripts --no-audit --no-fund`（对齐 lockfile 主机，策略本身不动）**；排查法：进程内 require 系统 npm + 包一层 pacote `FetcherBase.get` 打 spec/`_isRoot`（scripts/npm-debug-install.cjs 存档）；勿再走 vendor/file: 置换弯路（不影响报错根源）
 - **.300 搜索离线判定批次（2026-11-03 上午，用户指令「未连接网络没有判定会直接显示歌曲搜索失败，优化，继续优化GUI并渲染」）**
   - **根因**：断网时在线源搜索仍发起注定失败的请求，WebView 抛含混的 "Failed to fetch" 被笼统显示成「搜索失败，请重试」，无网络状态判定。链路上还有一坑：store 置错后 `onSearchCommitted` → `navigateToSearch` → `pushNavigationState` → `restoreHistoryState` → `restoreSearch` 会无脑清 error，把「未连接网络」洗成「未找到相关结果」
   - **修复（三件）**：①新模块 `src/utils/networkStatus.ts`——`isNetworkOffline()`（navigator.onLine===false 才算离线，无 navigator/SSR 按在线处理防误拦）+ `subscribeNetworkStatus`（online/offline 事件）+ `useNetworkOffline()`（useSyncExternalStore）；②store 离线预检——`submitSearch` 对非 local 源断网直接置 `searchError=SEARCH_OFFLINE_ERROR`（导出哨兵，复用 searchError 管线不加字段）短路返回、`loadMoreSearchResults` 同理；③`restoreSearch` 同词同源**且仍离线**时保留哨兵（回网自动回落缓存/空结果，后退导航旧错误照旧清）；显示层 SearchWorkspace 离线态换 `WifiOff` 图标 + `search.offline` 文案（空态+底部条两处）。locale 双语加 `search.offline`（未连接网络，请检查网络后重试。/ No network connection...）+ sync-vi（vi 英文占位）
@@ -256,7 +261,7 @@ node /home/z/my-project/scripts/sync-vi-to-en.cjs
 
 1. cherry-pick / 改动 → 冲突按「fork 的 nativeBridge/android 增量优先，上游语义不丢」解
 2. `node /home/z/my-project/scripts/sync-vi-to-en.cjs`（动了 en.ts / zh-CN.ts 时）
-3. `npm install --registry=https://registry.npmjs.org --ignore-scripts --no-audit --no-fund`（动了依赖时）
+3. `NPM_CONFIG_REGISTRY=https://registry.npmjs.org/ npm install --ignore-scripts --no-audit --no-fund`（动了依赖时；沙箱默认 npmmirror 环境变量会盖项目 .npmrc 致 EALLOWREMOTE，见 .301 批次）
 4. `npx tsc --noEmit` 0 错 + 定向 vitest；大批次全量回归用 `--shard` 分片前台跑（当前基线：~13743 过 + 1 存量败 ytmProvider:813 + 3 skip）
 5. 更新本文件（+scripts/ 若有新增）→ push `android-0.7.22`（meta 已退役不再推）
 6. 推 tag 前先查上次 workflow：`curl -H "Authorization: Bearer $PAT" .../actions/runs?per_page=2`，确认 success 再 `git tag v0.7.22-android.NNN && git push origin <tag>`；发布提交必须同改 package.json **与 package-lock.json 两处 version**（.294 曾漏改 lock）

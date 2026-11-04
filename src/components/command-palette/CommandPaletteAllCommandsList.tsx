@@ -16,7 +16,6 @@ import CommandPaletteAllCommandsRow, { ALL_COMMANDS_ROW_HEIGHT } from './Command
 
 type CommandPaletteAllCommandsListProps = {
     commands: CommandPaletteCommand[];
-    groupLabelKey: Record<string, string>;
     isDaylight: boolean;
     itemIdleBg: string;
     theme: Theme;
@@ -27,7 +26,6 @@ type CommandPaletteAllCommandsListProps = {
 
 const CommandPaletteAllCommandsList: React.FC<CommandPaletteAllCommandsListProps> = ({
     commands,
-    groupLabelKey,
     isDaylight,
     itemIdleBg,
     theme,
@@ -38,13 +36,12 @@ const CommandPaletteAllCommandsList: React.FC<CommandPaletteAllCommandsListProps
     // 一个 memo，避免 125 行各自重建闭包。
     const rowProps = useMemo(() => ({
         commands,
-        groupLabelKey,
         isDaylight,
         itemIdleBg,
         theme,
         t,
         onPick,
-    }), [commands, groupLabelKey, isDaylight, itemIdleBg, theme, t, onPick]);
+    }), [commands, isDaylight, itemIdleBg, theme, t, onPick]);
 
     return (
         <div className="flex h-full min-h-0 flex-col">

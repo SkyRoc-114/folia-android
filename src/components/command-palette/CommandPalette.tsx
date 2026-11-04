@@ -66,16 +66,6 @@ const resolveSurfaceComponent = (surface: CommandPaletteSurface) => {
     return component;
 };
 
-const groupLabelKey: Record<string, string> = {
-    search: 'commandPalette.groupSearch',
-    settings: 'commandPalette.groupSettings',
-    navigation: 'commandPalette.groupNavigation',
-    panel: 'commandPalette.groupPanel',
-    playback: 'commandPalette.groupPlayback',
-    visualizer: 'commandPalette.groupVisualizer',
-    grid: 'commandPalette.groupGrid',
-};
-
 const IDLE_PLACEHOLDER_COUNT = 5;
 const IDLE_PLACEHOLDER_INTERVAL_MS = 2800;
 
@@ -523,7 +513,6 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
                             {isShowingAllCommands ? (
                                 <CommandPaletteAllCommandsList
                                     commands={availableCommands}
-                                    groupLabelKey={groupLabelKey}
                                     isDaylight={isDaylight}
                                     itemIdleBg={itemIdleBg}
                                     theme={theme}
@@ -551,7 +540,6 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
                             ) : (
                                 matches.map((match, index) => {
                                     const isActive = index === activeIndex;
-                                    const groupLabel = t(groupLabelKey[match.command.group] || 'commandPalette.groupOther') || match.command.group;
                                     const title = getCommandTitle(match.command, t);
                                     const displayDescription = match.previewText || getCommandDescription(match.command, t);
                                     const Icon = match.command.icon ?? Command;
@@ -587,9 +575,6 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({
                                             <div className="min-w-0 flex-1">
                                                 <div className="flex items-center gap-2">
                                                     <span className="truncate text-sm font-medium">{title}</span>
-                                                    <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] opacity-50">
-                                                        {groupLabel}
-                                                    </span>
                                                 </div>
                                                 <div className="mt-0.5 truncate text-xs opacity-50">
                                                     {displayDescription}

@@ -97,7 +97,7 @@ async function main() {
     const closeOverlays = async () => { for (let i = 0; i < 3; i++) await page.keyboard.press('Escape').catch(() => {}); await sleep(600); };
     // 回 home（命令优先，书脊返回钮兜底）
     const goHome = async () => {
-        if (await runCommand('home', '回到主页')) return true;
+        if (await runCommand('home', '回到首页')) return true;
         if (await tap('button[aria-label="返回主页"]', 'spine-back-home')) return true;
         return false;
     };
@@ -119,7 +119,7 @@ async function main() {
     await shot('02-home-tab-local');
 
     // 03 lattice 队列墙（命令 navigate-lattice）
-    if (await runCommand('lattice', 'Lattice 打开导航')) await sleep(1200);
+    if (await runCommand('lattice', 'Lattice 打开')) await sleep(1200);
     await shot('03-lattice-queue-wall');
 
     // 04 播放页（命令 navigate-player）
@@ -148,7 +148,7 @@ async function main() {
     }
 
     // 10 设置（命令 options；360 宽 phone-fit 窄窗 = 落地页根列表，传统移动端形态）
-    if (await runCommand('options', '打开选项设置')) await sleep(1500);
+    if (await runCommand('options', '打开选项')) await sleep(1500);
     const onLanding = await page.evaluate(() => Boolean(document.querySelector('[data-folia-settings-landing]')));
     log('SETTINGS_LANDING', onLanding);
     await shot(onLanding ? '10-settings-landing' : '10-settings-options');

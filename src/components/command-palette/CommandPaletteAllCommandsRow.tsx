@@ -17,7 +17,6 @@ export const ALL_COMMANDS_ROW_HEIGHT = 60;
 
 export type AllCommandsRowProps = {
     commands: CommandPaletteCommand[];
-    groupLabelKey: Record<string, string>;
     isDaylight: boolean;
     itemIdleBg: string;
     theme: Theme;
@@ -29,7 +28,6 @@ const CommandPaletteAllCommandsRow = ({
     index,
     style,
     commands,
-    groupLabelKey,
     isDaylight,
     itemIdleBg,
     theme,
@@ -41,7 +39,6 @@ const CommandPaletteAllCommandsRow = ({
         return null;
     }
 
-    const groupLabel = t(groupLabelKey[command.group] || 'commandPalette.groupOther') || command.group;
     const Icon = command.icon ?? Command;
 
     return (
@@ -64,7 +61,6 @@ const CommandPaletteAllCommandsRow = ({
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                         <span className="truncate text-sm font-medium">{getCommandTitle(command, t)}</span>
-                        <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] opacity-50">{groupLabel}</span>
                     </div>
                     <div className="mt-0.5 truncate text-xs opacity-50">{getCommandDescription(command, t)}</div>
                 </div>
