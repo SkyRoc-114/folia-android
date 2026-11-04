@@ -14,6 +14,7 @@
 
 ## 当前进度（2026-11-04 +08 更新）
 
+- **2026-11-04 巡检机制升级（用户指令「cron 进度为常量，改为变量单独存储按轮次实时更新」）**：cron 载荷【当前进度】常量段退役，唯一变量存储=仓库根 **`PROGRESS.json`**（fork 最新 tag/下一批号/回归基线/渲染集/pending/观察项/上游状态/最近 8 批摘要/last_round 轮次记录），更新器 `scripts/update-progress.py`（set/set-json/round/history/pending-*，scripts/* 同既有脚本 force-add）；**每轮（巡检含）收尾必跑 round + 随批 push**；与远端 tag 冲突时以 ls-remote 为准回写。.301 闭环核验：tag→release（3 APK）→workflow success 全部在线（并行实例完成，本窗仅核验不重做）
 - **.301 命令面板分类徽章删除批次（2026-11-04，用户指令「是13号图片右侧的徽章」= 命令面板行标题右侧分类小标签）**
   - **改动**：删除 match 行（CommandPalette.tsx）与「全部命令」行（CommandPaletteAllCommandsRow.tsx）标题右侧的 groupLabel 圆角小标签（搜索/设置/导航/播放等），连带清掉 `groupLabelKey` 常量、match 行 groupLabel 计算与 AllCommandsList→Row 的 props 链路；i18n `commandPalette.group*` 键保留未删（防上游回用，零风险）。队列视图里时长/元数据小 chip 不在本次范围，保留
   - **连带**：render-mobile-ui.mjs 行匹配串去掉徽章拼文（'Lattice 打开导航'→'Lattice 打开'、'打开选项设置'→'打开选项'、'回到主页'→'回到首页'——最后一个本就是旧错串，靠徽章删后暴露）；补交 .300 漏入库的 `docs/ui-preview/16-offline-search.png`；lockfile 根 version 补齐后随本批跳 .301（.300 重蹈 .294 漏改 lock 覆辙）
@@ -262,7 +263,8 @@ node /home/z/my-project/scripts/sync-vi-to-en.cjs
 1. cherry-pick / 改动 → 冲突按「fork 的 nativeBridge/android 增量优先，上游语义不丢」解
 2. `node /home/z/my-project/scripts/sync-vi-to-en.cjs`（动了 en.ts / zh-CN.ts 时）
 3. `NPM_CONFIG_REGISTRY=https://registry.npmjs.org/ npm install --ignore-scripts --no-audit --no-fund`（动了依赖时；沙箱默认 npmmirror 环境变量会盖项目 .npmrc 致 EALLOWREMOTE，见 .301 批次）
-4. `npx tsc --noEmit` 0 错 + 定向 vitest；大批次全量回归用 `--shard` 分片前台跑（当前基线：~13743 过 + 1 存量败 ytmProvider:813 + 3 skip）
+4. `npx tsc --noEmit` 0 错 + 定向 vitest；大批次全量回归用 `--shard` 分片前台跑（当前基线：~13757 过 + 1 存量败 ytmProvider:813 + 3 skip；以 PROGRESS.json baseline 为准）
 5. 更新本文件（+scripts/ 若有新增）→ push `android-0.7.22`（meta 已退役不再推）
-6. 推 tag 前先查上次 workflow：`curl -H "Authorization: Bearer $PAT" .../actions/runs?per_page=2`，确认 success 再 `git tag v0.7.22-android.NNN && git push origin <tag>`；发布提交必须同改 package.json **与 package-lock.json 两处 version**（.294 曾漏改 lock）
-7. 勿用 android-actions/setup-android@v3（runner 预装 sdkmanager 冲突）
+6. 推 tag 前先查上次 workflow：`curl -H "Authorization: Bearer $PAT" .../actions/runs?per_page=2`，确认 success 再 `git tag v0.7.22-android.NNN && git push origin <tag>`；发布提交必须同改 package.json **与 package-lock.json 两处 version**（.294/.300 均曾漏改 lock）
+7. **轮次收尾（2026-11-04 进度变量化）**：`python3 scripts/update-progress.py round --type batch --result "<一句话>"` + `set fork.latest_tag/next_batch_number` + `history <tag> <sha> "<summary>"`（pending 有动则 pending-add/pending-done）→ PROGRESS.json 与本批一并提交 push
+8. 勿用 android-actions/setup-android@v3（runner 预装 sdkmanager 冲突）
