@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "description": "cron 巡检进度的唯一变量存储（用户 2026-11-04 指令：进度常量出载荷，改为变量单独存储按轮次实时更新）。规则：每轮开场恢复环境后必读本文件；每轮收尾必用 scripts/update-progress.py 实时更新并随批/随 docs 提交 push。与 MERGE-STATE.md（详细 worklog）互补；若本文件与远端 tag 不一致（沙箱回退/并行实例抢先），以 git ls-remote 远端 tag 为准并回写修正本文件。",
+  "updated_at": "2026-11-04T09:21:13+00:00",
+  "updated_by_round": "cron-20261104-76e49f2b",
+  "fork": {
+    "repo": "SkyRoc-114/folia-android",
+    "branch": "android-0.7.22",
+    "latest_tag": "v0.7.22-android.301",
+    "latest_tag_sha": "7c463cc0",
+    "next_batch_number": 302,
+    "tip_ahead_note": "tip 领先 tag 若干 docs/progress 提交属正常"
+  },
+  "baseline": {
+    "tests_pass_approx": 13757,
+    "legacy_fail": "test/unit/ytm/ytmProvider.test.ts:813（基线内存量败，1 例，勿修）",
+    "skip": 3,
+    "how": "全量回归 --shard=N/3 前台分三片；tsc OOM EXIT=137 时先杀 preview/chromium 再 node --max-old-space-size=2048"
+  },
+  "render_set": {
+    "dir": "docs/ui-preview",
+    "screens": 16,
+    "spec": "1080×1920 phone-fit zh-CN（360×640@DPR3 hasTouch）；01-14=render-mobile-ui.mjs，02/15=render-extra.mjs，16=render-offline-search.mjs",
+    "rule": "每次重渲染整组替换 docs/ui-preview/ 并删除旧截图，README 清单同步；渲染脚本在 /home/z/my-project/scripts/ 层跑（NODE_PATH=/home/z/.npm-global/lib/node_modules，playwright 1.57→chromium-1200）"
+  },
+  "pending": [],
+  "observations": [
+    "面板 × 关闭钮与末 tab 轻微重叠（非阻塞）",
+    "命令面板 placeholder 与 ？ 钮轻微重叠（非阻塞）",
+    "空态入口缺失——登录+播放内容后可补全形态"
+  ],
+  "upstream": {
+    "desktop_repo": "chthollyphile/folia-major",
+    "desktop_latest_tag": "v0.7.25",
+    "android_upstream_repo": "whycfawa/folia-android",
+    "android_upstream_branch": "android-0.7.22",
+    "android_upstream_tip": "55af65d（2026-11-03 核实）",
+    "note": "桌面版 main 在 v0.7.25 之上有 scratchpad 批次（b54f3681 起 10+ 提交）——出 v0.7.26 或用户指示后再评估"
+  },
+  "batch_history_tail": [
+    {
+      "tag": "v0.7.22-android.299",
+      "sha": "78b8a162",
+      "summary": "书脊横排回归 Android 上游 + 设置传统移动端化 + 平板竖缝双栏"
+    },
+    {
+      "tag": "v0.7.22-android.300",
+      "sha": "e3094e14",
+      "summary": "搜索离线判定全套（networkStatus/store 离线哨兵/SearchWorkspace 显示层/三语/单测）+ restoreSearch 哨兵存活修复 + 16 屏渲染集"
+    },
+    {
+      "tag": "v0.7.22-android.301",
+      "sha": "7c463cc0",
+      "summary": "命令面板行标题右侧分类徽章删除（match 行+全部命令行，用户指定 13 号图）+ 补交 16-offline-search.png + 01-14 屏重渲"
+    }
+  ],
+  "last_round": {
+    "at": "2026-11-04T09:21:13+00:00",
+    "type": "infra",
+    "result": ".301 闭环核验通过（tag/release 3APK/workflow success/MERGE-STATE 均在，由并行实例完成）；cron 进度变量化落地：PROGRESS.json + scripts/update-progress.py 入库，cron 载荷进度段改指针"
+  }
+}
