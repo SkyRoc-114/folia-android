@@ -80,7 +80,7 @@ const useReached = (at: number): boolean => {
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
     isOpen, onClose, rows, activeProviderId, chosen, login, onChoose, onStart, onSubmitForm, onSelectMethod, onReopenBrowser, onRestartService, onSwitch, onSignOut,
-    buildReport, origin, done = false, onDoneLeave = nothing, onDoneEnd = nothing,
+    buildReport, origin, done = false, onDoneLeave = nothing, onDoneEnd = nothing, onEscape,
 }) => {
     const { t } = useTranslation();
     const still = useKitReducedMotion();

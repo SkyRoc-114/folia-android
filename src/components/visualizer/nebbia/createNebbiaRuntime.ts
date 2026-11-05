@@ -6,7 +6,7 @@ import { buildNebbiaLines, collectEmojiIcons, NEBBIA_DEFAULT_DOODLES } from './n
 import { appendNebbiaCredits } from './nebbiaCredits';
 import { NEBBIA_FIXED } from './nebbiaConstants';
 import { NebbiaGlassMotion } from './nebbiaDrops';
-import { fitNebbiaCanvas, NebbiaGl } from './nebbiaGl';
+import { NebbiaGl } from './nebbiaGl';
 import { NebbiaGlyphCache } from './nebbiaGlyphs';
 import { NebbiaHits, VocalEnergy } from './nebbiaHits';
 import { NebbiaMask } from './nebbiaMask';
@@ -40,8 +40,6 @@ const AQUA_SPOT = beatEffectPartId(AQUA_BEAT, 'spot');
 
 // 改了要重排整首的 tuning 项
 const LAYOUT_KEYS: (keyof NebbiaTuning)[] = ['appear', 'fade', 'layouts', 'credits', 'jitter', 'warp', 'hold', 'refog', 'writeSpeed', 'doodle'];
-// Chromium 给 WebGL 绘图缓冲定的面积上限：建上下文时只按边长夹，之后改尺寸才按面积夹
-const MAX_DRAWING_BUFFER_AREA = 5760 * 5760;
 // 开关组是数组，每次合并都是新的一份：按内容比
 const sameValue = (a: unknown, b: unknown) => (Array.isArray(a) && Array.isArray(b) ? a.join() === b.join() : a === b);
 
@@ -108,10 +106,6 @@ export class NebbiaRuntime {
         this.canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;display:block';
         this.glyphs = new NebbiaGlyphCache(resolveThemeFontStack(theme), resolveThemeFontWeight(theme, 600));
         input.host.appendChild(this.canvas);
-        // 建上下文之前先把画布定到宿主的尺寸：着色器提交以后第一次 resize 就不用再改画布尺寸（见 fitNebbiaCanvas）。
-        // 超过面积上限的不先定：那样建出来的绘图缓冲比之后 resize 夹出来的大得多
-        const size = this.hostSize();
-        if (size && size.W * size.H * this.dpr() ** 2 <= MAX_DRAWING_BUFFER_AREA) fitNebbiaCanvas(this.canvas, size.W, size.H, this.dpr());
         try {
             this.gl = new NebbiaGl(this.canvas, input.seeThrough, input.scene, input.glass);
             this.gl.onSpriteReady = () => this.requestFrame();
@@ -246,27 +240,16 @@ export class NebbiaRuntime {
         return out;
     }
 
-    // 宿主内容尺寸：量排版尺寸，不量 getBoundingClientRect——样式小图和样式窗口的大样张把窗口大的舞台缩小了画（preview/previewScale.ts），
-    // 量到缩小后的尺寸，整首就排在小画布上，字小到笔画宽度被 8 像素的下限盖过，调笔画粗细看不出变化（#963）。
-    // clientWidth/clientHeight 不受 transform 影响，本来就是整数 CSS 像素；还没尺寸（隐藏、0 大小）时是 null。
-    private hostSize(): { W: number; H: number } | null {
-        const { clientWidth: width, clientHeight: height } = this.input.host;
-        if (width < 1 || height < 1) return null;
-        return { W: width, H: height };
-    }
-
-    private dpr() {
-        // 分辨率挡位（#929）：雾笺原来的 resolution 滑块并进共用的渲染质量（旧值换算在 tuning 归一化里），这里只按挡位算倍率
-        return resolveLyricPixelRatio(Math.min(2, window.devicePixelRatio || 1), this.renderScale);
-    }
-
     private resize() {
-        const size = this.hostSize();
-        if (!size) return;
-        const sized = size.W !== this.W || size.H !== this.H;
-        this.W = size.W;
-        this.H = size.H;
-        this.gl.resize(this.W, this.H, this.dpr());
+        // 量排版尺寸，不量 getBoundingClientRect：样式小图和样式窗口的大样张把窗口大的舞台缩小了画（preview/previewScale.ts），
+        // 量到缩小后的尺寸，整首就排在小画布上，字小到笔画宽度被 8 像素的下限盖过，调笔画粗细看不出变化（#963）
+        const { clientWidth: width, clientHeight: height } = this.input.host;
+        if (width < 1 || height < 1) return;
+        const sized = width !== this.W || height !== this.H;
+        this.W = width;
+        this.H = height;
+        const dpr = resolveLyricPixelRatio(Math.min(2, window.devicePixelRatio || 1), this.renderScale);
+        this.gl.resize(this.W, this.H, dpr);
         this.mask.resize(this.W, this.H);
         this.snow?.resize(this.W, this.H);
         this.fireflies?.resize(this.W, this.H);
@@ -355,7 +338,7 @@ export class NebbiaRuntime {
         const field = this.condensation ? this.condensation.instances(frozen ? 0 : dt, t.dew, t.dewSize)
             : this.snow ? this.snow.instances(this.fieldInst) : this.motion.fieldInstances(this.fieldInst, t.busSpeed);
         const u = nebbiaFrameUniforms(t, this.motion.shake(), this.spot, this.W, this.H, this.clock.time, aqua);
-        this.gl.render(this.mask.ctx, this.mask.breath.active ? this.mask.breath.canvas : null, this.motion.drops, field, u, this.condensation?.changed ?? this.snow?.changed ?? true);
+        this.gl.render(this.mask.ctx, this.mask.breath.active ? this.mask.breath : null, this.motion.drops, field, u, this.condensation?.changed ?? this.snow?.changed ?? true);
         if (this.snow) this.gl.drawFlakes(...this.snow.flakeInstances(this.mask.ice ?? []), u.glassShift);
         if (this.fireflies) this.gl.drawFireflies(...this.fireflies.step(frozen ? 0 : dt));
         if (!this.firstDrawn) { this.firstDrawn = true; this.input.onFirstFrame(); }

@@ -102,6 +102,8 @@ export interface ProviderAccountSummary {
     providerId: OnlineProviderId;
     displayName: string;
     shortName: string;
+    /** 短名的 i18n key（OnlineMusicProvider.shortNameKey）；界面按它取当前语言的名字。没有就显示 shortName。 */
+    shortNameKey?: string;
     availability: ProviderAvailability;
     /** False for a provider with no account at all (a Folium mod source): it is used without signing in. Absent means true. */
     requiresAccount?: boolean;
@@ -1001,6 +1003,8 @@ export interface OnlineMusicProvider {
     id: OnlineProviderId;
     displayName: string;
     shortName?: string;
+    /** 界面上显示的平台名（i18n key）；不给就用 shortName / displayName。名字由界面翻译。 */
+    shortNameKey?: string;
     mark?: ProviderMark;
     getAvailability?(): ProviderAvailability;
     /**

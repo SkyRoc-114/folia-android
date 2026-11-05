@@ -471,11 +471,12 @@ describe('Personal FM ended by a platform switch while a play was on its way', (
     });
 
     it('is not turned back on by the skip after the countdown, which plays on through the same queue', async () => {
+        // fork：no-audio 类走即时跳（.294 #889），倒数窗场景改用仍走倒数的 unreachable 类故障。
         playerWith([f1, f2, f3], f1, true);
         const { queue, render } = mount();
-        env.self.audioResultFor.set('f2', unavailable('no-audio'));
+        env.self.audioResultFor.set('f2', unavailable('unknown'));
         await queue.playSong(f2, store().playQueue, true);
-        expect(status()).toMatchObject({ text: 'failure.noAudio', countdown: expect.anything() });
+        expect(status())!.toMatchObject({ countdown: expect.anything() });
 
         endFmBySwitch();
         render();

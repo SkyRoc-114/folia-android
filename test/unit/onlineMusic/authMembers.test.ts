@@ -38,7 +38,8 @@ const AUTH_MEMBERS: Record<string, string[]> = {
     ],
     // 表单式登录：不扫码不开浏览器，登录窗口按 getLoginForm 声明渲染账号密码表单。
     fnmusic: [
-        'checkLogin', 'describeLoginFailure', 'getLoginForm', 'getLoginStatus', 'getLoginTexts', 'logout', 'startLogin', 'submitLoginForm',]
+        'checkLogin', 'describeLoginFailure', 'getLoginForm', 'getLoginStatus', 'getLoginTexts', 'logout', 'startLogin', 'submitLoginForm',
+    ],
     // Signs in inside the companion window: no code to show, and the window is gone when the
     // attempt is cancelled, so there is no TTL of its own.
     appleMusic: [

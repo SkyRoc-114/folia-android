@@ -699,53 +699,39 @@ export function usePlaybackQueueController({
                 return;
             }
             const nextSong = getNextPlayableQueueSong(queueContext, song, asFm());
-            if (nextSong && skipCount < MAX_UNAVAILABLE_AUTO_SKIP_COUNT) {
-                showTimedSkipPrompt(said, () => {
-                    if (!isLatestPlaybackRequest()) return;
-                    // The queue was replaced whole meanwhile: the skip steps through the queue and FM of now
-                    // from this song (from the first entry when the new queue does not hold it), as a skip
-                    // after a failure mid-song does.
-                    if (queueRewritten()) {
-                        void latestQueueActionsRef.current.handleNextTrack({
-                            fromSong: song,
-                            allowStopOnMissing: true,
-                            unavailableSkipCount: skipCount + 1,
-                            shouldNavigateToPlayer: deferredPlayOptions.shouldNavigateToPlayer,
-                        });
-                        return;
-                    }
-                    // A queue given here and not yet in the store is the one kept; else the queue of now,
-                    // so that edits made meanwhile are not undone.
-                    const targetQueue = readClickTimeQueue() ?? newQueue;
-                    void latestQueueActionsRef.current.playSong(getNextPlayableQueueSong(targetQueue, song, asFm()) ?? nextSong, targetQueue, asFm(), {
-                        ...deferredPlayOptions,
-                        unavailableSkipCount: skipCount + 1,
+            // fork .294（issue #889 安卓侧）：这首自己放不了的死曲（下架 / 无可播地址 / 加密 / 不对外）
+            // 不停留倒数、提示一下就接下一首，连续上限放宽到 20。下一首的 loading 提示不发，失败提示短暂可见；
+            // 登录、会员、地区、网络类仍走倒数（showTimedSkipPrompt）。
+            const skipToNextNow = (silentLoading?: boolean) => {
+                const skipOptions = {
+                    ...deferredPlayOptions,
+                    unavailableSkipCount: skipCount + 1,
+                    ...(silentLoading ? { skipLoadingStatusToast: true as const } : {}),
+                };
+                if (queueRewritten()) {
+                    void latestQueueActionsRef.current.handleNextTrack({
+                        fromSong: song,
+                        allowStopOnMissing: true,
                         shouldNavigateToPlayer: deferredPlayOptions.shouldNavigateToPlayer,
-                        ...extra,
+                        unavailableSkipCount: skipCount + 1,
+                        ...(silentLoading ? { skipLoadingStatusToast: true as const } : {}),
                     });
                     return;
                 }
                 // A queue given here and not yet in the store is the one kept; else the queue of now,
                 // so that edits made meanwhile are not undone.
                 const targetQueue = readClickTimeQueue() ?? newQueue;
-                void latestQueueActionsRef.current.playSong(getNextPlayableQueueSong(targetQueue, song, isFmCall) ?? fallback, targetQueue, isFmCall, {
-                    ...deferredPlayOptions,
-                    unavailableSkipCount: skipCount + 1,
-                    ...extra,
-                });
+                void latestQueueActionsRef.current.playSong(getNextPlayableQueueSong(targetQueue, song, asFm()) ?? nextSong!, targetQueue, asFm(), skipOptions);
             };
-            // 这首自己放不了（下架 / 没有可播地址 / 加密音源 / 不对外）时不倒数：提示条普通弹出、自动收起，
-            // 直接接下一首；连续上限放宽到 20（issue #889）。下一首的 loading 提示不发，失败提示短暂可见；
-            // 登录、会员、地区、网络仍走原逻辑。
             if (nextSong && skipsInstantly(shown) && skipCount < MAX_INSTANT_SKIP_COUNT) {
                 clearPendingUnavailableSkip();
                 setStatusMsg(said);
                 tellFailure(shown, true);
-                skipToNextPlayable(nextSong, { skipLoadingStatusToast: true });
+                skipToNextNow(true);
                 return;
             }
             if (nextSong && skipCount < MAX_UNAVAILABLE_AUTO_SKIP_COUNT) {
-                showTimedSkipPrompt(said, () => skipToNextPlayable(nextSong), stopsPlayback(shown) ? () => { if (isLatestPlaybackRequest()) stopHere(); } : undefined);
+                showTimedSkipPrompt(said, () => skipToNextNow(), stopsPlayback(shown) ? () => { if (isLatestPlaybackRequest()) stopHere(); } : undefined);
                 tellFailure(shown, true);
                 return;
             }
@@ -769,7 +755,6 @@ export function usePlaybackQueueController({
             }
             tellFailure(shown, false);
         };
-
         // A song taken down (the platform's record says so) looks for another version first: found, the
         // dialog offers it. A lookup that could not reach the platform is told as that; one that found
         // none counts down to the next song.

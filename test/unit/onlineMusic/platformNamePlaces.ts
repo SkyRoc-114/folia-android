@@ -55,7 +55,6 @@ export const PLATFORM_NAME_PLACES: Record<string, PlatformNamePlace> = {
     'src/components/modal/LocalSongMetadataMatchDialog.tsx': { n: { netease: 4, qq: 3, kugou: 2 }, kind: 'lyric', why: 'the metadata dialog\'s own list of sources' },
     'src/components/modal/lyric-match/LocalSongLyricMatch.tsx': { n: { netease: 1 }, kind: 'lyric' },
     'src/components/modal/lyric-match/navidromeSongMatch.ts': { n: { netease: 1 }, kind: 'lyric' },
-    'src/components/modal/newFeaturesRelease.ts': { n: { qishui: 1 }, kind: 'stored', why: 'the id of a release note entry, also its i18n key; raised by the upstream merge 2026-10-17; aligned to the qishui entry the file holds today' },
     'src/components/modal/settings/pages/HelpPage.tsx': { n: { qq: 5 }, kind: 'namesake', why: 'the QQ chat app\'s community group, not QQ Music: its number and its i18n key' },
     'src/components/modal/settings/pages/IntegrationPage.tsx': { n: { netease: 4 }, kind: 'stored', why: 'the stored setting neteaseScrobbleEnabled and its i18n keys' },
     'src/components/modal/settings/pages/LyricsPage.tsx': { n: { spotify: 1 }, kind: 'lyric', why: 'which of two hand-written descriptions of the lyric sources is shown' },
@@ -167,6 +166,5 @@ export const PLATFORM_NAME_PLACES: Record<string, PlatformNamePlace> = {
     'src/services/foliaExtensionBridge.ts': { n: { bodian: 1, kugou: 2, netease: 2, qq: 2, spotify: 1, ytm: 1, qishui: 1 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge / extension bridge，与桌面版 server entry 同性质' },
     'src/nativeBridge/api/spotify.js': { n: { spotify: 70 }, kind: 'main', why: 'Spotify 的安卓侧桥实现，与桌面 electron/spotify 同性质' },
     'src/services/exportDiagnosticReport.ts': { n: { qq: 1 }, kind: 'main', why: '诊断导出时按文件名/来源标注平台名' },
-    'src/components/login/window/loginView.ts': { n: { fnmusic: 1 }, kind: 'doc', why: 'a comment naming the platform on the login scene union; the form login is generic now (omni.getLoginForm)' },
 };
 

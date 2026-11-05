@@ -41,7 +41,6 @@ const VisualizerNebbia: React.FC<Props> = (props) => {
     // 着色器在后台编，第一帧之前画布是空的：拿这一刻做小图的（frozenPicture.ts）等它画出来
     const [drawn, setDrawn] = useState(false);
     const firstFrameDrawn = useFirstFrameDrawn();
-    const seeThrough = nebbiaSeesThrough(nebbiaTuning, props.background, props.isPreviewMode);
     // 分辨率（#929）：全屏着色器没有 MSAA，只跟分辨率倍数；预览的小图保持原来的像素密度
     const renderQuality = useLyricRenderQuality(nebbiaTuning.render);
     const renderScale = isPreviewMode ? 1 : renderQuality.scale;
