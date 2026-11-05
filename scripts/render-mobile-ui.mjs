@@ -1,7 +1,7 @@
 // render-mobile-ui.mjs — folia-android 手机端 1:1 渲染脚本（终版，.298 批次）
 // 360×640 @DPR3 = 1080×1920、hasTouch、locale zh-CN、phone-fit 显式开、首启门控全预置。
 // 导航全部点击实证入口（探针 probe-dom/probe-palette/probe-player 校准）：
-//  - 命令面板为导航中枢：⌘ 按钮 → role=combobox 输入英文关键词 → 点 [data-testid=command-palette-match-row]
+//  - 命令面板为导航中枢：⌘ 按钮 → role=combobox 输入英文关键词 → 点 [data-testid=command-palette-body] button
 //  - 书脊页签 aria-label（zh）：歌单/电台/探索/专辑/本地/队列拼贴/搜索在线平台/连接在线平台…
 //  - 播放页 panel-toggle → [data-ponder-panel-tab-button=…]
 // 前置：npx vite build && (nohup npx vite preview --port 4173 &)
@@ -77,7 +77,7 @@ async function main() {
         const box = page.locator('[role="combobox"]').first();
         try { await box.fill(kw); } catch { log('FILL MISS', kw); return false; }
         await sleep(800);
-        const rows = page.locator('[data-testid="command-palette-match-row"]');
+        const rows = page.locator('[data-testid="command-palette-body"] button');
         const n = await rows.count();
         if (n === 0) { log('ROWS 0', kw); await page.keyboard.press('Escape'); return false; }
         let idx = 0;
