@@ -8,8 +8,8 @@
 
 - `origin` = https://github.com/SkyRoc-114/folia-android （Android 移植 fork，工作分支 `android-0.7.22`）
 - `upstream` = https://github.com/chthollyphile/folia-major （上游桌面版）
-- `whycfawa` = **Android 上游**（`https://github.com/whycfawa/folia-android`，2026-11-03 用户确权）：分支 `android-0.7.22`（本 fork 直接父本，2026-11-03 tip=55af65d）、`android-0.7.21`、`main`（0.7.20-android.194）；书脊/phone-fit 行为以其为准（对齐即"看上游"）。旧记录的 `whycfawa/folia` 已 404，勿再引用
-- 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）——**2026-11-01 用户重发 PAT（ghp_kpr8...，用户拍板复用）并已持久化，沙箱重置后从 `git clone https://@github.com/...` 自动走 credential.helper 恢复**
+- `whycfawa` = **Android 上游**（`https://github.com/whycfawa/folia-android`，2026-11-03 用户确权）：分支 `android-0.7.22`（本 fork 直接父本，2026-11-05 tip=5193fd0d，55af65d 后新增 11 提交：Android 模组系统 8 笔 + QQ 登录修复 + 启动图 WebP 瘦身，待 .304 迁移）、`android-0.7.21`、`main`（0.7.20-android.194）；书脊/phone-fit 行为以其为准（对齐即"看上游"）。旧记录的 `whycfawa/folia` 已 404，勿再引用
+- 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）——**用户拍板复用已持久化的 PAT（前缀已脱敏为 ghp_[REDACTED]，2026-11-05 复核现行为 fine-grained github_pat_ 类），沙箱重置后从 `git clone https://@github.com/...` 自动走 credential.helper 恢复**
 - ⚠️ PAT 绝不能写进仓库任何被跟踪的文件
 
 ## 当前进度（2026-11-05 +08 更新）

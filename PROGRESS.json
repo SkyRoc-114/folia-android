@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "description": "cron 巡检进度的唯一变量存储（用户 2026-11-04 指令：进度常量出载荷，改为变量单独存储按轮次实时更新）。规则：每轮开场恢复环境后必读本文件；每轮收尾必用 scripts/update-progress.py 实时更新并随批/随 docs 提交 push。与 MERGE-STATE.md（详细 worklog）互补；若本文件与远端 tag 不一致（沙箱回退/并行实例抢先），以 git ls-remote 远端 tag 为准并回写修正本文件。",
-  "updated_at": "2026-11-05T07:44:03+00:00",
-  "updated_by_round": "cron-20261105-91627d8b",
+  "updated_at": "2026-11-05T09:17:48+00:00",
+  "updated_by_round": "manual-20261105-091748",
   "fork": {
     "repo": "SkyRoc-114/folia-android",
     "branch": "android-0.7.22",
@@ -23,7 +23,13 @@
     "spec": "1080×1920 phone-fit zh-CN（360×640@DPR3 hasTouch）；01-14=render-mobile-ui.mjs，02/15=render-extra.mjs，16=render-offline-search.mjs；行选择器已改 [data-testid=command-palette-body] button",
     "rule": "每次重渲染整组替换 docs/ui-preview/ 并删除旧截图，README 清单同步；渲染脚本在 /home/z/my-project/scripts/ 层跑（NODE_PATH=/home/z/.npm-global/lib/node_modules）"
   },
-  "pending": [],
+  "pending": [
+    {
+      "id": "upstream-android-mods",
+      "desc": "安卓上游 55af65d..5193fd0d 共 11 提交待迁移：模组系统全家桶（82efd9a0 客户端模组系统→29efe0c9 复用桌面模组管理界面→b3b4c846 net.fetch/storage 适配→5e9318ba 分辨率保护开关→52548df5 常用库映射/网络UA→2829f67f 压50%+诊断→54b55804 画布祖先识别→cbfbc761 三挡位→5193fd0d 统一性能三挡与特效降级，与 fork 轻量模式/.288 渲染质量设置有语义重叠需设计合并）+ 2b01d42e QQ 禁止降级原生快速登录 + 2df38c45 启动图 WebP 瘦身（40MB→19MB）",
+      "status": "pending"
+    }
+  ],
   "observations": [
     "面板 × 关闭钮与末 tab 轻微重叠（非阻塞）",
     "命令面板 placeholder 与 ？ 钮轻微重叠（非阻塞）",
@@ -34,7 +40,7 @@
     "desktop_latest_tag": "v0.7.25",
     "android_upstream_repo": "whycfawa/folia-android",
     "android_upstream_branch": "android-0.7.22",
-    "android_upstream_tip": "55af65d（2026-11-03 核实）",
+    "android_upstream_tip": "5193fd0d（2026-11-05 核实）",
     "note": "桌面版 main 在 v0.7.25 之上有 scratchpad 批次（b54f3681 起 10+ 提交）——出 v0.7.26 或用户指示后再评估"
   },
   "batch_history_tail": [
@@ -65,8 +71,8 @@
     }
   ],
   "last_round": {
-    "at": "2026-11-05T07:44:03+00:00",
-    "type": "batch",
-    "result": ".302 设置子页板块一览发布；.303 上游 163 提交全量迁移发布（tsc 0 错、14410 回归过、16 屏重渲）；meta 分支删除；敏感面审计完成（keystore 入库=文件内明示取舍，PAT 前缀已脱敏）"
+    "at": "2026-11-05T09:17:48+00:00",
+    "type": "inspection",
+    "result": "沙箱回退恢复后巡检：.303 闭环核验通过（workflow success+3APK+tag/release 全在线）；分支治理复核（远端 default_branch=main 已落实、仅剩 main+android-0.7.22、meta 已删）；敏感面复核——补脱敏 MERGE-STATE 残留 ghp_kpr8 前缀→ghp_[REDACTED]，当前树+提交信息+模式扫描干净（triage 命中均为清洗器正则定义）；安卓上游 tip 前进 55af65d→5193fd0d（模组系统 8 笔+QQ 登录+WebP 瘦身共 11 提交）登记 pending 待 .304"
   }
 }
