@@ -12,7 +12,19 @@
 - 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）——**2026-11-01 用户重发 PAT（ghp_kpr8...，用户拍板复用）并已持久化，沙箱重置后从 `git clone https://@github.com/...` 自动走 credential.helper 恢复**
 - ⚠️ PAT 绝不能写进仓库任何被跟踪的文件
 
-## 当前进度（2026-11-04 +08 更新）
+## 当前进度（2026-11-05 +08 更新）
+
+- **.303 上游 folia-major 全量迁移批次（2026-11-04/05，用户指令「查看 folia-major 的功能是否推进（功能上游），更新」）**
+  - **范围**：v0.7.25 之上 main（tip a10a0983）非合并提交 172 个，跳过 5 个代码地图 [skip ci]、1 对 logo 加/回退净零、3 个 .292 已迁 → cherry-pick 163 个：速记簿（scratchpad 全家桶）、飞牛 fnmusic 平台、Apple Music 伴随播放器、跨平台混合队列、听歌排行、至上主义搜索重构、播放胶囊命令系、雾笺 融雪/雪窗/水族箱/萤虫、machi 降级修复、RTL 歌词、歌词原名/译名、Stage 外部播放器、全局快捷键范围、每日推荐风格化等
+  - **fork 语义保全清单**：.294 死曲即时跳（playSong/skipAfterPlaybackFailure 双路径，loading 提示抑制，上限 20；queueReplaceRaces 倒数窗场景改用 unknown 案）、.301 面板分类徽章删除（上游 panelBox 重构曾使其回流，二次删除）、.302 设置子页板块一览、.300 离线哨兵 × 多类型搜索语义合并（restoreSearch/submitSearch kind 感知）、phoneFit 胶囊固定展开 × 槽位提议并集、phoneFitKind=playlist-selection、types 的 requiresSameOriginAudio/confirmSessionLoss
+  - **⚠️ 新工具坑**：①blob:none 部分克隆下 cherry-pick 逐 commit 懒拉 blob 且易 GnuTLS 断——解法：清 remote.partialclonefilter 后带 blob 加深 fetch（refetch 全量会被网断，逐 commit 重试可行）；②**Bash 工具输出层会吞字面 `[m`（当 ANSI 处理）**——排查时 cat -A 也会显示成损坏文本，`grep -c` 才可信（本次「上游坏行」虚惊）；③上游 panelBox 重构后行不再挂 command-palette-match-row testid，渲染脚本改用 `[data-testid=command-palette-body] button`
+  - **验证**：tsc EXIT=0（需 --max-old-space-size=3072）；全量 3 分片 14410 过 + 1 基线败（ytmProvider:813→818 挪行）+ 4 skip；vite build EXIT=0；16 屏重渲（13 屏新面板实证：无分类徽章、mono 触发词 chip、「回到首页」在列）
+  - **教训**：迁移提交必须每 10 个 push 检查点（本窗开局沙箱回退，首轮 60 提交全灭，推检查点后重来未再丢）
+- **.302 设置子页去页签条批次（2026-11-04，用户指令「图11 的 UI 还是修改之前的模板…只有 3 个板块，考虑新设计」）**
+  - PageHeader 窄窗下钻页不再渲染锚点页签条，改标题下一行「板块一览」（分组名 · 相连，data-folia-page-header-contents）；宽窗页签不变；渲染集 01-15 重出
+  - 验证：tsc 0、settings 216 例全绿、build 0；11 屏实证
+- **2026-11-05 巡检机制/仓库治理**：cron 进度变量化（PROGRESS.json+update-progress.py，见 2026-11-04 条）；**远端过期分支清理（用户指令「远端分支混乱，main 为主，删除过期分支」）**：删 meta 孤儿分支（204），剩 main+android-0.7.22；**敏感面审计**：全部 25 refs（2 分支+23 tag）树扫+提交信息扫+workflow 核查——无凭证/密钥文件入库（.env.example 均为模板）；android/app/folia-release.p12+keystore.properties 入库=**文件头注释明示的取舍**（覆盖安装连续性优先，换私有 keystore 需全量卸载重装），非意外泄漏；MERGE-STATE.md 的 PAT 前缀已脱敏为 ghp_[REDACTED]
+- **.301 命令面板分类徽章删除批次（2026-11-04，用户指令「是13号图片右侧的徽章」= 命令面板行标题右侧分类小标签）**
 
 - **2026-11-04 巡检机制升级（用户指令「cron 进度为常量，改为变量单独存储按轮次实时更新」）**：cron 载荷【当前进度】常量段退役，唯一变量存储=仓库根 **`PROGRESS.json`**（fork 最新 tag/下一批号/回归基线/渲染集/pending/观察项/上游状态/最近 8 批摘要/last_round 轮次记录），更新器 `scripts/update-progress.py`（set/set-json/round/history/pending-*，scripts/* 同既有脚本 force-add）；**每轮（巡检含）收尾必跑 round + 随批 push**；与远端 tag 冲突时以 ls-remote 为准回写。.301 闭环核验：tag→release（3 APK）→workflow success 全部在线（并行实例完成，本窗仅核验不重做）
 - **.301 命令面板分类徽章删除批次（2026-11-04，用户指令「是13号图片右侧的徽章」= 命令面板行标题右侧分类小标签）**

@@ -1,27 +1,27 @@
 {
   "schema": 1,
   "description": "cron 巡检进度的唯一变量存储（用户 2026-11-04 指令：进度常量出载荷，改为变量单独存储按轮次实时更新）。规则：每轮开场恢复环境后必读本文件；每轮收尾必用 scripts/update-progress.py 实时更新并随批/随 docs 提交 push。与 MERGE-STATE.md（详细 worklog）互补；若本文件与远端 tag 不一致（沙箱回退/并行实例抢先），以 git ls-remote 远端 tag 为准并回写修正本文件。",
-  "updated_at": "2026-11-04T09:21:13+00:00",
-  "updated_by_round": "cron-20261104-76e49f2b",
+  "updated_at": "2026-11-05T07:44:03+00:00",
+  "updated_by_round": "cron-20261105-91627d8b",
   "fork": {
     "repo": "SkyRoc-114/folia-android",
     "branch": "android-0.7.22",
-    "latest_tag": "v0.7.22-android.301",
-    "latest_tag_sha": "7c463cc0",
-    "next_batch_number": 302,
+    "latest_tag": "v0.7.22-android.303",
+    "latest_tag_sha": "4ede9ce0",
+    "next_batch_number": 304,
     "tip_ahead_note": "tip 领先 tag 若干 docs/progress 提交属正常"
   },
   "baseline": {
-    "tests_pass_approx": 13757,
-    "legacy_fail": "test/unit/ytm/ytmProvider.test.ts:813（基线内存量败，1 例，勿修）",
-    "skip": 3,
-    "how": "全量回归 --shard=N/3 前台分三片；tsc OOM EXIT=137 时先杀 preview/chromium 再 node --max-old-space-size=2048"
+    "tests_pass_approx": 14410,
+    "legacy_fail": "test/unit/ytm/ytmProvider.test.ts:818（基线内存量败，1 例，勿修）",
+    "skip": 4,
+    "how": "全量回归 --shard=N/3 前台分三片；tsc 需 --max-old-space-size=3072（2048 会 OOM 137），内存敏感验证前先杀 vitest/chromium"
   },
   "render_set": {
     "dir": "docs/ui-preview",
     "screens": 16,
-    "spec": "1080×1920 phone-fit zh-CN（360×640@DPR3 hasTouch）；01-14=render-mobile-ui.mjs，02/15=render-extra.mjs，16=render-offline-search.mjs",
-    "rule": "每次重渲染整组替换 docs/ui-preview/ 并删除旧截图，README 清单同步；渲染脚本在 /home/z/my-project/scripts/ 层跑（NODE_PATH=/home/z/.npm-global/lib/node_modules，playwright 1.57→chromium-1200）"
+    "spec": "1080×1920 phone-fit zh-CN（360×640@DPR3 hasTouch）；01-14=render-mobile-ui.mjs，02/15=render-extra.mjs，16=render-offline-search.mjs；行选择器已改 [data-testid=command-palette-body] button",
+    "rule": "每次重渲染整组替换 docs/ui-preview/ 并删除旧截图，README 清单同步；渲染脚本在 /home/z/my-project/scripts/ 层跑（NODE_PATH=/home/z/.npm-global/lib/node_modules）"
   },
   "pending": [],
   "observations": [
@@ -52,11 +52,21 @@
       "tag": "v0.7.22-android.301",
       "sha": "7c463cc0",
       "summary": "命令面板行标题右侧分类徽章删除（match 行+全部命令行，用户指定 13 号图）+ 补交 16-offline-search.png + 01-14 屏重渲"
+    },
+    {
+      "tag": "v0.7.22-android.302",
+      "sha": "febdba29",
+      "summary": "设置子页去桌面式页签条（窄窗板块一览行）"
+    },
+    {
+      "tag": "v0.7.22-android.303",
+      "sha": "4ede9ce0",
+      "summary": "上游 folia-major 全量迁移（163 提交：速记簿/fnmusic/AppleMusic/混合队列/听歌排行/搜索重构/胶囊命令/雾笺系/machi/RTL 歌词/Stage 外接）+ fork 语义保全"
     }
   ],
   "last_round": {
-    "at": "2026-11-04T09:21:13+00:00",
-    "type": "infra",
-    "result": ".301 闭环核验通过（tag/release 3APK/workflow success/MERGE-STATE 均在，由并行实例完成）；cron 进度变量化落地：PROGRESS.json + scripts/update-progress.py 入库，cron 载荷进度段改指针"
+    "at": "2026-11-05T07:44:03+00:00",
+    "type": "batch",
+    "result": ".302 设置子页板块一览发布；.303 上游 163 提交全量迁移发布（tsc 0 错、14410 回归过、16 屏重渲）；meta 分支删除；敏感面审计完成（keystore 入库=文件内明示取舍，PAT 前缀已脱敏）"
   }
 }
