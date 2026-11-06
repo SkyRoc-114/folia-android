@@ -12,7 +12,19 @@
 - 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）——**用户拍板复用已持久化的 PAT（前缀已脱敏为 ghp_[REDACTED]，2026-11-05 复核现行为 fine-grained github_pat_ 类），沙箱重置后从 `git clone https://@github.com/...` 自动走 credential.helper 恢复**
 - ⚠️ PAT 绝不能写进仓库任何被跟踪的文件
 
-## 当前进度（2026-11-05 +08 更新）
+## 当前进度（2026-11-06 +08 更新）
+
+- **⚠️ 分支策略重构（2026-11-06 用户指令「所有提交提交到 main（保持最新），删除其他分支。新增分支用于写 agent co work」）**：
+  - **main = 唯一长期分支**（default branch 已是 main，已 force 对齐原 android-0.7.22 tip）；**agent-cowork = 协作工作分支**（进行中工作先落它，验证后合回 main）；**android-0.7.22 已删**（远端+本地）；tag 独立保留不受影响
+  - workflow 全部已挂 main：android-pre-release 走 tag 触发（分支无关）；codemap-sync/pr-unit-tests 挂 main push——**codemap 在 main 自动提交已实证**（run #3 success，ceeccfdb）
+  - 交接文档 `docs/handoff/HANDOFF.md` + handoff.zip（download/ 与仓库双份）；协作协议见 HANDOFF 第 2 节
+- **.304 安卓上游模组系统迁移批次（2026-11-06，pending upstream-android-mods 兑现）**
+  - **范围**：whycfawa android-0.7.22 分支 55af65d..5193fd0d 共 11 提交（上游版本号已是 0.7.25-android.299+ 体系）：启动图 WebP（26 张 PNG 21.4MB→0.32MB）、QQ 禁止降级原生快速登录、Android 客户端模组系统全家桶（FoliaModsPlugin 364 行 + FoliaModsServer 166 行原生宿主：zip 导入/删除/启用/本地 HTTP 文件服务；复用桌面 ModManager；net.fetch 走 FoliaNative.httpRequest 绕 WebView CORS；storage/secrets 按模组隔离；分辨率保护开关→三挡：轻度压画布 75%/均衡关阴影/强力再关模糊混合）
+  - **fork 侧适配**：①MainActivity 只注册 FoliaModsPlugin（上游还注册 qishui/analysis 两插件，fork 走大一统 FoliaNativePlugin，那两个类不存在）；②**androidModsBridge 拔掉 app store 依赖**——上游 b3b4c846 在桥层重复实现模组总开关门禁（useDesktopSettingsStore.getState()），使 folium services 闭包（services→ipc→androidModsBridge）可达 3 个 app store，违反桌面 Folium 1.8 模组窗口包隔离（foliumServicesBoundary 守卫，上游没跑单测所以没发现）；ModManager.tsx:223 UI 层（闭包外）已有同款门禁，桥层只守平台，语义不丢；③platformNamePlaces 注册表随 QQ 迁移更新（cookies 52/folia 149/qq.js 664，omniArchitecture 守卫）
+  - **工具**：scripts/pick-304.sh 轻量迁移驱动（version 三件套 auto-ours + 冲突停 11 笔只停 2 次：ANDROID_PORT.md 纯追加型 sed 删标记、MainActivity 手工裁决）
+  - **验证**：tsc 0 错；全量三片 14047 + ytm 358 = **14405 过** + 1 基线败（ytmProvider sign-in，存量）+ 4 skip，零新增失败（基线数字自 14410 修正为 14405，上轮口径含混）；vite build 0 错；16 屏重渲 + 模组子页 DOM 实证（scripts/verify-mods-304.mjs，Capacitor mock getPlatform=android：设置 12 类目含「模组」/总开关/性能优化开关/开盾后三挡 轻度·均衡·强力 PASS；三挡 IS_ANDROID_WEBVIEW 守卫浏览器默认不显示属设计）
+  - **发布**：workflow run #29 success；3 APK 各 **18.9MB（.303 为 37.6MB，WebP 瘦身 50%）**
+  - **上游遗留（下批素材）**：55af65d9 模型导入 ZIP 及其前面的 AnalysisModelImporter/FoliaAnalysisModelsPlugin 系列（fork 无此基础，需成系列评估）；桌面 folia-major 仍 v0.7.25 无新 tag
 
 - **.303 上游 folia-major 全量迁移批次（2026-11-04/05，用户指令「查看 folia-major 的功能是否推进（功能上游），更新」）**
   - **范围**：v0.7.25 之上 main（tip a10a0983）非合并提交 172 个，跳过 5 个代码地图 [skip ci]、1 对 logo 加/回退净零、3 个 .292 已迁 → cherry-pick 163 个：速记簿（scratchpad 全家桶）、飞牛 fnmusic 平台、Apple Music 伴随播放器、跨平台混合队列、听歌排行、至上主义搜索重构、播放胶囊命令系、雾笺 融雪/雪窗/水族箱/萤虫、machi 降级修复、RTL 歌词、歌词原名/译名、Stage 外部播放器、全局快捷键范围、每日推荐风格化等

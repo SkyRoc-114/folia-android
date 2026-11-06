@@ -1,19 +1,19 @@
 {
   "schema": 1,
   "description": "cron 巡检进度的唯一变量存储（用户 2026-11-04 指令：进度常量出载荷，改为变量单独存储按轮次实时更新）。规则：每轮开场恢复环境后必读本文件；每轮收尾必用 scripts/update-progress.py 实时更新并随批/随 docs 提交 push。与 MERGE-STATE.md（详细 worklog）互补；若本文件与远端 tag 不一致（沙箱回退/并行实例抢先），以 git ls-remote 远端 tag 为准并回写修正本文件。",
-  "updated_at": "2026-11-05T09:17:48+00:00",
-  "updated_by_round": "manual-20261105-091748",
+  "updated_at": "2026-11-06T04:53:19+00:00",
+  "updated_by_round": "manual-20261106-045319",
   "fork": {
     "repo": "SkyRoc-114/folia-android",
-    "branch": "android-0.7.22",
-    "latest_tag": "v0.7.22-android.303",
-    "latest_tag_sha": "4ede9ce0",
-    "next_batch_number": 304,
+    "branch": "main",
+    "latest_tag": "v0.7.22-android.304",
+    "latest_tag_sha": "00db0476",
+    "next_batch_number": 305,
     "tip_ahead_note": "tip 领先 tag 若干 docs/progress 提交属正常"
   },
   "baseline": {
-    "tests_pass_approx": 14410,
-    "legacy_fail": "test/unit/ytm/ytmProvider.test.ts:818（基线内存量败，1 例，勿修）",
+    "tests_pass_approx": 14405,
+    "legacy_fail": "test/unit/ytm/ytmProvider.test.ts sign-in unsupported-platform（基线内存量败，1 例，勿修）",
     "skip": 4,
     "how": "全量回归 --shard=N/3 前台分三片；tsc 需 --max-old-space-size=3072（2048 会 OOM 137），内存敏感验证前先杀 vitest/chromium"
   },
@@ -25,8 +25,8 @@
   },
   "pending": [
     {
-      "id": "upstream-android-mods",
-      "desc": "安卓上游 55af65d..5193fd0d 共 11 提交待迁移：模组系统全家桶（82efd9a0 客户端模组系统→29efe0c9 复用桌面模组管理界面→b3b4c846 net.fetch/storage 适配→5e9318ba 分辨率保护开关→52548df5 常用库映射/网络UA→2829f67f 压50%+诊断→54b55804 画布祖先识别→cbfbc761 三挡位→5193fd0d 统一性能三挡与特效降级，与 fork 轻量模式/.288 渲染质量设置有语义重叠需设计合并）+ 2b01d42e QQ 禁止降级原生快速登录 + 2df38c45 启动图 WebP 瘦身（40MB→19MB）",
+      "id": "upstream-analysis-models",
+      "desc": "安卓上游 55af65d9 模型导入 ZIP 及其前序 AnalysisModelImporter/FoliaAnalysisModelsPlugin 系列（fork 无此基础文件，需成系列评估迁移；上游版本号已 0.7.25-android.NNN 体系，注意 version 三件套对冲）",
       "status": "pending"
     }
   ],
@@ -68,11 +68,16 @@
       "tag": "v0.7.22-android.303",
       "sha": "4ede9ce0",
       "summary": "上游 folia-major 全量迁移（163 提交：速记簿/fnmusic/AppleMusic/混合队列/听歌排行/搜索重构/胶囊命令/雾笺系/machi/RTL 歌词/Stage 外接）+ fork 语义保全"
+    },
+    {
+      "tag": "v0.7.22-android.304",
+      "sha": "00db0476",
+      "summary": "安卓上游 11 提交迁移：Android 客户端模组系统全家桶（原生宿主/管理界面/net.fetch/storage 适配/分辨率保护三挡）+ QQ 登录修复 + 启动图 WebP（APK 37.6→18.9MB）；分支重构 main 唯一长期 + agent-cowork"
     }
   ],
   "last_round": {
-    "at": "2026-11-05T09:17:48+00:00",
-    "type": "inspection",
-    "result": "沙箱回退恢复后巡检：.303 闭环核验通过（workflow success+3APK+tag/release 全在线）；分支治理复核（远端 default_branch=main 已落实、仅剩 main+android-0.7.22、meta 已删）；敏感面复核——补脱敏 MERGE-STATE 残留 ghp_kpr8 前缀→ghp_[REDACTED]，当前树+提交信息+模式扫描干净（triage 命中均为清洗器正则定义）；安卓上游 tip 前进 55af65d→5193fd0d（模组系统 8 笔+QQ 登录+WebP 瘦身共 11 提交）登记 pending 待 .304"
+    "at": "2026-11-06T04:53:19+00:00",
+    "type": "batch",
+    "result": ".304 安卓上游模组系统迁移发布（11 提交：FoliaModsPlugin/Server 原生宿主+管理界面+net.fetch/storage 适配+分辨率三挡；APK 37.6→18.9MB；14405 过 0 新败；模组子页 DOM 实证 PASS）；分支重构：main 唯一长期分支+agent-cowork 协作分支+android-0.7.22 已删+workflow 挂 main 实证；HANDOFF.md 入库 docs/handoff/"
   }
 }
