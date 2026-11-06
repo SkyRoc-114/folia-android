@@ -2,7 +2,7 @@
 
 - **设备规格**：360×640 @DPR3 = **1080×1920**（1:1 手机分辨率）、`hasTouch`/`isMobile`、locale **zh-CN**、phone-fit 显式开（`folia_android_phone_fit='true'`）
 - **首启门控五键预置**：phone-fit + `playback_entry_view_chosen` + `library_suite_prompt_seen` + `folia_last_seen_ponder_onboarding_version` + `folia_last_seen_guide_version`（防引导弹窗入镜）
-- **代码基线**：v0.7.22-android.301（.300 基座 + 命令面板分类徽章删除）
+- **代码基线**：v0.7.22-android.305（.304 模组系统基座 + v0.7.26 同步：machi「模拟节拍」开关在可视器深层设置未入这 16 屏；账号页「同步数据」钮需登录态，游客态渲染不变；14 号登录窗为空态兜底实拍，与 .304 同基线）
 - **复现**：`npx vite build && npx vite preview --port 4173`，然后 `node scripts/render-mobile-ui.mjs`（主 14 屏）+ `node scripts/render-extra.mjs`（补 02/15）+ `node scripts/render-offline-search.mjs`（16 离线空态，含断言）；渲染与探针脚本入库 `scripts/`（render-mobile-ui.mjs / render-extra.mjs / probe-{dom,palette,player}.mjs / probe-spine-geometry.mjs / probe-seam-expanded.mjs / probe-tablet-seam.mjs）
 - **入库说明**：本渲染集同时入库在仓库 `docs/ui-preview/`（沙箱 download/ 目录会被周期性回退清空，仓库是持久正本；每次重渲染后整组替换、不留旧版本）
 
