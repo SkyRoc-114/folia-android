@@ -59,10 +59,11 @@ git config --global credential.helper store && git config --global http.version 
 
 ## 6. 当前状态快照（2026-11-06，接手后请用 PROGRESS.json 核实最新）
 
-- **最新批次 .304 已发布**（v0.7.22-android.304 = 00db0476 + codemap 自动提交 ceeccfdb）：安卓上游 11 提交迁移（启动图 WebP 瘦身 / QQ 禁止降级原生快速登录 / Android 客户端模组系统全家桶：FoliaModsPlugin+FoliaModsServer 原生宿主、复用桌面管理界面、net.fetch/storage 适配、分辨率保护三挡）。fork 侧适配：MainActivity 只注册 FoliaModsPlugin；androidModsBridge 拔 app store 依赖（folium services 闭包边界，门禁在 ModManager UI 层）；platformNamePlaces 注册表更新（52/149/664）。
-- **上游增量（下批素材）**：whycfawa 的 55af65d9（模型导入 ZIP）及其前面的分析模型系列（AnalysisModelImporter/FoliaAnalysisModelsPlugin，fork 无此基础，需成系列评估，注意上游版本号已是 0.7.25-android.NNN 体系）；桌面 folia-major 仍 v0.7.25 无新 tag。
-- **pending**：见 PROGRESS.json `pending` 数组（upstream-android-mods 已随 .304 完成，应 pending-done）。
-- **分支重构刚完成**：main 唯一长期分支 + agent-cowork 协作分支；android-0.7.22 已删；全部 workflow 已挂 main（codemap-sync 自动提交已实证生效）。
+- **最新批次 .305 已发布**（v0.7.22-android.305 = dac83ab0，2026-11-06）：桌面上游 folia-major **v0.7.26** 同步（a10a0983..cc6226e4，15 非合并收 8 笔=6 全收+2 裁剪：machi 模拟节拍×2 / 歌词按字估算扫字 / 账号同步数据按钮 / bravais 刷新歌单 / library 补页修复 / v0.7.26 Fawkes 版本面 / apple-music Windows src 层）。electron 专属 5 笔按用户口径「共享层收、专属跳」跳过。验证 14427 过 0 新败（基线自 14405 更新），注册表计数 5→4（platformNameCount --lower）守卫复绿。
+- **上游增量（下批素材）**：whycfawa 的 55af65d9（模型导入 ZIP）及 AnalysisModelImporter 系列（pending `upstream-analysis-models`，需成系列评估）；whycfawa 4 个未合并 PR 评估结论已入 pending `whycfawa-pr5-android-perf`（#5 改造后收 3-5h；#6 跳；#10 被 #11 包含；**#11 TV 路线待用户决策**——全收 8-16h 独立分支或摘 4 小件 1-2h）。桌面上游已消费到 v0.7.26=main tip，无存量。
+- **pending**：见 PROGRESS.json `pending` 数组。
+- **分支结构**：main 唯一长期分支 + agent-cowork 协作分支；android-0.7.22 已删；全部 workflow 挂 main。
+- **环境新增坑**：渲染脚本必须跑在 /home/z/my-project/scripts/ 层（repo 内跑会被 repo 本地 node_modules 的 playwright 挟持要 chromium 1243；npm-global 1.57 对应缓存 1200）；vite preview + 渲染必须同一条 Bash 调用内完成（后台进程跨工具调用被回收）。
 
 ## 7. 工具坑速查（血泪积累，持续追加）
 

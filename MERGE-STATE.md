@@ -1,18 +1,25 @@
 # MERGE-STATE.md — folia-android 合并状态（会话间接力文档）
 
-> **2026-11-01 起本文件直接跟踪在 `android-0.7.22` 分支**（随发布线提交，clone 即得）；
-> meta 孤儿分支已退役（远端指向=发布线 tip，勿再向其提交）。
-> 未推送的本地提交会在沙箱重置后丢失 —— 每批做完立即 push。
+> **2026-11-06 起分支重构：main = 唯一长期分支（本文件随 main 提交，clone 即得）；agent-cowork = 协作分支**；
+> android-0.7.22 分支已退役删除（tag 独立保留）；未推送的本地提交会在沙箱重置后丢失 —— 每批做完立即 push。
 
 ## 仓库关系
 
-- `origin` = https://github.com/SkyRoc-114/folia-android （Android 移植 fork，工作分支 `android-0.7.22`）
+- `origin` = https://github.com/SkyRoc-114/folia-android （Android 移植 fork，main = 唯一长期分支，agent-cowork = 协作工作分支）
 - `upstream` = https://github.com/chthollyphile/folia-major （上游桌面版）
 - `whycfawa` = **Android 上游**（`https://github.com/whycfawa/folia-android`，2026-11-03 用户确权）：分支 `android-0.7.22`（本 fork 直接父本，2026-11-05 tip=5193fd0d，55af65d 后新增 11 提交：Android 模组系统 8 笔 + QQ 登录修复 + 启动图 WebP 瘦身，待 .304 迁移）、`android-0.7.21`、`main`（0.7.20-android.194）；书脊/phone-fit 行为以其为准（对齐即"看上游"）。旧记录的 `whycfawa/folia` 已 404，勿再引用
 - 凭证：`/home/z/my-project/.gh-credentials` 与 `~/.git-credentials`（credential.helper=store）——**用户拍板复用已持久化的 PAT（前缀已脱敏为 ghp_[REDACTED]，2026-11-05 复核现行为 fine-grained github_pat_ 类），沙箱重置后从 `git clone https://@github.com/...` 自动走 credential.helper 恢复**
 - ⚠️ PAT 绝不能写进仓库任何被跟踪的文件
 
 ## 当前进度（2026-11-06 +08 更新）
+
+- **.305 桌面上游 v0.7.26 同步批次（2026-11-06，用户确认「现在启动 .305」+ electron 专属「共享层收、专属跳」）**
+  - **范围**：folia-major a10a0983..cc6226e4（v0.7.26 tag=main tip）21 提交/15 非合并 → **收 8 笔**（6 全收 + 2 裁剪）：9a614089 补页不再被过期曲目数截断、2881d45b bravais 刷新歌单挪到曲目数、fc135259 账号页「同步数据」按钮（LoginScreen 解构与 .294 onEscape 合流，LoginHost 接线 onSync/syncingProviderId）、4b1428ef 逐行歌词按字估算扫字（新增 estimatedLineTiming.ts，莫奈长行折行不再整块点亮）、88eeb9bf machi 固定节拍霓虹随拍/大屏闪拍、90363e44 machi「模拟节拍」开关、09002f6a v0.7.26 版本面（Fawkes 弹窗+四语释放说明；package/lock/docker VERSION/realeco-release 取 OURS）、c1a5065d apple-music Windows 转正 **src 共享层**（transport 门控放开+Windows 待定文案移除+vite-env 摘实验旗标）
+  - **跳过（electron/Windows 专属或零安卓语义）**：29e3ae05/611d3811 apple-music Windows 宿主（fork 保留 electron 实验门控，注册表计数随 src 摘除 5→4 用 `platformNameCount.ts --lower` 降数，omniArchitecture 守卫复绿）、6731e146 hifi mpv 0.42.0、9033f4a6/d206c7c6 netease worker IPv4/IPv6（fork 无 electron/netease/）、c1b7907b lazyJsdom、b0d11ad5 codemap
+  - **验证**：tsc ×2 EXIT=0；全量三片 4848+4803+4418=14069 + ytm 358 = **14427 过** + 1 存量败（ytmProvider sign-in 基线，勿修）+ 4 skip，**较 .304 净增 22 例零新败**；vite build 0 错；16 屏重渲整组替换（14 号登录窗=空态兜底实拍与 .304 同基线，README 基线更新 .305）
+  - **发布**：dac83ab0 + tag v0.7.22-android.305，push main+tag 一次过
+  - **同轮情报（whycfawa 4 个未合并 PR 评估，只读 API 侦察，细节入 PROGRESS pending `whycfawa-pr5-android-perf`）**：#5 perf(android)（base=android-0.7.22）**改造后收**——封面 LRU/墙滚动动态降级/未节流 rAF 滑行/lattice 不补间尺寸/hanabi 模糊降档，fork 实锤同 bug（无界封面缓存、限帧闸接管惯性 rAF）；dpr 钳制需折进 lyricRenderQuality（max=安卓 2）勿移植 renderPixelRatio.ts；#6 纯集成线（736 提交）跳过；#10 被 #11 完全包含；#11 TV/投影仪（+11.4K 行独立 tv.html 入口）**待用户决策**（全收 8-16h 独立分支 或 只摘 gradle JDK 路径修复/useElementSize/back 补发 Escape/isTvSurface 4 小件 1-2h）
+  - **环境备注**：渲染脚本必须跑在 /home/z/my-project/scripts/ 层（repo 内 scripts/ 会被 repo 本地 node_modules 的 playwright 挟持要 1243，npm-global 1.57 对应缓存 1200）；vite preview 与渲染必须同一条 Bash 调用内完成（后台进程跨调用被回收）
 
 - **⚠️ 分支策略重构（2026-11-06 用户指令「所有提交提交到 main（保持最新），删除其他分支。新增分支用于写 agent co work」）**：
   - **main = 唯一长期分支**（default branch 已是 main，已 force 对齐原 android-0.7.22 tip）；**agent-cowork = 协作工作分支**（进行中工作先落它，验证后合回 main）；**android-0.7.22 已删**（远端+本地）；tag 独立保留不受影响
