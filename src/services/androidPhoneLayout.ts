@@ -61,32 +61,43 @@ export const writeStoredAndroidPhoneFitOrientation = (orientation: AndroidPhoneF
 /**
  * 触屏手机几何事实：主指针 coarse + 视口短边 < 720（竖屏手机/折叠机内屏；平板与桌面不在此列）。
  * 与 sheetPresentation 的 coarse+portrait+<720 分类对齐——那套管弹窗呈现，这套管紧凑布局默认值，阈值必须一致。
+ * tabletUa：Chrome/WebView 的安卓 UA 语义，平板不带 Mobile token——设备级事实，与 dpr/显示大小无关。
+ * （.305 实机回归：dpr 1.75 的真平板竖屏 CSS 宽只有 ~686，单靠几何阈值会把平板当手机默认开，
+ *   原生启动同步后又锁 SENSOR_PORTRAIT——平板无法旋转、UI 变手机形态。平板 UA 一律不默认开。）
  */
-export const shouldDefaultAndroidPhoneFit = ({ coarse, minSide }: { coarse: boolean; minSide: number }): boolean => (
-    coarse && minSide < ANDROID_PHONE_DEFAULT_MAX_MIN_SIDE
+export type AndroidPhoneFitFacts = { coarse: boolean; minSide: number; tabletUa: boolean };
+
+/** 安卓平板 UA 判定：Android 且不带 Mobile token 即平板（Chrome/WebView 官方语义；Fire OS 平板同理）。 */
+export const isAndroidTabletUserAgent = (userAgent: string): boolean => (
+    /android/i.test(userAgent) && !/mobile/i.test(userAgent)
 );
 
-/** 当前视口的几何事实；非浏览器环境返回 null（不默认开）。 */
-export const detectPhoneFitFacts = (): { coarse: boolean; minSide: number } | null => {
+export const shouldDefaultAndroidPhoneFit = ({ coarse, minSide, tabletUa }: AndroidPhoneFitFacts): boolean => (
+    coarse && minSide < ANDROID_PHONE_DEFAULT_MAX_MIN_SIDE && !tabletUa
+);
+
+/** 当前视口的几何事实 + 设备 UA 事实；非浏览器环境返回 null（不默认开）。 */
+export const detectPhoneFitFacts = (): AndroidPhoneFitFacts | null => {
     if (typeof window === 'undefined') return null;
     try {
         const coarse = Boolean(window.matchMedia?.('(pointer: coarse)').matches);
         const width = Number(window.innerWidth) || 0;
         const height = Number(window.innerHeight) || 0;
         if (width <= 0 || height <= 0) return null;
-        return { coarse, minSide: Math.min(width, height) };
+        const userAgent = typeof window.navigator?.userAgent === 'string' ? window.navigator.userAgent : '';
+        return { coarse, minSide: Math.min(width, height), tabletUa: isAndroidTabletUserAgent(userAgent) };
     } catch {
         return null;
     }
 };
 
 /**
- * phone-fit 最终生效值：存储值永远优先；从未动过开关时，只有「Android 壳 + 触屏手机几何」才默认开。
+ * phone-fit 最终生效值：存储值永远优先；从未动过开关时，只有「Android 壳 + 触屏手机几何 + 手机 UA」才默认开。
  * isAndroidShell 由调用侧给（store 已有 IS_ANDROID_WEBVIEW，避免本模块新增导入边）。
  */
 export const resolveAndroidPhoneFitEnabled = (
     isAndroidShell: boolean,
-    facts: { coarse: boolean; minSide: number } | null,
+    facts: AndroidPhoneFitFacts | null,
 ): boolean => {
     const stored = readStoredAndroidPhoneFitRaw();
     if (stored !== null) return stored;
@@ -121,14 +132,15 @@ export const applyAndroidPhoneFit = (
 
 /**
  * 启动接线：解析最终生效值（存储优先，未动过的触屏手机默认开）→ 挂根属性；
- * 生效时把同一值同步给原生（锁转向/挖孔联动与 web 一致——修掉「web 开了 native 不知道」的存量缺口）。
+ * 恒向原生同步（开/关同值）——MainActivity 每次启动都按原生偏好 apply，若只同步开、不同步关，
+ * 一次误判默认开就会把锁残留在原生偏好里，后续升级修掉 JS 默认值也解不开（平板竖屏锁死存量）。
  * 返回最终生效值，供启动诊断/埋点复用。
  */
 export const installAndroidPhoneFitPreference = (): boolean => {
     const enabled = resolveAndroidPhoneFitEnabled(detectAndroidShell(), detectPhoneFitFacts());
     const orientation = readStoredAndroidPhoneFitOrientation();
     applyAndroidPhoneFit(enabled, orientation);
-    if (enabled) syncAndroidPhoneFitNative(enabled, orientation);
+    syncAndroidPhoneFitNative(enabled, orientation);
     return enabled;
 };
 
