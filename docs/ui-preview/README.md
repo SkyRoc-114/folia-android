@@ -19,8 +19,8 @@
 | 07 | 07-panel-controls.png | 播放页面板·控制 tab |
 | 08 | 08-equalizer.png | 均衡器 |
 | 09 | 09-panel-account.png | 播放页面板·账户 tab |
-| 10 | 10-settings-landing.png | 设置落地页（.299 传统移动端化：全屏 edge-to-edge、搜索 + 分组类目根列表） |
-| 11 | 11-settings-section.png | 设置·外观子页（.299 抽屉式 + .302 去桌面式页签条：页头 ← 返回箭头，标题下一行「板块一览」（分组名 · 相连），分组卡片纵向堆叠） |
+| 10 | 10-settings-landing.png | 设置落地页（.299 传统移动端化：全屏 edge-to-edge、搜索 + 分组类目根列表；.304 起类目含「模组」分区） |
+| 11 | 11-settings-section.png | 设置·外观子页（.299 抽屉式 + .302 去桌面式页签条：页头 ← 返回箭头，标题下一行「板块一览」（分组名 · 相连），分组卡片纵向堆叠；.304 模组子页=客户端模组管理 + 性能优化三挡（Android WebView 形态，另见 scripts/verify-mods-304.mjs 实证） |
 | 12 | 12-search-workspace.png | 搜索激活态（zh 本地化 placeholder「在当前来源搜索歌曲」） |
 | 13 | 13-command-palette.png | 命令面板（.301 删分类 chip；.303 上游重构 panelBox/capsuleFrame：行=图标+标题+mono 触发词 chip（可打字回填），placeholder 换「不知道从哪里开始？直接输入」；行 testid 并入 command-palette-body） |
 | 14 | 14-login-window.png | 登录窗 |
