@@ -136,7 +136,7 @@ export const PLATFORM_NAME_PLACES: Record<string, PlatformNamePlace> = {
     'src/utils/lyrics/types.ts': { n: { netease: 3 }, kind: 'lyric' },
     'src/utils/playerLikeAvailability.ts': { n: { qq: 1, bodian: 1 }, kind: 'doc' },
     'src/utils/stageClientDemo.ts': { n: { netease: 3 }, kind: 'stored', why: 'the stage API\'s lyric source type' },
-    'src/vite-env.d.ts': { n: { netease: 23, qq: 13, kugou: 5, bodian: 4, ytm: 4, spotify: 4, qishui: 4, fnmusic: 3, appleMusic: 5 }, kind: 'stored', why: 'the types of the preload bridge and of the stage API\'s lyric source; raised by the upstream merge 2026-10-17; fnmusic adds its request and status channels; appleMusic for the companion bridge type' },
+    'src/vite-env.d.ts': { n: { netease: 23, qq: 13, kugou: 5, bodian: 4, ytm: 4, spotify: 4, qishui: 4, fnmusic: 3, appleMusic: 4 }, kind: 'stored', why: 'the types of the preload bridge and of the stage API\'s lyric source; raised by the upstream merge 2026-10-17; fnmusic adds its request and status channels; appleMusic for the companion bridge type' },
     'worker/index.ts': { n: { qq: 11 }, kind: 'main', why: 'routes the QQ backend' },    'worker/lyric-proxy.ts': { n: { qq: 1, kugou: 1 }, kind: 'main', why: 'the hosts the lyric relay may reach' },
     'worker/qq.ts': { n: { qq: 32 }, kind: 'main', why: 'the worker entry of the QQ backend' },
     'worker/qqQrChannel.ts': { n: { qq: 6 }, kind: 'main', why: 'a Durable Object the worker binds by name' },
@@ -163,7 +163,7 @@ export const PLATFORM_NAME_PLACES: Record<string, PlatformNamePlace> = {
     "src/services/nativeRemoteAudio.ts": { n: { bodian: 1 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质' },
     "src/utils/buildDiagnosticReport.ts": { n: { kugou: 1, netease: 2, qq: 3 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质' },
     "src/utils/mediaDiagnostics.ts": { n: { netease: 1 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge，与桌面版的 server entry 同性质' },
-    'src/services/foliaExtensionBridge.ts': { n: { bodian: 1, kugou: 2, netease: 2, qq: 2, spotify: 1, ytm: 1, qishui: 1 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge / extension bridge，与桌面版 server entry 同性质' },
+    'src/services/foliaExtensionBridge.ts': { n: { netease: 2, qq: 2, kugou: 2, bodian: 1, ytm: 1, spotify: 1, qishui: 1 }, kind: 'main', why: 'Android 原生桥：该平台的协议实现住在 nativeBridge / extension bridge，与桌面版 server entry 同性质' },
     'src/nativeBridge/api/spotify.js': { n: { spotify: 70 }, kind: 'main', why: 'Spotify 的安卓侧桥实现，与桌面 electron/spotify 同性质' },
     'src/services/exportDiagnosticReport.ts': { n: { qq: 1 }, kind: 'main', why: '诊断导出时按文件名/来源标注平台名' },
 };
