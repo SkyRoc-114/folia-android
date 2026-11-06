@@ -1,18 +1,18 @@
 {
   "schema": 1,
   "description": "cron 巡检进度的唯一变量存储（用户 2026-11-04 指令：进度常量出载荷，改为变量单独存储按轮次实时更新）。规则：每轮开场恢复环境后必读本文件；每轮收尾必用 scripts/update-progress.py 实时更新并随批/随 docs 提交 push。与 MERGE-STATE.md（详细 worklog）互补；若本文件与远端 tag 不一致（沙箱回退/并行实例抢先），以 git ls-remote 远端 tag 为准并回写修正本文件。",
-  "updated_at": "2026-11-06T11:48:10+00:00",
-  "updated_by_round": "manual-20261106-114810",
+  "updated_at": "2026-11-06T13:00:55+00:00",
+  "updated_by_round": "manual-20261106-130045",
   "fork": {
     "repo": "SkyRoc-114/folia-android",
     "branch": "main",
-    "latest_tag": "v0.7.22-android.305",
-    "latest_tag_sha": "dac83ab0",
-    "next_batch_number": 306,
+    "latest_tag": "v0.7.22-android.306",
+    "latest_tag_sha": "87732ab9",
+    "next_batch_number": 307,
     "tip_ahead_note": "tip 领先 tag 若干 docs/progress 提交属正常"
   },
   "baseline": {
-    "tests_pass_approx": 14427,
+    "tests_pass_approx": 14435,
     "legacy_fail": "test/unit/ytm/ytmProvider.test.ts sign-in unsupported-platform（基线内存量败，1 例，勿修）",
     "skip": 4,
     "how": "全量回归 --shard=N/3 前台分三片；tsc 需 --max-old-space-size=3072（2048 会 OOM 137），内存敏感验证前先杀 vitest/chromium"
@@ -38,7 +38,8 @@
   "observations": [
     "面板 × 关闭钮与末 tab 轻微重叠（非阻塞）",
     "命令面板 placeholder 与 ？ 钮轻微重叠（非阻塞）",
-    "空态入口缺失——登录+播放内容后可补全形态"
+    "空态入口缺失——登录+播放内容后可补全形态",
+    "平板旋转回归教训（.295 0f19ad21 引入，.306 修复 aa97a002）：凡按视口 CSS px 判设备类型，都会被 dpr 抬高的机型误伤——设备类判定一律叠加 UA 事实（安卓平板 UA 不带 Mobile token）；web→native 的偏好同步必须双向，否则误判残留进原生 SharedPreferences 后升级也解不开（MainActivity 每次启动 apply）"
   ],
   "upstream": {
     "desktop_repo": "chthollyphile/folia-major",
@@ -83,11 +84,16 @@
       "tag": "v0.7.22-android.305",
       "sha": "dac83ab0",
       "summary": "桌面上游 v0.7.26 同步（15 非合并收 8 笔：machi 模拟节拍×2/歌词按字估算扫字/账号同步数据按钮/bravais 刷新歌单/library 补页修复/v0.7.26 版本面/apple-music Windows src 层；electron 专属 5 笔跳过）；14427 过零新败"
+    },
+    {
+      "tag": "v0.7.22-android.306",
+      "sha": "87732ab9",
+      "summary": "平板旋转回归热修（fork 自身回归）：.295 默认开阈值 coarse+CSS短边<720 把 dpr1.75 真平板（竖屏~686px）误判成手机默认进 phone-fit + 启动只同步开不同步关 → 原生偏好残留锁 SENSOR_PORTRAIT；修=isAndroidTabletUserAgent(UA无Mobile token)排除平板 + install 恒双向同步原生自愈残留锁；14435 过零新败"
     }
   ],
   "last_round": {
-    "at": "2026-11-06T11:48:10+00:00",
+    "at": "2026-11-06T13:00:45+00:00",
     "type": "batch",
-    "result": ".305 桌面上游 v0.7.26 同步发布（8 笔：machi 模拟节拍×2/歌词按字估算扫字/账号同步数据/bravais 刷新/library 补页/v0.7.26 版本面/apple-music Windows src 层；electron 专属 5 笔跳过；注册表计数 5→4 守卫复绿；14427 过 0 新败；16 屏重渲）+ whycfawa 4 PR 评估入库 pending（#5 改造后收/#6 跳/#10 跳/#11 TV 待决策）"
+    "result": ".306 平板旋转回归热修：UA 平板事实排除默认开 + 启动双向同步治愈原生残留锁（.295 误判链根因修复，fork 无上游新收）"
   }
 }

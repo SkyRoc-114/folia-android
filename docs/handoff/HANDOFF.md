@@ -59,7 +59,8 @@ git config --global credential.helper store && git config --global http.version 
 
 ## 6. 当前状态快照（2026-11-06，接手后请用 PROGRESS.json 核实最新）
 
-- **最新批次 .305 已发布**（v0.7.22-android.305 = dac83ab0，2026-11-06）：桌面上游 folia-major **v0.7.26** 同步（a10a0983..cc6226e4，15 非合并收 8 笔=6 全收+2 裁剪：machi 模拟节拍×2 / 歌词按字估算扫字 / 账号同步数据按钮 / bravais 刷新歌单 / library 补页修复 / v0.7.26 Fawkes 版本面 / apple-music Windows src 层）。electron 专属 5 笔按用户口径「共享层收、专属跳」跳过。验证 14427 过 0 新败（基线自 14405 更新），注册表计数 5→4（platformNameCount --lower）守卫复绿。
+- **最新批次 .306 已发布**（v0.7.22-android.306 = 87732ab9，2026-11-06）：平板旋转回归热修（用户实机反馈「平板端无法旋转（UI异常）」）。根因=.295 默认开阈值（coarse+CSS短边<720）把 dpr1.75 真平板（竖屏~686px）误判成手机默认进 phone-fit + 启动只同步开不同步关 → 原生偏好残留 `phone_fit_enabled=true`，MainActivity 每次启动 apply 锁 SENSOR_PORTRAIT。修复=aa97a002：`isAndroidTabletUserAgent`（UA 无 Mobile token 即平板，与 dpr 无关）排除默认开 + `installAndroidPhoneFitPreference` 恒双向同步原生（升级首启自愈残留锁）。14435 过零新败。教训入 PROGRESS observations。
+- **上批 .305**（v0.7.22-android.305 = dac83ab0）：桌面上游 folia-major **v0.7.26** 同步（a10a0983..cc6226e4，15 非合并收 8 笔）。electron 专属 5 笔按用户口径「共享层收、专属跳」跳过。注册表计数 5→4 守卫复绿。
 - **上游增量（下批素材）**：whycfawa 的 55af65d9（模型导入 ZIP）及 AnalysisModelImporter 系列（pending `upstream-analysis-models`，需成系列评估）；whycfawa 4 个未合并 PR 评估结论已入 pending `whycfawa-pr5-android-perf`（#5 改造后收 3-5h；#6 跳；#10 被 #11 包含；**#11 TV 路线待用户决策**——全收 8-16h 独立分支或摘 4 小件 1-2h）。桌面上游已消费到 v0.7.26=main tip，无存量。
 - **pending**：见 PROGRESS.json `pending` 数组。
 - **分支结构**：main 唯一长期分支 + agent-cowork 协作分支；android-0.7.22 已删；全部 workflow 挂 main。

@@ -13,6 +13,13 @@
 
 ## 当前进度（2026-11-06 +08 更新）
 
+- **.306 平板旋转回归热修批次（2026-11-06，用户实机反馈「功能被回退！平板端无法旋转（UI异常）」）**
+  - **根因链（fork 自身回归，非上游）**：.295 `0f19ad21`「phone-fit 无存储记录时触屏手机默认开」的默认开阈值 = coarse + 视口短边 <720 **CSS px**——dpr 1.75 的真平板（Tab S6 Lite/MatePad 一类）竖屏 CSS 短边只有 ~686，被误判成手机 → phone-fit 默认开（紧凑手机布局 = UI 异常）；且 `installAndroidPhoneFitPreference` **只在 enabled 时同步原生**，误判默认开把 `phone_fit_enabled=true` 写进原生 SharedPreferences，`MainActivity` 每次启动 `PhoneLayoutOrientation.apply` → `SCREEN_ORIENTATION_SENSOR_PORTRAIT` 锁死竖屏 = 无法旋转。升级前（≤.294）phone-fit 默认关、平板自由旋转，用户视角即「功能被回退」
+  - **修复（aa97a002，TDD）**：① `isAndroidTabletUserAgent`——Chrome/WebView 安卓 UA 平板不带 Mobile token，设备级事实与 dpr/显示大小无关，`shouldDefaultAndroidPhoneFit` 加 `tabletUa` 排除，`detectPhoneFitFacts` 补读 `navigator.userAgent`（`AndroidPhoneFitFacts` 三字段：coarse/minSide/tabletUa；手机 UA + 小视口默认开照旧）；② `installAndroidPhoneFitPreference` **启动恒双向同步原生**（开/关同值）——升级后首次启动即把残留偏好覆盖回关，锁自愈释放；存储值永远优先，显式选择不受影响
+  - **验证**：目标测试 10 例绿（新增 UA 判定/平板排除/双向同步/残留治愈 4 例）；tsc ×2 EXIT=0；全量三片 4947+5034+4454=**14435 过** + 1 存量败（ytmProvider sign-in 基线）+ 4 skip，零新败；ytm 单独复跑 358 过同基线；vite build 0 错
+  - **发布**：87732ab9 + tag v0.7.22-android.306（release commit 只动 package.json/package-lock.json 惯例不变）
+  - **教训（入 PROGRESS observations）**：凡按视口 CSS px 判设备类型都会被 dpr 抬高的机型误伤——设备类判定一律叠加 UA 事实；web→native 偏好同步必须双向，否则误判残留进原生偏好后升级也解不开
+
 - **.305 桌面上游 v0.7.26 同步批次（2026-11-06，用户确认「现在启动 .305」+ electron 专属「共享层收、专属跳」）**
   - **范围**：folia-major a10a0983..cc6226e4（v0.7.26 tag=main tip）21 提交/15 非合并 → **收 8 笔**（6 全收 + 2 裁剪）：9a614089 补页不再被过期曲目数截断、2881d45b bravais 刷新歌单挪到曲目数、fc135259 账号页「同步数据」按钮（LoginScreen 解构与 .294 onEscape 合流，LoginHost 接线 onSync/syncingProviderId）、4b1428ef 逐行歌词按字估算扫字（新增 estimatedLineTiming.ts，莫奈长行折行不再整块点亮）、88eeb9bf machi 固定节拍霓虹随拍/大屏闪拍、90363e44 machi「模拟节拍」开关、09002f6a v0.7.26 版本面（Fawkes 弹窗+四语释放说明；package/lock/docker VERSION/realeco-release 取 OURS）、c1a5065d apple-music Windows 转正 **src 共享层**（transport 门控放开+Windows 待定文案移除+vite-env 摘实验旗标）
   - **跳过（electron/Windows 专属或零安卓语义）**：29e3ae05/611d3811 apple-music Windows 宿主（fork 保留 electron 实验门控，注册表计数随 src 摘除 5→4 用 `platformNameCount.ts --lower` 降数，omniArchitecture 守卫复绿）、6731e146 hifi mpv 0.42.0、9033f4a6/d206c7c6 netease worker IPv4/IPv6（fork 无 electron/netease/）、c1b7907b lazyJsdom、b0d11ad5 codemap
